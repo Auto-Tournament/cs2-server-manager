@@ -1,41 +1,74 @@
-# CS2 Server Manager
+<div align="center">
+  <img src="csm-icon.svg" alt="CS2 Server Manager" width="140" height="140">
+  
+  # CS2 Server Manager
+  
+  💣 **Automated multi-server management for Counter-Strike 2 — one script from clean install to tournament-ready**
+  
+  <p>Deploy 3–5 dedicated CS2 servers in minutes. Fully preconfigured with essential competitive plugins, auto-updates, and seamless integration with MatchZy Auto Tournament.</p>
 
-**Automated setup for multiple CS2 dedicated servers with competitive plugins and tournament support.**
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-Required-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/engine/install/)
+[![Bash](https://img.shields.io/badge/Script-Bash-1f425f.svg)](manage.sh)
 
-Deploy 3-5 servers in minutes. Perfect for LAN parties, tournaments, or community servers.
+**🔗 <a href="https://github.com/sivert-io/cs2-server-manager" target="_blank">GitHub Repository</a>** • <a href="https://github.com/sivert-io/matchzy-auto-tournament" target="_blank">MatchZy Auto Tournament</a> • <a href="https://github.com/sivert-io/MatchZy" target="_blank">Enhanced MatchZy Plugin</a>
 
-🏆 **Tournament Ready:** Integrates with [MatchZy Auto Tournament](https://mat.sivert.io/) for complete automation.
+</div>
+
+---
+
+## ✨ Features
+
+💣 **Multi-Server Deployment** — Spins up 3–5 dedicated CS2 servers automatically  
+⚙️ **Automated Plugin Installer** — Installs Metamod, CounterStrikeSharp, MatchZy (enhanced fork), AutoUpdater  
+🔁 **Auto-Update Support** — Game updates + plugin updates handled for you  
+📦 **Full Override System** — Your configs inside `overrides/` survive ALL updates  
+🏆 **Tournament Ready** — Fully integrates with  
+➡️ <a href="https://github.com/sivert-io/matchzy-auto-tournament" target="_blank">MatchZy Auto Tournament</a>  
+🔐 **Docker-Backed MySQL Setup** — Automatic MatchZy database provisioning  
+🖥 **Interactive Menu** — Install, start, stop, update, debug  
+🛠 **Advanced Debug Tools** — Tmux console attach, log tailing, repair tools  
 
 ---
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### ⚠️ Prerequisites
+Install required packages:
+
 ```bash
 sudo apt-get update
 sudo apt-get install -y lib32gcc-s1 lib32stdc++6 steamcmd tmux curl jq unzip tar rsync
-```
+````
 
-> 📦 **Docker required:** Install Docker Engine using the official guide for your distro (https://docs.docker.com/engine/install/) and ensure the daemon is running (`sudo systemctl status docker`). The bootstrapper expects Docker to be present but no longer installs it automatically.
+Install **Docker Engine** (required):
 
-### Installation
+👉 [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
+
+---
+
+### 🧰 Installation
 
 ```bash
 # Clone and enter directory
 git clone https://github.com/sivert-io/cs2-server-manager.git
 cd cs2-server-manager
 
-# Interactive mode (recommended for first-time setup)
+# Recommended: Interactive mode
 ./manage.sh
-# Choose Option 1, press Enter for defaults (3 servers)
-# Wait 15-30 minutes for CS2 download (~60GB)
+# → Choose Option 1
+# → Default: 3 servers
+# → Wait 15–30 minutes for CS2 download (~60GB)
+```
 
-# Non-interactive mode (automated with defaults)
+### Non-Interactive (automated defaults)
+
+```bash
 ./manage.sh install
-# Auto-confirms with defaults: 3 servers, downloads plugins, updates master
 ```
 
 ### Start Servers
+
 ```bash
 ./manage.sh start          # Non-interactive
 # OR
@@ -46,106 +79,128 @@ cd cs2-server-manager
 
 ## 🔌 Included Plugins
 
-Automatically installed and configured:
+Automatically installed & configured during setup:
 
-- **[Metamod:Source](https://www.metamodsource.net/)** - Plugin framework
-- **[CounterStrikeSharp](https://github.com/roflmuffin/CounterStrikeSharp)** - Modern C# plugin framework
-- **[MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy)** - Match management with tournament automation
-  - Additional events for [MatchZy Auto Tournament](https://mat.sivert.io/) integration
-  - Real-time tracking, auto-progression, advanced tournament features
-  - Falls back to official release if unavailable
-- **[CS2-AutoUpdater](https://github.com/dran1x/CS2-AutoUpdater)** - Automatic server updates
+* **Metamod:Source** — Core plugin framework
+* **CounterStrikeSharp** — Modern C# plugin loader
+* **MatchZy Enhanced Fork** — Tournament automation version
+
+  * Extra events for MatchZy Auto Tournament
+  * Real-time player tracking & match lifecycle
+* **CS2-AutoUpdater** — Automatic game update daemon
 
 ---
 
 ## 🎮 Usage
 
 ### Interactive Menu
+
 ```bash
 ./manage.sh
 ```
 
-Main operations:
-- **1** - Install/redeploy servers
-- **2** - Server status
-- **3/4/5** - Start/stop/restart all servers
-- **12** - Update CS2 game files
-- **13** - Update plugins
-- **15** - Repair servers (no re-download)
-- **16** - Debug mode (foreground)
+**Main operations:**
+
+* **1** — Install/redeploy servers
+* **2** — Server status
+* **3/4/5** — Start / Stop / Restart all
+* **12** — Update CS2 game files
+* **13** — Update plugins
+* **15** — Repair without re-download
+* **16** — Debug mode (foreground)
+
+---
 
 ### Non-Interactive Commands
+
 ```bash
-./manage.sh install           # Install with defaults
-./manage.sh start             # Start all servers
-./manage.sh stop              # Stop all servers
-./manage.sh status            # Show status
-./manage.sh update-game       # Update CS2
-./manage.sh update-plugins    # Update plugins
-./manage.sh repair            # Repair servers
-./manage.sh help              # Show all commands
+./manage.sh install
+./manage.sh start
+./manage.sh stop
+./manage.sh status
+./manage.sh update-game
+./manage.sh update-plugins
+./manage.sh repair
+./manage.sh help
 ```
 
+---
+
 ### Direct Server Management
+
 ```bash
-sudo ./scripts/cs2_tmux.sh start          # Start all
-sudo ./scripts/cs2_tmux.sh start 1        # Start server 1
-sudo ./scripts/cs2_tmux.sh stop           # Stop all
-sudo ./scripts/cs2_tmux.sh status         # Check status
-sudo ./scripts/cs2_tmux.sh attach 1       # Console (Ctrl+B,D to detach)
-sudo ./scripts/cs2_tmux.sh debug 1        # Debug mode (Ctrl+C to stop)
-sudo ./scripts/cs2_tmux.sh logs 1 100     # Show last 100 log lines
+sudo ./scripts/cs2_tmux.sh start
+sudo ./scripts/cs2_tmux.sh start 1
+sudo ./scripts/cs2_tmux.sh stop
+sudo ./scripts/cs2_tmux.sh status
+sudo ./scripts/cs2_tmux.sh attach 1
+sudo ./scripts/cs2_tmux.sh debug 1
+sudo ./scripts/cs2_tmux.sh logs 1 100
 ```
 
 ---
 
 ## ⚙️ Configuration
 
-### Server Ports (auto-increment by 10)
+### Server Ports
+
+(Increment by 10 per server)
+
 | Server | Game Port | GOTV Port |
-|--------|-----------|-----------|
+| ------ | --------- | --------- |
 | 1      | 27015     | 27020     |
 | 2      | 27025     | 27030     |
 | 3      | 27035     | 27040     |
 
-**RCON Password:** `ntlan2025` (change in interactive install or configs)
+**Default RCON:** `ntlan2025`
+(Change via installer or overrides)
 
-### Custom Configs
-Place your custom configs in `overrides/game/csgo/`:
+---
+
+### Custom Config Overrides
+
+Place configs in `overrides/game/csgo/`:
+
 ```
 overrides/game/csgo/
-├── cfg/MatchZy/         # MatchZy configs (config.cfg, admins.json, etc.)
-└── addons/              # Plugin configs
+├── cfg/MatchZy/
+└── addons/
 ```
 
-Files in `overrides/` are **preserved during all updates**.
+✔ These files **persist through all updates**
+✔ MatchZy configs remain untouched
+✔ Plugin configs remain consistent
 
-### MatchZy Database (Docker)
-- `scripts/bootstrap_cs2.sh` reads `overrides/game/csgo/cfg/MatchZy/database.json` and automatically provisions a MySQL `matchzy-mysql` Docker container (image: `mysql:8`) with the credentials in that file.
-- The container is exposed on the host port defined in `database.json` (default `3306`) and the script rewrites the `MySqlHost` value to the machine’s primary IP so that every CS2 server instance can reach it.
-- Customize `MySqlDatabase`, `MySqlUsername`, `MySqlPassword`, or `MySqlPort` before running `./manage.sh install` to control what gets created inside the container; changes are preserved in overrides and redeployed on every bootstrap.
-- Docker must already be installed and running; if it is missing, the bootstrapper will stop with instructions to follow the official Docker Engine installation guide.
+---
 
-### Environment Variables
-```bash
-NUM_SERVERS=5 RCON_PASSWORD=mypass ./manage.sh install
-```
+## 🗄️ MatchZy Database (Docker)
+
+* Reads `overrides/.../MatchZy/database.json` during install
+* Creates a MySQL container with the specified credentials
+* Exposes port defined in your JSON file
+* Automatically rewrites `MySqlHost` to your machine IP
+* Ensures all server instances connect correctly
+
+Docker **must** be running before installation.
 
 ---
 
 ## 🐛 Troubleshooting
 
-**Server won't start:**
+### Server won't start
+
 ```bash
-sudo ./scripts/cs2_tmux.sh debug 1    # See all errors in real-time
+sudo ./scripts/cs2_tmux.sh debug 1
 ```
 
-**Plugins not loading / steamclient.so errors:**
+### Plugins failing / steamclient.so errors
+
 ```bash
-./manage.sh repair                     # Validates and fixes without re-download
+./manage.sh repair
 ```
 
-**View logs:**
+### Logs
+
 ```bash
 sudo ./scripts/cs2_tmux.sh logs 1 100
 ```
@@ -156,28 +211,30 @@ sudo ./scripts/cs2_tmux.sh logs 1 100
 
 ```
 /home/cs2/
-├── master-install/    # Master CS2 (60GB)
-├── server-1/          # Server instances
+├── master-install/
+├── server-1/
 ├── server-2/
 └── server-3/
 
 cs2-server-manager/
-├── scripts/           # Management scripts
-├── game_files/        # Downloaded plugins
-├── overrides/         # Your custom configs (preserved)
-└── manage.sh          # Main interface
+├── scripts/
+├── game_files/
+├── overrides/
+└── manage.sh
 ```
 
 ---
 
-## 🔗 Links
+## 🔗 Related Projects
 
-- **[MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy)** - Tournament automation version
-- **[MatchZy Auto Tournament](https://mat.sivert.io/)** - Complete tournament platform ([GitHub](https://github.com/sivert-io/matchzy-auto-tournament))
-- [MatchZy Original](https://github.com/shobhit-pathak/MatchZy) - Official version
-- [CounterStrikeSharp Docs](https://docs.cssharp.dev/)
-- [CS2 Dedicated Server Guide](https://developer.valvesoftware.com/wiki/Counter-Strike_2/Dedicated_Servers)
+* **MatchZy Enhanced Fork** — [https://github.com/sivert-io/MatchZy](https://github.com/sivert-io/MatchZy)
+* **MatchZy Auto Tournament** — [https://github.com/sivert-io/matchzy-auto-tournament](https://github.com/sivert-io/matchzy-auto-tournament)
+* **CS2 Dedicated Server Docs** — [https://developer.valvesoftware.com/wiki/Counter-Strike_2/Dedicated_Servers](https://developer.valvesoftware.com/wiki/Counter-Strike_2/Dedicated_Servers)
+* **CounterStrikeSharp** — [https://docs.cssharp.dev/](https://docs.cssharp.dev/)
 
 ---
 
-**Made for the CS2 Community** 🎮
+<div align="center">
+  <strong>Made with ❤️ for the CS2 community</strong>
+</div>
+```
