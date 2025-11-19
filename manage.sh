@@ -48,16 +48,17 @@ show_menu() {
   echo " 13) Update plugins (Metamod, CSS, MatchZy, AutoUpdater)"
   echo " 14) Apply config changes"
   echo " 15) Repair servers (verify files + reinstall plugins)"
+  echo " 16) Install/reinstall auto-update monitor"
   echo
   echo -e "${CYAN}═══ Debugging & Logs ═══${NC}"
-  echo " 16) Debug mode (run server in foreground)"
-  echo " 17) View server logs"
-  echo " 18) Attach to server console"
-  echo " 19) List tmux sessions"
-  echo " 20) Execute RCON command"
+  echo " 17) Debug mode (run server in foreground)"
+  echo " 18) View server logs"
+  echo " 19) Attach to server console"
+  echo " 20) List tmux sessions"
+  echo " 21) Execute RCON command"
   echo
   echo -e "${RED}═══ Danger Zone ═══${NC}"
-  echo " 21) Cleanup everything (remove servers/user)"
+  echo " 22) Cleanup everything (remove servers/user)"
   echo
   echo "  0) Exit"
   echo
@@ -360,19 +361,16 @@ install_servers() {
     chmod +x ./scripts/auto_update_monitor.sh
     
     # Create log file
-    touch /var/log/cs2_auto_update_monitor.log 2>/dev/null || true
-    chmod 644 /var/log/cs2_auto_update_monitor.log 2>/dev/null || true
+    sudo touch /var/log/cs2_auto_update_monitor.log 2>/dev/null || true
+    sudo chmod 644 /var/log/cs2_auto_update_monitor.log 2>/dev/null || true
     
     # Set up cronjob
     MONITOR_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/auto_update_monitor.sh"
     CRON_COMMAND="${MONITOR_SCRIPT} >> /var/log/cs2_auto_update_monitor.log 2>&1"
     CRON_LINE="*/5 * * * * $CRON_COMMAND"
     
-    # Remove old cronjob if exists
-    (crontab -l 2>/dev/null | grep -v "auto_update_monitor.sh" || true) | crontab -
-    
-    # Add new cronjob
-    (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+    # Remove old cronjob if exists and add new one (in root's crontab)
+    (sudo crontab -l 2>/dev/null | grep -v "auto_update_monitor.sh" || true; echo "$CRON_LINE") | sudo crontab -
     
     echo -e "${GREEN}✓${NC} Auto-update monitor installed (checks every 5 minutes)"
     echo -e "${GREEN}✓${NC} Log file: /var/log/cs2_auto_update_monitor.log"
@@ -383,6 +381,25 @@ install_servers() {
     echo "  • Restart all servers"
     echo
     echo "View monitor logs: sudo tail -f /var/log/cs2_auto_update_monitor.log"
+    echo
+    
+    # Start all servers
+    echo
+    echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}  Starting All Servers${NC}"
+    echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+    echo
+    sudo ./scripts/cs2_tmux.sh start
+    echo
+    echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}  All Done! Servers are starting up...${NC}"
+    echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+    echo
+    echo "Check server status:"
+    echo "  ./manage.sh status"
+    echo
+    echo "View server console:"
+    echo "  sudo ./scripts/cs2_tmux.sh attach 1"
     echo
   else
     echo "Cancelled."
@@ -1039,7 +1056,71 @@ repair_servers() {
   press_enter
 }
 
-# 14. Cleanup everything
+# 16. Install/reinstall auto-update monitor
+install_auto_update_monitor() {
+  show_header
+  echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+  echo -e "${BLUE}  Install Auto-Update Monitor${NC}"
+  echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+  echo
+  echo "This will set up a cronjob that:"
+  echo "  • Runs every 5 minutes"
+  echo "  • Checks if all servers are shut down"
+  echo "  • Looks for AutoUpdater shutdown message in logs"
+  echo "  • Automatically triggers game updates when detected"
+  echo "  • Restarts servers after update"
+  echo
+  echo "The cronjob will be added to root's crontab."
+  echo
+  echo -n "Continue? (y/N): "
+  read -r confirm
+  
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    echo
+    echo -e "${BLUE}[INFO]${NC} Installing auto-update monitor..."
+    
+    # Make monitor script executable
+    chmod +x ./scripts/auto_update_monitor.sh
+    echo -e "${GREEN}✓${NC} Made monitor script executable"
+    
+    # Create log file
+    sudo touch /var/log/cs2_auto_update_monitor.log 2>/dev/null || true
+    sudo chmod 644 /var/log/cs2_auto_update_monitor.log 2>/dev/null || true
+    echo -e "${GREEN}✓${NC} Created log file"
+    
+    # Set up cronjob
+    MONITOR_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/auto_update_monitor.sh"
+    CRON_COMMAND="${MONITOR_SCRIPT} >> /var/log/cs2_auto_update_monitor.log 2>&1"
+    CRON_LINE="*/5 * * * * $CRON_COMMAND"
+    
+    # Remove old cronjob if exists and add new one
+    (sudo crontab -l 2>/dev/null | grep -v "auto_update_monitor.sh" || true; echo "$CRON_LINE") | sudo crontab -
+    
+    echo -e "${GREEN}✓${NC} Cronjob installed (runs every 5 minutes)"
+    echo
+    echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}  Installation Complete!${NC}"
+    echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
+    echo
+    echo "Monitor settings:"
+    echo "  Schedule: Every 5 minutes (*/5 * * * *)"
+    echo "  Log file: /var/log/cs2_auto_update_monitor.log"
+    echo
+    echo "Verify installation:"
+    echo "  sudo crontab -l | grep auto_update_monitor"
+    echo
+    echo "View logs:"
+    echo "  sudo tail -f /var/log/cs2_auto_update_monitor.log"
+    echo
+    echo "The monitor will automatically update servers when"
+    echo "AutoUpdater shuts them down for game updates."
+  else
+    echo "Cancelled."
+  fi
+  press_enter
+}
+
+# 22. Cleanup everything
 cleanup_all() {
   show_header
   echo -e "${RED}════════════════════════════════════════════════════════${NC}"
@@ -1089,12 +1170,13 @@ main() {
       13) update_plugins ;;
       14) apply_configs ;;
       15) repair_servers ;;
-      16) debug_mode ;;
-      17) view_server_logs ;;
-      18) attach_console ;;
-      19) list_tmux_sessions ;;
-      20) execute_rcon ;;
-      21) cleanup_all ;;
+      16) install_auto_update_monitor ;;
+      17) debug_mode ;;
+      18) view_server_logs ;;
+      19) attach_console ;;
+      20) list_tmux_sessions ;;
+      21) execute_rcon ;;
+      22) cleanup_all ;;
       0) 
         show_header
         echo "Goodbye!"
