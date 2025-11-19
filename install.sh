@@ -172,7 +172,7 @@ check_dependencies() {
       }
     else
       echo -n "Install missing dependencies now? (Y/n): "
-      read -r response
+      read -r response </dev/tty
       if [[ ! "$response" =~ ^[Nn]$ ]]; then
         # Allow apt-get update to fail (some repos might have transient issues)
         sudo apt-get update || log_warn "Some apt repositories had issues, but continuing..."
@@ -209,7 +209,7 @@ check_docker() {
       exit 1
     else
       echo -n "Continue anyway? (y/N): "
-      read -r response
+      read -r response </dev/tty
       if [[ ! "$response" =~ ^[Yy]$ ]]; then
         exit 1
       fi
@@ -237,7 +237,7 @@ download_repo() {
       rm -rf "$INSTALL_DIR"
     else
       echo -n "Remove and re-download? (y/N): "
-      read -r response
+      read -r response </dev/tty
       if [[ "$response" =~ ^[Yy]$ ]]; then
         rm -rf "$INSTALL_DIR"
       else
@@ -339,7 +339,8 @@ main() {
   
   if [[ $AUTO_INSTALL -eq 0 ]]; then
     echo -n "Continue with installation? (Y/n): "
-    read -r response
+    # Read from /dev/tty to handle piped execution (curl | bash)
+    read -r response </dev/tty
     if [[ "$response" =~ ^[Nn]$ ]]; then
       log_info "Installation cancelled"
       exit 0
