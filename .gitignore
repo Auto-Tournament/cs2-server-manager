@@ -35,3 +35,4 @@ build/
 *.tar.gz
 
 game_files/
+extracted_csgo/

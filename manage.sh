@@ -49,16 +49,17 @@ show_menu() {
   echo " 14) Apply config changes"
   echo " 15) Repair servers (verify files + reinstall plugins)"
   echo " 16) Install/reinstall auto-update monitor"
+  echo " 17) Extract & convert map thumbnails"
   echo
   echo -e "${CYAN}═══ Debugging & Logs ═══${NC}"
-  echo " 17) Debug mode (run server in foreground)"
-  echo " 18) View server logs"
-  echo " 19) Attach to server console"
-  echo " 20) List tmux sessions"
-  echo " 21) Execute RCON command"
+  echo " 18) Debug mode (run server in foreground)"
+  echo " 19) View server logs"
+  echo " 20) Attach to server console"
+  echo " 21) List tmux sessions"
+  echo " 22) Execute RCON command"
   echo
   echo -e "${RED}═══ Danger Zone ═══${NC}"
-  echo " 22) Cleanup everything (remove servers/user)"
+  echo " 23) Cleanup everything (remove servers/user)"
   echo
   echo "  0) Exit"
   echo
@@ -773,7 +774,33 @@ apply_configs() {
   press_enter
 }
 
-# 16. Debug mode (run server in foreground)
+# 18. Convert map thumbnails
+convert_map_thumbnails() {
+  show_header
+  echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
+  echo -e "${CYAN}  Convert Map Thumbnails (vtex_c -> PNG)${NC}"
+  echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
+  echo
+  echo "This will:"
+  echo "  • Find all vtex_c files in the 1080p screenshot folders"
+  echo "  • Convert them to PNG format"
+  echo "  • Save to map_thumbnails/ directory"
+  echo
+  echo "Note: Requires extracted CS2 files (run option 17 first)"
+  echo
+  echo -n "Continue? (y/N): "
+  read -r confirm
+  
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    echo
+    ./scripts/convert_map_thumbnails.sh
+  else
+    echo "Cancelled."
+  fi
+  press_enter
+}
+
+# 18. Debug mode (run server in foreground)
 debug_mode() {
   show_header
   echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
@@ -799,7 +826,7 @@ debug_mode() {
   press_enter
 }
 
-# 17. View server logs
+# 21. View server logs
 view_server_logs() {
   show_header
   echo -e "${BLUE}View Server Logs${NC}"
@@ -822,7 +849,7 @@ view_server_logs() {
   press_enter
 }
 
-# 18. Attach to console
+# 22. Attach to console
 attach_console() {
   show_header
   echo -e "${BLUE}Attach to which server console?${NC}"
@@ -841,7 +868,7 @@ attach_console() {
   fi
 }
 
-# 19. List tmux sessions
+# 23. List tmux sessions
 list_tmux_sessions() {
   show_header
   echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
@@ -853,7 +880,7 @@ list_tmux_sessions() {
   press_enter
 }
 
-# 20. Execute RCON command
+# 24. Execute RCON command
 execute_rcon() {
   show_header
   echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
@@ -1056,6 +1083,32 @@ repair_servers() {
   press_enter
 }
 
+# 17. Extract and convert map thumbnails
+extract_map_data() {
+  show_header
+  echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
+  echo -e "${CYAN}  Extract & Convert Map Thumbnails${NC}"
+  echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
+  echo
+  echo "This will:"
+  echo "  • Extract VPKs containing 1080p screenshot folders"
+  echo "  • Convert vtex_c files to PNG format"
+  echo "  • Clean up extracted VPK folders after conversion"
+  echo
+  echo "Output: map_thumbnails/ (PNG files)"
+  echo
+  echo -n "Continue? (y/N): "
+  read -r confirm
+  
+  if [[ "$confirm" =~ ^[Yy]$ ]]; then
+    echo
+    ./scripts/extract_map_data.sh
+  else
+    echo "Cancelled."
+  fi
+  press_enter
+}
+
 # 16. Install/reinstall auto-update monitor
 install_auto_update_monitor() {
   show_header
@@ -1120,7 +1173,7 @@ install_auto_update_monitor() {
   press_enter
 }
 
-# 22. Cleanup everything
+# 25. Cleanup everything
 cleanup_all() {
   show_header
   echo -e "${RED}════════════════════════════════════════════════════════${NC}"
@@ -1171,12 +1224,13 @@ main() {
       14) apply_configs ;;
       15) repair_servers ;;
       16) install_auto_update_monitor ;;
-      17) debug_mode ;;
-      18) view_server_logs ;;
-      19) attach_console ;;
-      20) list_tmux_sessions ;;
-      21) execute_rcon ;;
-      22) cleanup_all ;;
+      17) extract_map_data ;;
+      18) debug_mode ;;
+      19) view_server_logs ;;
+      20) attach_console ;;
+      21) list_tmux_sessions ;;
+      22) execute_rcon ;;
+      23) cleanup_all ;;
       0) 
         show_header
         echo "Goodbye!"
@@ -1217,6 +1271,9 @@ if [[ $# -gt 0 ]]; then
     repair|15)
       repair_servers
       ;;
+    extract-map-data|17)
+      extract_map_data
+      ;;
     help|--help|-h)
       echo "CS2 Server Manager - Command-line usage"
       echo
@@ -1231,6 +1288,7 @@ if [[ $# -gt 0 ]]; then
       echo "  update-game       Update CS2 game files"
       echo "  update-plugins    Update plugins"
       echo "  repair            Repair servers"
+      echo "  extract-map-data  Extract all CS2 VPK files and search for references"
       echo "  help              Show this help message"
       echo
       echo "If no command is provided, launches interactive menu."
