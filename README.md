@@ -91,6 +91,28 @@ Automatically installed & configured during setup:
 
 ---
 
+## 🤖 Automated Update Monitoring
+
+**Automatically installed during setup!** When you run `./manage.sh` and choose install, an auto-update monitor is configured to:
+
+✅ **Detect AutoUpdater Shutdowns** — Monitors for game update shutdowns every 5 minutes  
+✅ **Auto-Run Updates** — Triggers SteamCMD updates when detected  
+✅ **Auto-Restart Servers** — Brings servers back online with new version  
+✅ **Safe Operation** — Only triggers when ALL servers are down  
+✅ **Cooldown Protection** — Won't update more than once per hour  
+
+**View monitor logs:**
+```bash
+sudo tail -f /var/log/cs2_auto_update_monitor.log
+```
+
+**Remove if needed:**
+```bash
+sudo ./scripts/remove_auto_update_cron.sh
+```
+
+---
+
 ## 🎮 Usage
 
 ### Interactive Menu

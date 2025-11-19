@@ -347,6 +347,43 @@ install_servers() {
       ./scripts/bootstrap_cs2.sh
     echo
     echo "Installation complete."
+    
+    # Install auto-update monitor cronjob
+    echo
+    echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+    echo -e "${BLUE}  Setting up Auto-Update Monitor${NC}"
+    echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+    echo
+    echo -e "${BLUE}[INFO]${NC} Installing auto-update monitor cronjob..."
+    
+    # Make monitor script executable
+    chmod +x ./scripts/auto_update_monitor.sh
+    
+    # Create log file
+    touch /var/log/cs2_auto_update_monitor.log 2>/dev/null || true
+    chmod 644 /var/log/cs2_auto_update_monitor.log 2>/dev/null || true
+    
+    # Set up cronjob
+    MONITOR_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/auto_update_monitor.sh"
+    CRON_COMMAND="${MONITOR_SCRIPT} >> /var/log/cs2_auto_update_monitor.log 2>&1"
+    CRON_LINE="*/5 * * * * $CRON_COMMAND"
+    
+    # Remove old cronjob if exists
+    (crontab -l 2>/dev/null | grep -v "auto_update_monitor.sh" || true) | crontab -
+    
+    # Add new cronjob
+    (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+    
+    echo -e "${GREEN}✓${NC} Auto-update monitor installed (checks every 5 minutes)"
+    echo -e "${GREEN}✓${NC} Log file: /var/log/cs2_auto_update_monitor.log"
+    echo
+    echo "The monitor will automatically:"
+    echo "  • Detect when AutoUpdater shuts down servers for game updates"
+    echo "  • Run game updates via SteamCMD"
+    echo "  • Restart all servers"
+    echo
+    echo "View monitor logs: sudo tail -f /var/log/cs2_auto_update_monitor.log"
+    echo
   else
     echo "Cancelled."
   fi
