@@ -2,15 +2,14 @@
 set -euo pipefail
 
 ###############################################################################
-# CS2 Server Manager - One-Line Installer
+# CS2 Server Manager - Quick Installer
 #
 # Usage:
-#   wget -O - https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash
-#   or
-#   curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash
+#   wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
+#   bash install.sh
 #
 # With options:
-#   curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash -s -- --servers 5 --auto
+#   bash install.sh --auto --servers 5
 ###############################################################################
 
 # Colors
@@ -77,11 +76,11 @@ parse_args() {
 
 show_help() {
   cat << EOF
-CS2 Server Manager - One-Line Installer
+CS2 Server Manager - Quick Installer
 
 Usage:
-  curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash
-  curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash -s -- [OPTIONS]
+  wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
+  bash install.sh [OPTIONS]
 
 Options:
   --auto          Run installation without prompts (uses defaults)
@@ -91,14 +90,15 @@ Options:
   --help, -h      Show this help message
 
 Examples:
-  # Interactive installation
-  curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash
+  # Download and run interactively
+  wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
+  bash install.sh
 
   # Auto-install with 5 servers
-  curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash -s -- --auto --servers 5
+  bash install.sh --auto --servers 5
 
   # Install to custom directory
-  curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash -s -- --dir /opt/cs2
+  bash install.sh --auto --dir /opt/cs2
 
 EOF
 }
@@ -172,7 +172,7 @@ check_dependencies() {
       }
     else
       echo -n "Install missing dependencies now? (Y/n): "
-      read -r response </dev/tty
+      read -r response
       if [[ ! "$response" =~ ^[Nn]$ ]]; then
         # Allow apt-get update to fail (some repos might have transient issues)
         sudo apt-get update || log_warn "Some apt repositories had issues, but continuing..."
@@ -209,7 +209,7 @@ check_docker() {
       exit 1
     else
       echo -n "Continue anyway? (y/N): "
-      read -r response </dev/tty
+      read -r response
       if [[ ! "$response" =~ ^[Yy]$ ]]; then
         exit 1
       fi
@@ -237,7 +237,7 @@ download_repo() {
       rm -rf "$INSTALL_DIR"
     else
       echo -n "Remove and re-download? (y/N): "
-      read -r response </dev/tty
+      read -r response
       if [[ "$response" =~ ^[Yy]$ ]]; then
         rm -rf "$INSTALL_DIR"
       else
@@ -313,13 +313,10 @@ show_completion() {
 # Main
 ###############################################################################
 main() {
-  # Only clear if running in interactive terminal
-  if [ -t 0 ]; then
-    clear
-  fi
+  clear
   
   echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
-  echo -e "${CYAN}  CS2 Server Manager - One-Line Installer${NC}"
+  echo -e "${CYAN}  CS2 Server Manager - Quick Installer${NC}"
   echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
   echo
   
@@ -339,8 +336,7 @@ main() {
   
   if [[ $AUTO_INSTALL -eq 0 ]]; then
     echo -n "Continue with installation? (Y/n): "
-    # Read from /dev/tty to handle piped execution (curl | bash)
-    read -r response </dev/tty
+    read -r response
     if [[ "$response" =~ ^[Nn]$ ]]; then
       log_info "Installation cancelled"
       exit 0

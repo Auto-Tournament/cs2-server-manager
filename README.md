@@ -33,10 +33,13 @@
 
 ## 🚀 Quick Start
 
-### ⚡ One-Line Installation (Recommended)
+### ⚡ Quick Installation (Recommended)
+
+**Download and run the installer:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash
+wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
+bash install.sh
 ```
 
 This will:
@@ -44,17 +47,19 @@ This will:
 - ✅ Download CS2 Server Manager
 - ✅ Run interactive installation
 - ✅ Set up auto-update monitoring
+- ✅ Start all servers automatically
 
 **Fully automated (no prompts):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash -s -- --auto
+wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
+bash install.sh --auto
 ```
 
 **Custom number of servers:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash -s -- --auto --servers 5
+bash install.sh --auto --servers 5
 ```
 
 ---
