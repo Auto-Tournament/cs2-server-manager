@@ -303,7 +303,11 @@ show_completion() {
 # Main
 ###############################################################################
 main() {
-  clear
+  # Only clear if running in interactive terminal
+  if [ -t 0 ]; then
+    clear
+  fi
+  
   echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
   echo -e "${CYAN}  CS2 Server Manager - One-Line Installer${NC}"
   echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
