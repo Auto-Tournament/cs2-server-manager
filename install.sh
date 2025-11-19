@@ -163,14 +163,24 @@ check_dependencies() {
     echo
     if [[ $AUTO_INSTALL -eq 1 ]]; then
       log_info "Auto-installing dependencies..."
-      sudo apt-get update
-      sudo apt-get install -y "${missing[@]}"
+      # Allow apt-get update to fail (some repos might have transient issues)
+      sudo apt-get update || log_warn "Some apt repositories had issues, but continuing..."
+      sudo apt-get install -y "${missing[@]}" || {
+        log_error "Failed to install dependencies"
+        log_info "Try running manually: sudo apt-get install -y ${missing[*]}"
+        exit 1
+      }
     else
       echo -n "Install missing dependencies now? (Y/n): "
       read -r response
       if [[ ! "$response" =~ ^[Nn]$ ]]; then
-        sudo apt-get update
-        sudo apt-get install -y "${missing[@]}"
+        # Allow apt-get update to fail (some repos might have transient issues)
+        sudo apt-get update || log_warn "Some apt repositories had issues, but continuing..."
+        sudo apt-get install -y "${missing[@]}" || {
+          log_error "Failed to install dependencies"
+          log_info "Try running manually: sudo apt-get install -y ${missing[*]}"
+          exit 1
+        }
       else
         log_error "Cannot continue without dependencies"
         exit 1
