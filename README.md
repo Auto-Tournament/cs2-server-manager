@@ -33,35 +33,60 @@
 
 ## 🚀 Quick Start
 
-### ⚠️ Prerequisites
-Install required packages:
+### ⚡ One-Line Installation (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash
+```
+
+This will:
+- ✅ Check and install all dependencies
+- ✅ Download CS2 Server Manager
+- ✅ Run interactive installation
+- ✅ Set up auto-update monitoring
+
+**Fully automated (no prompts):**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash -s -- --auto
+```
+
+**Custom number of servers:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh | bash -s -- --auto --servers 5
+```
+
+---
+
+### 🧰 Manual Installation
+
+**Prerequisites:**
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y lib32gcc-s1 lib32stdc++6 steamcmd tmux curl jq unzip tar rsync
-````
+sudo apt-get install -y lib32gcc-s1 lib32stdc++6 steamcmd tmux curl jq unzip tar rsync git
+```
 
 Install **Docker Engine** (required):
 
 👉 [https://docs.docker.com/engine/install/](https://docs.docker.com/engine/install/)
 
----
-
-### 🧰 Installation
+**Install:**
 
 ```bash
 # Clone and enter directory
 git clone https://github.com/sivert-io/cs2-server-manager.git
 cd cs2-server-manager
 
-# Recommended: Interactive mode
+# Interactive mode
 ./manage.sh
 # → Choose Option 1
 # → Default: 3 servers
 # → Wait 15–30 minutes for CS2 download (~60GB)
 ```
 
-### Non-Interactive (automated defaults)
+**Non-Interactive (automated defaults):**
 
 ```bash
 ./manage.sh install
