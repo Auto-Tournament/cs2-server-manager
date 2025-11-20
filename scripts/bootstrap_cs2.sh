@@ -443,8 +443,14 @@ ensure_docker() {
 update_matchzy_database_json() {
   local host="$1"
   local port="$2"
+  local db_name="${3:-matchzy}"
+  local db_user="${4:-matchzy}"
+  local db_pass="${5:-matchzy}"
   local orig_owner=""
   local orig_mode=""
+
+  # Create directory if it doesn't exist
+  mkdir -p "$(dirname "$MATCHZY_DB_CONFIG")"
 
   if [[ -f "$MATCHZY_DB_CONFIG" ]]; then
     orig_owner=$(stat -c '%u:%g' "$MATCHZY_DB_CONFIG" 2>/dev/null || echo "")
@@ -453,11 +459,36 @@ update_matchzy_database_json() {
 
   local tmp
   tmp=$(mktemp)
-  jq --arg host "$host" --argjson port "$port" '
-    .DatabaseType = "MySQL" |
-    .MySqlHost = $host |
-    .MySqlPort = $port
-  ' "$MATCHZY_DB_CONFIG" > "$tmp"
+  
+  # Update or create the JSON file with all required fields
+  if [[ -f "$MATCHZY_DB_CONFIG" ]]; then
+    # Update existing file
+    jq --arg host "$host" \
+       --argjson port "$port" \
+       --arg db "$db_name" \
+       --arg user "$db_user" \
+       --arg pass "$db_pass" '
+      .DatabaseType = "MySQL" |
+      .MySqlHost = $host |
+      .MySqlPort = $port |
+      .MySqlDatabase = $db |
+      .MySqlUsername = $user |
+      .MySqlPassword = $pass
+    ' "$MATCHZY_DB_CONFIG" > "$tmp"
+  else
+    # Create new file with all fields
+    cat > "$tmp" <<EOF
+{
+  "DatabaseType": "MySQL",
+  "MySqlHost": "$host",
+  "MySqlPort": $port,
+  "MySqlDatabase": "$db_name",
+  "MySqlUsername": "$db_user",
+  "MySqlPassword": "$db_pass"
+}
+EOF
+  fi
+  
   mv "$tmp" "$MATCHZY_DB_CONFIG"
 
   if [[ -n "${SUDO_USER:-}" ]]; then
@@ -474,9 +505,21 @@ update_matchzy_database_json() {
 }
 
 setup_matchzy_database() {
+  # Create database.json with defaults if it doesn't exist
   if [[ ! -f "$MATCHZY_DB_CONFIG" ]]; then
-    echo "  [i] MatchZy database config not found at ${MATCHZY_DB_CONFIG}, skipping Docker provisioning"
-    return 0
+    echo "  [i] MatchZy database config not found, creating with defaults..."
+    mkdir -p "$(dirname "$MATCHZY_DB_CONFIG")"
+    cat > "$MATCHZY_DB_CONFIG" <<EOF
+{
+  "DatabaseType": "MySQL",
+  "MySqlHost": "127.0.0.1",
+  "MySqlPort": 3306,
+  "MySqlDatabase": "matchzy",
+  "MySqlUsername": "matchzy",
+  "MySqlPassword": "matchzy"
+}
+EOF
+    echo "  [✓] Created ${MATCHZY_DB_CONFIG} with default values"
   fi
 
   if ! jq empty "$MATCHZY_DB_CONFIG" >/dev/null 2>&1; then
@@ -527,7 +570,8 @@ setup_matchzy_database() {
 
   local host_ip
   host_ip=$(detect_primary_ip)
-  update_matchzy_database_json "$host_ip" "$mysql_port"
+  # Update database.json with correct values (host, port, and ensure username/password/database match Docker container)
+  update_matchzy_database_json "$host_ip" "$mysql_port" "$mysql_db" "$mysql_user" "$mysql_pass"
 
   local recreate=0
 
