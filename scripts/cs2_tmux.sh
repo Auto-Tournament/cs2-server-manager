@@ -261,7 +261,8 @@ debug_server() {
 # Show logs for a server
 show_logs() {
   local server_num=$1
-  local lines="${2:-50}"  # Default to last 50 lines
+  local lines="${2:-0}"  # 0 = show all, otherwise show last N lines
+  local session_name="cs2-${server_num}"
   local server_dir=$(get_server_dir "$server_num")
   
   if ! [[ -d "$server_dir" ]]; then
@@ -269,7 +270,38 @@ show_logs() {
     return 1
   fi
   
-  # CounterStrikeSharp log location
+  # Try to get tmux session output first (full server console)
+  local tmux_output=""
+  if [[ $EUID -eq 0 ]]; then
+    if sudo -u "$CS2_USER" tmux has-session -t "$session_name" 2>/dev/null; then
+      tmux_output=$(sudo -u "$CS2_USER" tmux capture-pane -t "$session_name" -p 2>/dev/null)
+    fi
+  else
+    if tmux has-session -t "$session_name" 2>/dev/null; then
+      tmux_output=$(tmux capture-pane -t "$session_name" -p 2>/dev/null)
+    fi
+  fi
+  
+  if [[ -n "$tmux_output" ]]; then
+    log_info "Tmux session output for server $server_num:"
+    log_info "Session: $session_name"
+    echo "=========================================="
+    if [[ $lines -eq 0 ]]; then
+      # Show all
+      echo "$tmux_output"
+    else
+      # Show last N lines
+      echo "$tmux_output" | tail -n "$lines"
+    fi
+    echo "=========================================="
+    echo
+    log_info "To see more lines: $0 logs $server_num <num_lines>"
+    log_info "To follow live: $0 attach $server_num"
+    return 0
+  fi
+  
+  # Fallback to CounterStrikeSharp logs if tmux session not available
+  log_warn "Tmux session not found, falling back to CounterStrikeSharp logs"
   local log_dir="${server_dir}/game/csgo/addons/counterstrikesharp/logs"
   
   if ! [[ -d "$log_dir" ]]; then
@@ -286,11 +318,17 @@ show_logs() {
     return 1
   fi
   
-  log_info "Latest log for server $server_num:"
+  log_info "Latest CounterStrikeSharp log for server $server_num:"
   log_info "File: $latest_log"
-  log_info "Showing last $lines lines"
-  echo "=========================================="
-  tail -n "$lines" "$latest_log"
+  if [[ $lines -eq 0 ]]; then
+    log_info "Showing all lines"
+    echo "=========================================="
+    cat "$latest_log"
+  else
+    log_info "Showing last $lines lines"
+    echo "=========================================="
+    tail -n "$lines" "$latest_log"
+  fi
   echo "=========================================="
   echo
   log_info "To see more lines: $0 logs $server_num <num_lines>"
@@ -309,7 +347,7 @@ Usage:
   $0 attach <server_num>      Attach to server console
   $0 list                     List all tmux sessions
   $0 status                   Show status of all servers
-  $0 logs <server_num> [lines] Show latest log file (default: 50 lines)
+  $0 logs <server_num> [lines] Show tmux session output (default: all lines)
   $0 debug <server_num>       Start server in foreground (for debugging)
 
 Examples:
@@ -319,8 +357,8 @@ Examples:
   $0 restart 3                Restart server 3
   $0 attach 1                 Attach to server 1 console
   $0 status                   Show all server status
-  $0 logs 1                   Show last 50 lines of server 1 logs
-  $0 logs 1 100               Show last 100 lines of server 1 logs
+  $0 logs 1                   Show all server 1 tmux session output
+  $0 logs 1 100               Show last 100 lines of server 1 tmux session
   $0 debug 1                  Start server 1 in foreground (see all output)
 
 Debug Mode:
@@ -330,10 +368,11 @@ Debug Mode:
   - Example: $0 debug 1
 
 Logs:
-  - View server logs: $0 logs <num>
+  - View tmux session output: $0 logs <num>
+  - Shows full server console output from tmux session
   - Specify line count: $0 logs <num> <lines>
-  - The command shows the most recent log file
-  - Example: $0 logs 1 200
+  - Falls back to CounterStrikeSharp logs if tmux session unavailable
+  - Example: $0 logs 1 (shows all) or $0 logs 1 200 (shows last 200 lines)
 
 Tmux Tips:
   - Attach to console: $0 attach <num>

@@ -38,6 +38,7 @@ INSTALL_DIR="$HOME/cs2-server-manager"
 AUTO_INSTALL=0
 NUM_SERVERS=3
 SKIP_DEPS=0
+CUSTOM_OVERRIDES=""
 
 ###############################################################################
 # Parse arguments
@@ -59,6 +60,10 @@ parse_args() {
         ;;
       --dir)
         INSTALL_DIR="$2"
+        shift 2
+        ;;
+      --overrides)
+        CUSTOM_OVERRIDES="$2"
         shift 2
         ;;
       --help|-h)
@@ -87,6 +92,7 @@ Options:
   --servers N     Number of servers to install (default: 3)
   --skip-deps     Skip dependency installation check
   --dir PATH      Installation directory (default: ~/cs2-server-manager)
+  --overrides PATH Custom overrides directory (default: uses repo's overrides/)
   --help, -h      Show this help message
 
 Examples:
@@ -99,6 +105,15 @@ Examples:
 
   # Install to custom directory
   bash install.sh --auto --dir /opt/cs2
+  
+  # Use custom overrides directory
+  bash install.sh --auto --overrides /path/to/my-overrides
+  
+  # Or: git clone, customize overrides/, then run manage.sh
+  git clone https://github.com/sivert-io/cs2-server-manager.git
+  cd cs2-server-manager
+  # Edit overrides/ folder as needed
+  ./manage.sh install
 
 EOF
 }
@@ -225,34 +240,185 @@ check_docker() {
 }
 
 ###############################################################################
+# Backup user overrides
+###############################################################################
+backup_user_overrides() {
+  local backup_dir="$1"
+  local overrides_dir="$2"
+  
+  if [[ ! -d "$overrides_dir" ]]; then
+    return 0  # Nothing to backup
+  fi
+  
+  mkdir -p "$backup_dir"
+  
+  # Backup important user files that should be preserved
+  local files_to_backup=(
+    "game/csgo/cfg/MatchZy/database.json"
+    "game/csgo/addons/counterstrikesharp/configs/admins.json"
+  )
+  
+  for file in "${files_to_backup[@]}"; do
+    local src="$overrides_dir/$file"
+    local dst="$backup_dir/$file"
+    
+    if [[ -f "$src" ]]; then
+      mkdir -p "$(dirname "$dst")"
+      cp "$src" "$dst" 2>/dev/null && log_info "Backed up: $file" || true
+    fi
+  done
+  
+  # Also backup any other .json files in key directories (user might have added more)
+  find "$overrides_dir" -type f -name "*.json" | while read -r json_file; do
+    local rel_path="${json_file#$overrides_dir/}"
+    local dst="$backup_dir/$rel_path"
+    
+    # Skip if already backed up
+    if [[ ! -f "$dst" ]]; then
+      mkdir -p "$(dirname "$dst")"
+      cp "$json_file" "$dst" 2>/dev/null || true
+    fi
+  done
+}
+
+###############################################################################
+# Restore user overrides
+###############################################################################
+restore_user_overrides() {
+  local backup_dir="$1"
+  local overrides_dir="$2"
+  
+  if [[ ! -d "$backup_dir" ]]; then
+    return 0  # Nothing to restore
+  fi
+  
+  # Restore backed up files (always overwrite repo defaults with user's custom files)
+  if [[ -d "$backup_dir" ]]; then
+    find "$backup_dir" -type f | while read -r backup_file; do
+      local rel_path="${backup_file#$backup_dir/}"
+      local dst="$overrides_dir/$rel_path"
+      
+      # Always restore user's custom files (they take precedence over repo defaults)
+      mkdir -p "$(dirname "$dst")"
+      if cp "$backup_file" "$dst" 2>/dev/null; then
+        log_info "Restored: $rel_path"
+      fi
+    done
+  fi
+}
+
+###############################################################################
+# Sync overrides from repository
+###############################################################################
+sync_overrides_from_repo() {
+  local install_dir="$1"
+  
+  cd "$install_dir" || return 1
+  
+  log_info "Syncing overrides folder from repository..."
+  
+  # Pull latest changes to get updated overrides
+  if git pull origin "$REPO_BRANCH" >/dev/null 2>&1; then
+    log_success "Repository updated"
+  else
+    # If pull fails, try fetching and checking out
+    git fetch origin "$REPO_BRANCH" >/dev/null 2>&1 || true
+    git checkout "origin/$REPO_BRANCH" -- overrides/ >/dev/null 2>&1 || {
+      log_warn "Could not sync overrides from repository"
+      return 1
+    }
+  fi
+  
+  # Ensure overrides directory exists
+  if [[ ! -d "$install_dir/overrides" ]]; then
+    log_warn "overrides/ directory not found in repository"
+    return 1
+  fi
+  
+  log_success "Overrides folder synced from repository"
+}
+
+###############################################################################
 # Download/Clone repository
 ###############################################################################
 download_repo() {
   log_info "Downloading CS2 Server Manager..."
   
+  local backup_temp=""
+  local had_existing=0
+  
+  # Backup user overrides if directory exists
+  if [[ -d "$INSTALL_DIR" ]] && [[ -d "$INSTALL_DIR/overrides" ]]; then
+    had_existing=1
+    backup_temp=$(mktemp -d)
+    log_info "Backing up existing overrides..."
+    backup_user_overrides "$backup_temp" "$INSTALL_DIR/overrides"
+  fi
+  
   if [[ -d "$INSTALL_DIR" ]]; then
     log_warn "Directory already exists: $INSTALL_DIR"
     if [[ $AUTO_INSTALL -eq 1 ]]; then
-      log_info "Removing existing directory..."
-      rm -rf "$INSTALL_DIR"
-    else
-      echo -n "Remove and re-download? (y/N): "
-      read -r response
-      if [[ "$response" =~ ^[Yy]$ ]]; then
-        rm -rf "$INSTALL_DIR"
+      log_info "Updating existing installation..."
+      # Try to update via git pull instead of removing
+      if [[ -d "$INSTALL_DIR/.git" ]]; then
+        cd "$INSTALL_DIR" || exit 1
+        if git pull origin "$REPO_BRANCH" >/dev/null 2>&1; then
+          log_success "Repository updated"
+        else
+          log_warn "Could not pull updates, removing and re-cloning..."
+          rm -rf "$INSTALL_DIR"
+          git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR" || {
+            log_error "Failed to clone repository"
+            exit 1
+          }
+        fi
       else
-        log_info "Using existing directory"
-        return 0
+        log_info "Not a git repository, removing and re-cloning..."
+        rm -rf "$INSTALL_DIR"
+        git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR" || {
+          log_error "Failed to clone repository"
+          exit 1
+        }
       fi
+    else
+      echo -n "Update existing installation? (Y/n): "
+      read -r response
+      if [[ "$response" =~ ^[Nn]$ ]]; then
+        log_info "Keeping existing installation"
+        return 0
+      else
+        # Update via git pull if it's a git repo
+        if [[ -d "$INSTALL_DIR/.git" ]]; then
+          cd "$INSTALL_DIR" || exit 1
+          if git pull origin "$REPO_BRANCH" >/dev/null 2>&1; then
+            log_success "Repository updated"
+          else
+            log_warn "Could not pull updates"
+          fi
+        else
+          log_warn "Not a git repository, cannot update"
+        fi
+      fi
+    fi
+  else
+    # Clone the repository
+    if git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"; then
+      log_success "Repository downloaded to $INSTALL_DIR"
+    else
+      log_error "Failed to clone repository"
+      exit 1
     fi
   fi
   
-  # Clone the repository
-  if git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"; then
-    log_success "Repository downloaded to $INSTALL_DIR"
-  else
-    log_error "Failed to clone repository"
-    exit 1
+  # Sync overrides from repo first (to get latest structure)
+  sync_overrides_from_repo "$INSTALL_DIR"
+  
+  # Restore user overrides if we backed them up (preserves user customizations)
+  if [[ $had_existing -eq 1 ]] && [[ -n "$backup_temp" ]] && [[ -d "$backup_temp" ]]; then
+    log_info "Restoring your custom overrides (database.json, admins.json, etc.)..."
+    restore_user_overrides "$backup_temp" "$INSTALL_DIR/overrides"
+    rm -rf "$backup_temp"
+    log_success "User customizations preserved"
   fi
 }
 
@@ -272,6 +438,16 @@ run_installation() {
   
   # Make manage.sh executable
   chmod +x ./manage.sh
+  
+  # Handle custom overrides
+  if [[ -n "$CUSTOM_OVERRIDES" ]]; then
+    if [[ ! -d "$CUSTOM_OVERRIDES" ]]; then
+      log_error "Custom overrides directory not found: $CUSTOM_OVERRIDES"
+      exit 1
+    fi
+    log_info "Using custom overrides from: $CUSTOM_OVERRIDES"
+    export OVERRIDES_DIR="$CUSTOM_OVERRIDES"
+  fi
   
   # Run installation
   if [[ $AUTO_INSTALL -eq 1 ]]; then
@@ -332,6 +508,11 @@ main() {
   echo "  Directory:  $INSTALL_DIR"
   echo "  Servers:    $NUM_SERVERS"
   echo "  Auto-mode:  $([[ $AUTO_INSTALL -eq 1 ]] && echo "Yes" || echo "No")"
+  if [[ -n "$CUSTOM_OVERRIDES" ]]; then
+    echo "  Overrides:  $CUSTOM_OVERRIDES"
+  else
+    echo "  Overrides:  (using repo defaults)"
+  fi
   echo
   
   if [[ $AUTO_INSTALL -eq 0 ]]; then

@@ -346,6 +346,7 @@ install_servers() {
       FRESH_INSTALL="$fresh_flag" \
       UPDATE_MASTER="$update_master_flag" \
       RCON_PASSWORD="$rcon_password" \
+      OVERRIDES_DIR="${OVERRIDES_DIR:-}" \
       ./scripts/bootstrap_cs2.sh
     echo
     echo "Installation complete."
@@ -764,7 +765,7 @@ apply_configs() {
   
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
     echo
-    sudo env MATCHZY_SKIP_DOCKER="${MATCHZY_SKIP_DOCKER:-0}" ./scripts/bootstrap_cs2.sh
+    sudo env MATCHZY_SKIP_DOCKER="${MATCHZY_SKIP_DOCKER:-0}" OVERRIDES_DIR="${OVERRIDES_DIR:-}" ./scripts/bootstrap_cs2.sh
     echo
     echo "Restarting servers..."
     sudo ./scripts/cs2_tmux.sh restart
@@ -826,27 +827,47 @@ debug_mode() {
   press_enter
 }
 
-# 21. View server logs
+# 19. View server logs
 view_server_logs() {
-  show_header
-  echo -e "${BLUE}View Server Logs${NC}"
-  echo
-  echo -n "Enter server number: "
-  read -r server_num
+  local server_num="$1"  # Optional parameter for non-interactive mode
+  local lines="${2:-0}"  # Optional lines parameter (0 = show all)
   
-  if [[ ! "$server_num" =~ ^[0-9]+$ ]]; then
-    echo -e "${RED}Invalid server number${NC}"
-    press_enter
-    return
+  if [[ -z "$server_num" ]]; then
+    # Interactive mode
+    show_header
+    echo -e "${BLUE}View Server Logs${NC}"
+    echo
+    echo -n "Enter server number: "
+    read -r server_num
+    
+    if [[ ! "$server_num" =~ ^[0-9]+$ ]]; then
+      echo -e "${RED}Invalid server number${NC}"
+      press_enter
+      return
+    fi
+    
+    echo -n "How many lines to show? [all]: "
+    read -r lines_input
+    if [[ -n "$lines_input" && "$lines_input" =~ ^[0-9]+$ ]]; then
+      lines="$lines_input"
+    else
+      lines=0  # Show all (0 means show all)
+    fi
+  else
+    # Non-interactive mode - no header, just show logs
+    if [[ ! "$server_num" =~ ^[0-9]+$ ]]; then
+      echo -e "${RED}Invalid server number${NC}"
+      exit 1
+    fi
   fi
   
-  echo -n "How many lines to show? [50]: "
-  read -r lines
-  lines=${lines:-50}
-  
-  echo
+  # Pass lines parameter (0 = show all, or specific number)
   sudo ./scripts/cs2_tmux.sh logs "$server_num" "$lines"
-  press_enter
+  
+  if [[ -z "$1" ]]; then
+    # Only press enter in interactive mode
+    press_enter
+  fi
 }
 
 # 22. Attach to console
@@ -1042,7 +1063,7 @@ repair_servers() {
     
     echo
     echo "=== Step 4/7: Re-applying plugins and configs ==="
-    UPDATE_MASTER=0 ENABLE_METAMOD=1 sudo -E ./scripts/bootstrap_cs2.sh || {
+    UPDATE_MASTER=0 ENABLE_METAMOD=1 OVERRIDES_DIR="${OVERRIDES_DIR:-}" sudo -E ./scripts/bootstrap_cs2.sh || {
       echo -e "${RED}Bootstrap failed${NC}"
       press_enter
       return 1
@@ -1274,6 +1295,16 @@ if [[ $# -gt 0 ]]; then
     extract-map-data|17)
       extract_map_data
       ;;
+    logs|19)
+      if [[ -n "$2" ]]; then
+        view_server_logs "$2" "${3:-0}"
+      else
+        echo -e "${RED}Usage: $0 logs <server_number> [lines]${NC}"
+        echo "  server_number: Server number (1, 2, 3, etc.)"
+        echo "  lines: Optional number of lines to show (default: all)"
+        exit 1
+      fi
+      ;;
     help|--help|-h)
       echo "CS2 Server Manager - Command-line usage"
       echo
@@ -1289,6 +1320,7 @@ if [[ $# -gt 0 ]]; then
       echo "  update-plugins    Update plugins"
       echo "  repair            Repair servers"
       echo "  extract-map-data  Extract all CS2 VPK files and search for references"
+      echo "  logs <num> [n]    View server logs (server number, optional lines, default: all)"
       echo "  help              Show this help message"
       echo
       echo "If no command is provided, launches interactive menu."

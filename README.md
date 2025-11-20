@@ -100,6 +100,37 @@ sudo tail -f /var/log/cs2_auto_update_monitor.log
 
 ## ⚙️ Configuration
 
+### Installation Methods
+
+**Option 1: Quick Install (Recommended for most users)**
+```bash
+wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
+bash install.sh
+```
+Uses the default `overrides/` folder from the repository.
+
+**Option 2: Quick Install with Custom Overrides**
+```bash
+bash install.sh --auto --overrides /path/to/your-overrides
+```
+Use your own overrides directory (must have same structure as `overrides/game/`).
+
+**Option 3: Git Clone & Customize (Recommended for advanced users)**
+```bash
+git clone https://github.com/sivert-io/cs2-server-manager.git
+cd cs2-server-manager
+# Edit overrides/ folder as needed
+./manage.sh install
+```
+Best for users who want to customize configs before installation or maintain their own fork.
+
+### Overrides Directory
+
+The `overrides/` folder contains custom configurations that are applied to all servers:
+- Files in `overrides/` are **never deleted** during updates
+- They overlay on top of default plugin configs
+- Structure: `overrides/game/csgo/cfg/...` and `overrides/game/csgo/addons/...`
+
 **Server Ports** (increment by 10):
 
 | Server | Game  | GOTV  |
