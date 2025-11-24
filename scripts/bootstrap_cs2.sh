@@ -183,6 +183,11 @@ install_master_via_steamcmd() {
   mkdir -p "$master_dir"
   chown "${user}:${user}" "$master_dir"
   
+  # Create .steam directory structure before SteamCMD runs (prevents symlink errors)
+  local steam_dir="/home/${user}/.steam"
+  mkdir -p "$steam_dir"
+  chown -R "${user}:${user}" "$steam_dir"
+  
   # Run SteamCMD as the cs2 user
   su - "$user" -c "
     set -e
