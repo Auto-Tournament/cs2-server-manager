@@ -78,7 +78,11 @@ setup_directories() {
 }
 
 cleanup_temp() {
-  rm -rf "$TEMP_DIR"
+  # Fix permissions before cleanup to avoid permission denied errors
+  if [[ -d "$TEMP_DIR" ]]; then
+    chmod -R u+rwX "$TEMP_DIR" 2>/dev/null || true
+    rm -rf "$TEMP_DIR" 2>/dev/null || true
+  fi
 }
 
 apply_overrides() {
@@ -266,13 +270,19 @@ download_matchzy() {
   if curl_output=$(curl -fSL -o "${TEMP_DIR}/matchzy.zip" "$DOWNLOAD_URL" 2>&1); then
     log_success "Downloaded MatchZy $VERSION"
     log_info "Extracting MatchZy..."
+    # Clean up any existing extract directory
     chmod -R u+rwX "${TEMP_DIR}/matchzy_extract" 2>/dev/null || true
-    rm -rf "${TEMP_DIR}/matchzy_extract"
+    rm -rf "${TEMP_DIR}/matchzy_extract" 2>/dev/null || true
+    mkdir -p "${TEMP_DIR}/matchzy_extract"
+    
     local unzip_output=""
     local unzip_status=0
     if ! unzip_output=$(unzip -o "${TEMP_DIR}/matchzy.zip" -d "${TEMP_DIR}/matchzy_extract" 2>&1); then
       unzip_status=$?
     fi
+
+    # Fix permissions on extracted files (Windows zips often have bad permissions)
+    chmod -R u+rwX "${TEMP_DIR}/matchzy_extract" 2>/dev/null || true
 
     if [[ $unzip_status -gt 0 ]]; then
       if [[ $unzip_status -eq 1 && -d "${TEMP_DIR}/matchzy_extract" ]]; then
@@ -291,10 +301,30 @@ download_matchzy() {
       fi
     fi
 
-    local matchzy_root
-    matchzy_root=$(find "${TEMP_DIR}/matchzy_extract" -maxdepth 1 -type d -name "MatchZy*" | head -n1)
+    # Try multiple archive structure patterns
+    local matchzy_root=""
+    
+    # Pattern 1: Old structure with MatchZy* root folder
+    matchzy_root=$(find "${TEMP_DIR}/matchzy_extract" -maxdepth 1 -type d -name "MatchZy*" 2>/dev/null | head -n1)
+    
+    # Pattern 2: New structure - extracts directly to addons/counterstrikesharp/
+    if [[ -z "$matchzy_root" ]]; then
+      if [[ -d "${TEMP_DIR}/matchzy_extract/addons/counterstrikesharp" ]]; then
+        matchzy_root="${TEMP_DIR}/matchzy_extract"
+      fi
+    fi
+    
+    # Pattern 3: Check if extract directory itself contains addons structure
+    if [[ -z "$matchzy_root" ]]; then
+      if [[ -d "${TEMP_DIR}/matchzy_extract/addons" ]]; then
+        matchzy_root="${TEMP_DIR}/matchzy_extract"
+      fi
+    fi
+    
     if [[ -n "$matchzy_root" && -d "$matchzy_root" ]]; then
+      # Fix permissions before syncing
       chmod -R u+rwX,go+rX "$matchzy_root" 2>/dev/null || true
+      
       if rsync -a "$matchzy_root/" "${GAME_FILES_DIR}/csgo/" 2>&1; then
         log_success "✓ MatchZy installed (plugins, configs, and all assets merged)"
       else
@@ -305,6 +335,8 @@ download_matchzy() {
     else
       log_error "Failed to find MatchZy root folder in package"
       log_error "Reason: Archive structure may have changed"
+      log_info "Debug: Contents of extract directory:"
+      ls -la "${TEMP_DIR}/matchzy_extract" 2>/dev/null | head -10 || true
       return 1
     fi
   else
