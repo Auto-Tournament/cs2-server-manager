@@ -353,6 +353,25 @@ customize_server_cfg() {
     
     # Add rcon_password at the top
     sed -i "1i rcon_password \"${RCON_PASSWORD}\"" "$server_cfg"
+    
+    # Ensure GOTV settings are present (required for demo recording)
+    # Remove any existing tv_enable, tv_delay, tv_port lines
+    sed -i '/^tv_enable/d' "$server_cfg"
+    sed -i '/^tv_delay/d' "$server_cfg"
+    sed -i '/^tv_port/d' "$server_cfg"
+    
+    # Add GOTV settings at the end of the file (required for demo recording)
+    # The document specifies these should be in the main server configuration file
+    cat >> "$server_cfg" <<EOF
+
+// ========================================
+// GOTV Configuration (Required for Demo Recording)
+// ========================================
+tv_enable 1                     // REQUIRED: Enable GOTV for demo recording
+tv_delay 90                     // Delay in seconds for GOTV broadcast (prevents ghosting)
+tv_port ${tv_port}              // GOTV port (unique per server instance)
+EOF
+    
     echo "  [✓] Updated server.cfg"
   else
     echo "  [i] Creating server.cfg"
@@ -382,6 +401,13 @@ sv_log_onefile 0
 // ========================================
 sv_lan 0                        // Set to 0 for internet, 1 for LAN-only
 sv_password ""                  // Server password (empty = public)
+
+// ========================================
+// GOTV Configuration (Required for Demo Recording)
+// ========================================
+tv_enable 1                     // REQUIRED: Enable GOTV for demo recording
+tv_delay 90                     // Delay in seconds for GOTV broadcast (prevents ghosting)
+tv_port ${tv_port}              // GOTV port (unique per server instance)
 
 // ========================================
 // Server Performance
