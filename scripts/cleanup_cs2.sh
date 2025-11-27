@@ -62,6 +62,37 @@ if [[ -n "$tmux_sessions" ]]; then
   done <<< "$tmux_sessions"
 fi
 
+echo "[*] Cleaning up MatchZy MySQL Docker container..."
+MATCHZY_DB_CONTAINER="${MATCHZY_DB_CONTAINER:-matchzy-mysql}"
+MATCHZY_DB_VOLUME="${MATCHZY_DB_VOLUME:-matchzy-mysql-data}"
+
+if command -v docker >/dev/null 2>&1; then
+  # Check if container exists
+  if docker ps -a --format '{{.Names}}' | grep -Fxq "$MATCHZY_DB_CONTAINER" 2>/dev/null; then
+    echo "  [*] Stopping and removing Docker container: ${MATCHZY_DB_CONTAINER}"
+    docker stop "$MATCHZY_DB_CONTAINER" >/dev/null 2>&1 || true
+    docker rm "$MATCHZY_DB_CONTAINER" >/dev/null 2>&1 || true
+    echo "  [✓] Container removed"
+    
+    # Ask about volume removal
+    if docker volume ls --format '{{.Name}}' | grep -Fxq "$MATCHZY_DB_VOLUME" 2>/dev/null; then
+      echo
+      read -p "Delete MatchZy database volume '${MATCHZY_DB_VOLUME}'? This will delete all database data. (y/N): " delete_volume
+      if [[ "$delete_volume" =~ ^[Yy]$ ]]; then
+        echo "  [*] Removing Docker volume: ${MATCHZY_DB_VOLUME}"
+        docker volume rm "$MATCHZY_DB_VOLUME" >/dev/null 2>&1 || true
+        echo "  [✓] Database volume removed"
+      else
+        echo "  [i] Database volume kept (can be reused on next install)"
+      fi
+    fi
+  else
+    echo "  [i] MatchZy MySQL container not found"
+  fi
+else
+  echo "  [i] Docker not installed, skipping container cleanup"
+fi
+
 echo "[*] Removing user and home directory..."
 echo "  [*] Deleting /home/${CS2_USER}"
 userdel -r "$CS2_USER" 2>/dev/null || {

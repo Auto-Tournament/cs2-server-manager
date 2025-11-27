@@ -1,6 +1,6 @@
 {
   "DatabaseType": "MySQL",
-  "MySqlHost": "127.0.0.1",
+  "MySqlHost": "192.168.254.232",
   "MySqlDatabase": "matchzy",
   "MySqlUsername": "matchzy",
   "MySqlPassword": "matchzy",

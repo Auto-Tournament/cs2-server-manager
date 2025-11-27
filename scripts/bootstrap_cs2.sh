@@ -645,8 +645,58 @@ EOF
 
   if (( ready == 1 )); then
     echo "  [✓] MatchZy database is ready at ${host_ip}:${mysql_port}"
+    # Verify and create database if needed
+    ensure_matchzy_database_exists "$container_name" "$mysql_db" "$mysql_user" "$mysql_pass" "$MATCHZY_DB_ROOT_PASSWORD"
   else
     echo "  [i] MatchZy database is starting up (Docker container is running)"
+  fi
+
+  return 0
+}
+
+ensure_matchzy_database_exists() {
+  local container_name="$1"
+  local db_name="$2"
+  local db_user="$3"
+  local db_pass="$4"
+  local root_pass="$5"
+
+  # Check if database exists
+  local db_exists
+  db_exists=$(docker exec "$container_name" mysql -uroot -p"$root_pass" -e "SHOW DATABASES LIKE '${db_name}';" -sN 2>/dev/null | grep -c "^${db_name}$" || echo "0")
+
+  if [[ "$db_exists" == "0" ]]; then
+    echo "  [*] Database '${db_name}' not found, creating it..."
+    
+    # Create database
+    if docker exec "$container_name" mysql -uroot -p"$root_pass" -e "CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null; then
+      echo "  [✓] Database '${db_name}' created successfully"
+    else
+      echo "  [!] Failed to create database '${db_name}'"
+      return 1
+    fi
+  else
+    echo "  [✓] Database '${db_name}' already exists"
+  fi
+
+  # Ensure user exists and has proper permissions
+  local user_exists
+  user_exists=$(docker exec "$container_name" mysql -uroot -p"$root_pass" -e "SELECT COUNT(*) FROM mysql.user WHERE User='${db_user}' AND Host='%';" -sN 2>/dev/null | tr -d '[:space:]' || echo "0")
+
+  if [[ "$user_exists" == "0" ]]; then
+    echo "  [*] User '${db_user}' not found, creating it..."
+    
+    # Create user and grant permissions
+    if docker exec "$container_name" mysql -uroot -p"$root_pass" -e "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_pass}'; GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_user}'@'%'; FLUSH PRIVILEGES;" 2>/dev/null; then
+      echo "  [✓] User '${db_user}' created with permissions on '${db_name}'"
+    else
+      echo "  [!] Failed to create user '${db_user}'"
+      return 1
+    fi
+  else
+    # Ensure user has permissions on the database
+    docker exec "$container_name" mysql -uroot -p"$root_pass" -e "GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_user}'@'%'; FLUSH PRIVILEGES;" 2>/dev/null >/dev/null 2>&1
+    echo "  [✓] User '${db_user}' has permissions on '${db_name}'"
   fi
 
   return 0

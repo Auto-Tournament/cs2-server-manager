@@ -58,6 +58,10 @@ show_menu() {
   echo " 21) List tmux sessions"
   echo " 22) Execute RCON command"
   echo
+  echo -e "${BLUE}═══ Utilities ═══${NC}"
+  echo " 24) Verify MatchZy database setup"
+  echo " 25) Show public IP address"
+  echo
   echo -e "${RED}═══ Danger Zone ═══${NC}"
   echo " 23) Cleanup everything (remove servers/user)"
   echo
@@ -350,6 +354,71 @@ install_servers() {
       ./scripts/bootstrap_cs2.sh
     echo
     echo "Installation complete."
+    
+    # Verify database setup
+    if [[ ${MATCHZY_SKIP_DOCKER:-0} -eq 0 ]]; then
+      echo
+      echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+      echo -e "${BLUE}  Verifying MatchZy Database Setup${NC}"
+      echo -e "${BLUE}════════════════════════════════════════════════════════${NC}"
+      echo
+      
+      # Call the verification function (non-interactive version)
+      ensure_matchzy_db_config_file
+      if [[ -f "$MATCHZY_DB_CONFIG" ]]; then
+        local db_type db_host db_port db_name db_user db_pass
+        db_type=$(jq -r '.DatabaseType // "MySQL"' "$MATCHZY_DB_CONFIG" | tr '[:upper:]' '[:lower:]')
+        db_name=$(jq -r '.MySqlDatabase // "matchzy"' "$MATCHZY_DB_CONFIG")
+        db_user=$(jq -r '.MySqlUsername // "matchzy"' "$MATCHZY_DB_CONFIG")
+        db_pass=$(jq -r '.MySqlPassword // "matchzy"' "$MATCHZY_DB_CONFIG")
+        
+        if [[ "$db_type" == "mysql" ]]; then
+          local container_name="matchzy-mysql"
+          local root_pass="${MATCHZY_DB_ROOT_PASSWORD:-MatchZyRoot!2025}"
+          
+          if docker ps --format '{{.Names}}' | grep -Fxq "$container_name" 2>/dev/null; then
+            # Wait for MySQL to be ready
+            local ready=0
+            for i in {1..15}; do
+              if docker exec "$container_name" mysqladmin ping -h "127.0.0.1" -uroot -p"$root_pass" --silent >/dev/null 2>&1; then
+                ready=1
+                break
+              fi
+              sleep 1
+            done
+            
+            if [[ $ready -eq 1 ]]; then
+              # Check and create database if needed
+              local db_exists
+              db_exists=$(docker exec "$container_name" mysql -uroot -p"$root_pass" -e "SHOW DATABASES LIKE '${db_name}';" -sN 2>/dev/null | grep -c "^${db_name}$" || echo "0")
+              
+              if [[ "$db_exists" == "0" ]]; then
+                echo "  [*] Creating database '${db_name}'..."
+                docker exec "$container_name" mysql -uroot -p"$root_pass" -e "CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null && \
+                  echo "  [✓] Database '${db_name}' created" || \
+                  echo "  [!] Failed to create database"
+              else
+                echo "  [✓] Database '${db_name}' exists"
+              fi
+              
+              # Check and create user if needed
+              local user_exists
+              user_exists=$(docker exec "$container_name" mysql -uroot -p"$root_pass" -e "SELECT COUNT(*) FROM mysql.user WHERE User='${db_user}' AND Host='%';" -sN 2>/dev/null | tr -d '[:space:]' || echo "0")
+              
+              if [[ "$user_exists" == "0" ]]; then
+                echo "  [*] Creating user '${db_user}'..."
+                docker exec "$container_name" mysql -uroot -p"$root_pass" -e "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_pass}'; GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_user}'@'%'; FLUSH PRIVILEGES;" 2>/dev/null && \
+                  echo "  [✓] User '${db_user}' created with permissions" || \
+                  echo "  [!] Failed to create user"
+              else
+                docker exec "$container_name" mysql -uroot -p"$root_pass" -e "GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_user}'@'%'; FLUSH PRIVILEGES;" 2>/dev/null >/dev/null 2>&1
+                echo "  [✓] User '${db_user}' permissions verified"
+              fi
+            fi
+          fi
+        fi
+      fi
+    fi
     
     # Install auto-update monitor cronjob
     echo
@@ -1194,7 +1263,219 @@ install_auto_update_monitor() {
   press_enter
 }
 
-# 25. Cleanup everything
+# 24. Verify MatchZy database setup
+verify_matchzy_database() {
+  show_header
+  echo -e "${CYAN}Verifying MatchZy Database Setup${NC}"
+  echo
+  
+  ensure_matchzy_db_config_file
+  
+  if [[ ! -f "$MATCHZY_DB_CONFIG" ]]; then
+    echo -e "${RED}Database config file not found: ${MATCHZY_DB_CONFIG}${NC}"
+    press_enter
+    return 1
+  fi
+  
+  local db_type db_host db_port db_name db_user db_pass
+  db_type=$(jq -r '.DatabaseType // "MySQL"' "$MATCHZY_DB_CONFIG" | tr '[:upper:]' '[:lower:]')
+  db_host=$(jq -r '.MySqlHost // "127.0.0.1"' "$MATCHZY_DB_CONFIG")
+  db_port=$(jq -r '.MySqlPort // 3306' "$MATCHZY_DB_CONFIG")
+  db_name=$(jq -r '.MySqlDatabase // "matchzy"' "$MATCHZY_DB_CONFIG")
+  db_user=$(jq -r '.MySqlUsername // "matchzy"' "$MATCHZY_DB_CONFIG")
+  db_pass=$(jq -r '.MySqlPassword // "matchzy"' "$MATCHZY_DB_CONFIG")
+  
+  echo "Configuration:"
+  echo "  Type: $db_type"
+  echo "  Host: $db_host"
+  echo "  Port: $db_port"
+  echo "  Database: $db_name"
+  echo "  User: $db_user"
+  echo
+  
+  if [[ "$db_type" != "mysql" ]]; then
+    echo -e "${YELLOW}Database type is not MySQL, skipping verification${NC}"
+    press_enter
+    return 0
+  fi
+  
+  # Check if using Docker
+  local container_name="matchzy-mysql"
+  local using_docker=0
+  
+  if docker ps -a --format '{{.Names}}' | grep -Fxq "$container_name" 2>/dev/null; then
+    using_docker=1
+    echo -e "${BLUE}Detected Docker MySQL container: ${container_name}${NC}"
+    
+    # Check if container is running
+    if docker ps --format '{{.Names}}' | grep -Fxq "$container_name" 2>/dev/null; then
+      echo -e "${GREEN}✓ Container is running${NC}"
+    else
+      echo -e "${YELLOW}Container exists but is not running. Starting it...${NC}"
+      docker start "$container_name" >/dev/null 2>&1
+      sleep 2
+    fi
+    
+    # Wait for MySQL to be ready
+    local ready=0
+    local root_pass="${MATCHZY_DB_ROOT_PASSWORD:-MatchZyRoot!2025}"
+    for i in {1..15}; do
+      if docker exec "$container_name" mysqladmin ping -h "127.0.0.1" -uroot -p"$root_pass" --silent >/dev/null 2>&1; then
+        ready=1
+        break
+      fi
+      sleep 1
+    done
+    
+    if [[ $ready -eq 0 ]]; then
+      echo -e "${RED}✗ MySQL container is not responding${NC}"
+      press_enter
+      return 1
+    fi
+    
+    # Check if database exists
+    local db_exists
+    db_exists=$(docker exec "$container_name" mysql -uroot -p"$root_pass" -e "SHOW DATABASES LIKE '${db_name}';" -sN 2>/dev/null | grep -c "^${db_name}$" || echo "0")
+    
+    if [[ "$db_exists" == "0" ]]; then
+      echo -e "${YELLOW}✗ Database '${db_name}' does not exist${NC}"
+      echo -e "${CYAN}Creating database '${db_name}'...${NC}"
+      
+      if docker exec "$container_name" mysql -uroot -p"$root_pass" -e "CREATE DATABASE IF NOT EXISTS \`${db_name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null; then
+        echo -e "${GREEN}✓ Database '${db_name}' created${NC}"
+      else
+        echo -e "${RED}✗ Failed to create database${NC}"
+        press_enter
+        return 1
+      fi
+    else
+      echo -e "${GREEN}✓ Database '${db_name}' exists${NC}"
+    fi
+    
+    # Check if user exists and has permissions
+    local user_exists
+    user_exists=$(docker exec "$container_name" mysql -uroot -p"$root_pass" -e "SELECT COUNT(*) FROM mysql.user WHERE User='${db_user}' AND Host='%';" -sN 2>/dev/null | tr -d '[:space:]' || echo "0")
+    
+    if [[ "$user_exists" == "0" ]]; then
+      echo -e "${YELLOW}✗ User '${db_user}' does not exist${NC}"
+      echo -e "${CYAN}Creating user '${db_user}'...${NC}"
+      
+      if docker exec "$container_name" mysql -uroot -p"$root_pass" -e "CREATE USER IF NOT EXISTS '${db_user}'@'%' IDENTIFIED BY '${db_pass}'; GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_user}'@'%'; FLUSH PRIVILEGES;" 2>/dev/null; then
+        echo -e "${GREEN}✓ User '${db_user}' created with permissions${NC}"
+      else
+        echo -e "${RED}✗ Failed to create user${NC}"
+        press_enter
+        return 1
+      fi
+    else
+      echo -e "${GREEN}✓ User '${db_user}' exists${NC}"
+      # Ensure permissions
+      docker exec "$container_name" mysql -uroot -p"$root_pass" -e "GRANT ALL PRIVILEGES ON \`${db_name}\`.* TO '${db_user}'@'%'; FLUSH PRIVILEGES;" 2>/dev/null >/dev/null 2>&1
+      echo -e "${GREEN}✓ Permissions verified${NC}"
+    fi
+    
+    # Test connection
+    if docker exec "$container_name" mysql -u"${db_user}" -p"${db_pass}" -e "USE \`${db_name}\`; SELECT 1;" -sN 2>/dev/null >/dev/null; then
+      echo -e "${GREEN}✓ Connection test successful${NC}"
+      echo
+      
+      # List tables and row counts
+      echo -e "${CYAN}Database Tables:${NC}"
+      local tables
+      tables=$(docker exec "$container_name" mysql -u"${db_user}" -p"${db_pass}" -e "USE \`${db_name}\`; SHOW TABLES;" -sN 2>/dev/null)
+      
+      if [[ -z "$tables" ]]; then
+        echo "  (No tables found - database is empty)"
+      else
+        echo "  Table Name                    | Rows"
+        echo "  ------------------------------ | --------"
+        while IFS= read -r table; do
+          [[ -z "$table" ]] && continue
+          local row_count
+          row_count=$(docker exec "$container_name" mysql -u"${db_user}" -p"${db_pass}" -e "USE \`${db_name}\`; SELECT COUNT(*) FROM \`${table}\`;" -sN 2>/dev/null | tr -d '[:space:]' || echo "0")
+          printf "  %-30s | %8s\n" "$table" "$row_count"
+        done <<< "$tables"
+      fi
+      echo
+      echo -e "${GREEN}Database setup is correct!${NC}"
+    else
+      echo -e "${RED}✗ Connection test failed${NC}"
+      press_enter
+      return 1
+    fi
+    
+  else
+    # External MySQL server
+    echo -e "${BLUE}Using external MySQL server${NC}"
+    echo -e "${YELLOW}Note: Cannot automatically verify external database${NC}"
+    echo "Please ensure:"
+    echo "  1. Database '${db_name}' exists"
+    echo "  2. User '${db_user}' exists and has permissions"
+    echo "  3. Server is accessible at ${db_host}:${db_port}"
+    echo
+    
+    # Try to connect and show tables if possible
+    if command -v mysql >/dev/null 2>&1; then
+      echo -e "${CYAN}Attempting to connect and list tables...${NC}"
+      local tables
+      tables=$(mysql -h"${db_host}" -P"${db_port}" -u"${db_user}" -p"${db_pass}" -e "USE \`${db_name}\`; SHOW TABLES;" -sN 2>/dev/null)
+      
+      if [[ $? -eq 0 ]] && [[ -n "$tables" ]]; then
+        echo -e "${GREEN}✓ Connection successful${NC}"
+        echo
+        echo -e "${CYAN}Database Tables:${NC}"
+        echo "  Table Name                    | Rows"
+        echo "  ------------------------------ | --------"
+        while IFS= read -r table; do
+          [[ -z "$table" ]] && continue
+          local row_count
+          row_count=$(mysql -h"${db_host}" -P"${db_port}" -u"${db_user}" -p"${db_pass}" -e "USE \`${db_name}\`; SELECT COUNT(*) FROM \`${table}\`;" -sN 2>/dev/null | tr -d '[:space:]' || echo "0")
+          printf "  %-30s | %8s\n" "$table" "$row_count"
+        done <<< "$tables"
+        echo
+      else
+        echo -e "${YELLOW}Could not connect or database is empty${NC}"
+        echo "  (Make sure mysql client is installed and credentials are correct)"
+      fi
+    else
+      echo -e "${YELLOW}MySQL client not installed - cannot list tables${NC}"
+    fi
+  fi
+  
+  press_enter
+}
+
+# 25. Show public IP
+show_public_ip() {
+  show_header
+  echo -e "${CYAN}Fetching public IP address...${NC}"
+  echo
+  
+  local ip=""
+  local services=(
+    "https://ifconfig.me"
+    "https://api.ipify.org"
+    "https://icanhazip.com"
+    "https://checkip.amazonaws.com"
+  )
+  
+  for service in "${services[@]}"; do
+    ip=$(curl -s --max-time 5 "$service" 2>/dev/null | tr -d '\n\r ' | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
+    if [[ -n "$ip" ]]; then
+      echo -e "${GREEN}Your public IP address:${NC} ${CYAN}$ip${NC}"
+      echo
+      echo "Source: $service"
+      press_enter
+      return 0
+    fi
+  done
+  
+  echo -e "${RED}Failed to retrieve public IP address${NC}"
+  echo "Tried services: ${services[*]}"
+  press_enter
+}
+
+# 26. Cleanup everything
 cleanup_all() {
   show_header
   echo -e "${RED}════════════════════════════════════════════════════════${NC}"
@@ -1206,6 +1487,8 @@ cleanup_all() {
   echo "  • /home/cs2/server-* directories"
   echo "  • /home/cs2/cs2-config"
   echo "  • tmux sessions and systemd services"
+  echo "  • MatchZy MySQL Docker container"
+  echo "  • Optionally: MatchZy database volume (you'll be asked)"
   echo "  • Optionally the cs2 user"
   echo
   echo -n "Continue? (type DELETE to confirm): "
@@ -1251,6 +1534,8 @@ main() {
       20) attach_console ;;
       21) list_tmux_sessions ;;
       22) execute_rcon ;;
+      24) verify_matchzy_database ;;
+      25) show_public_ip ;;
       23) cleanup_all ;;
       0) 
         show_header
@@ -1295,6 +1580,12 @@ if [[ $# -gt 0 ]]; then
     extract-map-data|17)
       extract_map_data
       ;;
+    verify-db|24)
+      verify_matchzy_database
+      ;;
+    ip|25|public-ip)
+      show_public_ip
+      ;;
     logs|19)
       if [[ -n "$2" ]]; then
         view_server_logs "$2" "${3:-0}"
@@ -1320,6 +1611,8 @@ if [[ $# -gt 0 ]]; then
       echo "  update-plugins    Update plugins"
       echo "  repair            Repair servers"
       echo "  extract-map-data  Extract all CS2 VPK files and search for references"
+      echo "  verify-db         Verify and fix MatchZy database setup"
+      echo "  ip|public-ip      Show public IP address"
       echo "  logs <num> [n]    View server logs (server number, optional lines, default: all)"
       echo "  help              Show this help message"
       echo
