@@ -1,6 +1,6 @@
 # Project information
 site_name: CS2 Server Manager
-site_url: https://sivert-io.github.io/cs2-server-manager/
+site_url: https://csm.sivert.io/
 site_author: Sivert Gullberg Hansen
 site_description: >-
   Automated multi-server management for Counter-Strike 2 with auto-updates, tournament-ready plugins,
