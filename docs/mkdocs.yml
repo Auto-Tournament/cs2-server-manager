@@ -6,12 +6,15 @@ site_description: >-
   Automated multi-server management for Counter-Strike 2 with auto-updates, tournament-ready plugins,
   and one-command installation.
 
+repo_name: sivert-io/cs2-server-manager
+repo_url: https://github.com/sivert-io/cs2-server-manager
+
 # Copyright
 copyright: Copyright &copy; 2025 Sivert Gullberg Hansen
 
 # Directory configuration (config is inside docs/, so use current dir)
 docs_dir: .
-site_dir: ../site  # Build output goes to project root /site (outside docs/)
+site_dir: ../site # Build output goes to project root /site (outside docs/)
 
 # Configuration
 theme:
@@ -86,11 +89,11 @@ plugins:
   - exclude:
       glob:
         # Internal design/research docs - not needed for day-to-day admin usage
-        - 'features/shuffle-tournament-*.md'
-        - 'features/elo-package-research.md'
-        - 'features/openskill-integration.md'
-        - 'features/team-balancing-research.md'
-        - 'manual-testing-veto.md'
+        - "features/shuffle-tournament-*.md"
+        - "features/elo-package-research.md"
+        - "features/openskill-integration.md"
+        - "features/team-balancing-research.md"
+        - "manual-testing-veto.md"
   # - git-revision-date-localized:
   #     enable_creation_date: true
   #     type: timeago
@@ -153,8 +156,7 @@ nav:
       - Auto Updates: guides/auto-updates.md
       - Troubleshooting: guides/troubleshooting.md
   - Related:
-      - MatchZy Auto Tournament: https://mat.sivert.io
-      - MatchZy Enhanced: https://me.sivert.io
+      - Related Projects: guides/related-projects.md
 
 # Additional CSS
 extra_css:
