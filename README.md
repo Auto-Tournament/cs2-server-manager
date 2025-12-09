@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="csm-icon.svg" alt="CS2 Server Manager" width="140" height="140">
+  <img src="docs/icon.svg" alt="CS2 Server Manager" width="140" height="140">
   
   # CS2 Server Manager
   
@@ -24,6 +24,7 @@ bash install.sh
 ```
 
 **Automated install:**
+
 ```bash
 bash install.sh --auto --servers 5
 ```
@@ -40,18 +41,20 @@ bash install.sh --auto --servers 5
 📦 **Config Persistence** — Your configs in `overrides/` survive all updates  
 🏆 **Tournament Ready** — Integrates with MatchZy Auto Tournament  
 🔐 **MySQL Setup** — Docker-based database auto-provisioned  
-🖥 **Interactive Menu** — Easy server management  
+🖥 **Interactive Menu** — Easy server management
 
 ---
 
 ## 🎮 Usage
 
 ### Interactive Menu
+
 ```bash
 ./manage.sh
 ```
 
 ### Quick Commands
+
 ```bash
 ./manage.sh install          # Install servers
 ./manage.sh start            # Start all
@@ -63,6 +66,7 @@ bash install.sh --auto --servers 5
 ```
 
 ### Debug & Logs
+
 ```bash
 sudo ./scripts/cs2_tmux.sh attach 1    # Attach to console
 sudo ./scripts/cs2_tmux.sh debug 1     # Debug mode
@@ -75,10 +79,10 @@ sudo ./scripts/cs2_tmux.sh logs 1 100  # View logs
 
 All installed automatically:
 
-* **Metamod:Source** — Plugin framework
-* **CounterStrikeSharp** — C# plugin loader  
-* **MatchZy Enhanced** — Tournament automation with extra events
-* **CS2-AutoUpdater** — Auto-shutdown on game updates
+- **Metamod:Source** — Plugin framework
+- **CounterStrikeSharp** — C# plugin loader
+- **MatchZy Enhanced** — Tournament automation with extra events
+- **CS2-AutoUpdater** — Auto-shutdown on game updates
 
 ---
 
@@ -89,9 +93,10 @@ Automatically installed! Monitors every 5 minutes:
 ✅ Detects AutoUpdater shutdowns  
 ✅ Runs SteamCMD updates  
 ✅ Restarts servers  
-✅ 1-hour cooldown protection  
+✅ 1-hour cooldown protection
 
 **View logs:**
+
 ```bash
 sudo tail -f /var/log/cs2_auto_update_monitor.log
 ```
@@ -103,30 +108,37 @@ sudo tail -f /var/log/cs2_auto_update_monitor.log
 ### Installation Methods
 
 **Option 1: Quick Install (Recommended for most users)**
+
 ```bash
 wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
 bash install.sh
 ```
+
 Uses the default `overrides/` folder from the repository.
 
 **Option 2: Quick Install with Custom Overrides**
+
 ```bash
 bash install.sh --auto --overrides /path/to/your-overrides
 ```
+
 Use your own overrides directory (must have same structure as `overrides/game/`).
 
 **Option 3: Git Clone & Customize (Recommended for advanced users)**
+
 ```bash
 git clone https://github.com/sivert-io/cs2-server-manager.git
 cd cs2-server-manager
 # Edit overrides/ folder as needed
 ./manage.sh install
 ```
+
 Best for users who want to customize configs before installation or maintain their own fork.
 
 ### Overrides Directory
 
 The `overrides/` folder contains custom configurations that are applied to all servers:
+
 - Files in `overrides/` are **never deleted** during updates
 - They overlay on top of default plugin configs
 - Structure: `overrides/game/csgo/cfg/...` and `overrides/game/csgo/addons/...`
@@ -134,7 +146,7 @@ The `overrides/` folder contains custom configurations that are applied to all s
 **Server Ports** (increment by 10):
 
 | Server | Game  | GOTV  |
-|--------|-------|-------|
+| ------ | ----- | ----- |
 | 1      | 27015 | 27020 |
 | 2      | 27025 | 27030 |
 | 3      | 27035 | 27040 |
@@ -142,11 +154,13 @@ The `overrides/` folder contains custom configurations that are applied to all s
 **Default RCON:** `ntlan2025`
 
 **Custom Configs** — Place in `overrides/game/csgo/`:
+
 ```
 overrides/game/csgo/
 ├── cfg/MatchZy/
 └── addons/
 ```
+
 These persist through all updates.
 
 ---
@@ -154,16 +168,19 @@ These persist through all updates.
 ## 🐛 Troubleshooting
 
 **Server won't start:**
+
 ```bash
 sudo ./scripts/cs2_tmux.sh debug 1
 ```
 
 **Plugin errors:**
+
 ```bash
 ./manage.sh repair
 ```
 
 **Check logs:**
+
 ```bash
 sudo ./scripts/cs2_tmux.sh logs 1 100
 ```
@@ -193,9 +210,9 @@ cd cs2-server-manager
 
 ## 🔗 Links
 
-* [MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy)
-* [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)
-* [CounterStrikeSharp Docs](https://docs.cssharp.dev/)
+- [MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy)
+- [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)
+- [CounterStrikeSharp Docs](https://docs.cssharp.dev/)
 
 ---
 
