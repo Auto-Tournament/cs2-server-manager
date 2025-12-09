@@ -163,42 +163,12 @@
   border-left-width: 4px;
 }
 
-/* Ensure all links use accent color - using !important to override Material defaults */
-.md-typeset a {
+/* Only content links (markdown content) use accent color - exclude nav, buttons, etc. */
+.md-typeset a:not(.md-button):not(.md-nav__link):not(.md-header__button):not(.md-footer__link):not(.md-search-result__link) {
   color: #F07BA6 !important;
 }
 
-.md-typeset a:hover {
-  color: #F07BA6 !important;
-  opacity: 0.8;
-}
-
-/* Light mode links */
-:root .md-typeset a {
-  color: #F07BA6 !important;
-}
-
-:root .md-typeset a:hover {
-  color: #F07BA6 !important;
-  opacity: 0.8;
-}
-
-/* Dark mode links */
-[data-md-color-scheme="slate"] .md-typeset a {
-  color: #F07BA6 !important;
-}
-
-[data-md-color-scheme="slate"] .md-typeset a:hover {
-  color: #F07BA6 !important;
-  opacity: 0.8;
-}
-
-/* Override any other link selectors */
-a {
-  color: #F07BA6 !important;
-}
-
-a:hover {
+.md-typeset a:not(.md-button):not(.md-nav__link):not(.md-header__button):not(.md-footer__link):not(.md-search-result__link):hover {
   color: #F07BA6 !important;
   opacity: 0.8;
 }
