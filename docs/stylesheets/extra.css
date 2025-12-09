@@ -1,11 +1,12 @@
 /* Match the project's Material Design 3 Rosé theme */
 
-::root {
+:root {
   /* Light mode overrides */
   --md-primary-fg-color: #C65C82;        /* Rosé pink for light mode */
   --md-primary-fg-color--light: #F07BA6;
   --md-primary-fg-color--dark: #6B2F45;
   --md-accent-fg-color: #F07BA6;         /* Bright rosé pink for accents */
+  --md-typeset-a-color: var(--md-accent-fg-color);
 }
 
 [data-md-color-scheme="slate"] {
@@ -31,7 +32,7 @@
   --md-code-fg-color: #E6E1E5;
   
   /* Links - use bright rosé pink */
-  --md-typeset-a-color: #F07BA6;
+  --md-typeset-a-color: var(--md-accent-fg-color);
   
   /* Table of contents active item */
   --md-typeset-table-color: #2B2930;
