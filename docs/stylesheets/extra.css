@@ -1,4 +1,4 @@
-/* Match the project's Material Design 3 Rosé theme */
+/* Match the project's Material Design 3 CS2 Rosé theme */
 
 :root {
   /* Light mode overrides */
@@ -6,36 +6,36 @@
   --md-primary-fg-color--light: #F07BA6;
   --md-primary-fg-color--dark: #6B2F45;
   --md-accent-fg-color: #F07BA6;         /* Bright rosé pink for accents */
-  --md-typeset-a-color: var(--md-accent-fg-color);
+  --md-typeset-a-color: #F07BA6;         /* Links use accent rosé in light mode */
 }
 
 [data-md-color-scheme="slate"] {
-  /* Dark mode - match project exactly */
-  
-  /* Header/Navbar - truly dark background */
-  --md-primary-fg-color: #1C1B1F;        /* Dark background - same as body */
+  /* Dark mode */
+
+  /* Header/Navbar - dark rosé-tinted background */
+  --md-primary-fg-color: #1A1014;        /* Dark rosé-tinted background */
   --md-primary-fg-color--light: #FAD6E4;
   --md-primary-fg-color--dark: #0D0D0F;
   --md-primary-bg-color: #E6E1E5;
-  
-  /* Accent - bright rosé pink for links, buttons, active states */
-  --md-accent-fg-color: #F07BA6;         /* M3 Rosé primary - same as frontend */
+
+  /* Accent - bright rosé for links, buttons, active states */
+  --md-accent-fg-color: #F07BA6;         /* Rosé primary - same as frontend */
   --md-accent-fg-color--transparent: rgba(240, 123, 166, 0.1);
-  
-  /* Background colors to match project */
-  --md-default-bg-color: #1C1B1F;        /* Same as project background.default */
-  --md-default-fg-color: #E6E1E5;        /* Same as project text.primary */
-  --md-default-fg-color--light: #CAC4D0; /* Same as project text.secondary */
-  
-  /* Code block colors */
-  --md-code-bg-color: #2B2930;           /* Same as project paper background */
+
+  /* Background colors with rosé hue */
+  --md-default-bg-color: #1A1014;        /* Rosé-tinted dark background */
+  --md-default-fg-color: #E6E1E5;        /* Text primary */
+  --md-default-fg-color--light: #CAC4D0; /* Text secondary */
+
+  /* Code block colors with rosé hue */
+  --md-code-bg-color: #2A1820;           /* Rosé-tinted code background */
   --md-code-fg-color: #E6E1E5;
-  
-  /* Links - use bright rosé pink */
-  --md-typeset-a-color: var(--md-accent-fg-color);
-  
+
+  /* Links - use bright rosé */
+  --md-typeset-a-color: #F07BA6;
+
   /* Table of contents active item */
-  --md-typeset-table-color: #2B2930;
+  --md-typeset-table-color: #2A1820;
 }
 
 /* Enhanced rosé highlights for dark mode */
@@ -44,17 +44,17 @@
   .md-nav__link--active {
     color: #F07BA6 !important;
   }
-  
+
   /* Hover states */
   .md-nav__link:hover {
     color: #FAD6E4 !important;
   }
-  
+
   /* Search highlights */
   .md-search-result__meta {
-    background-color: #2B2930;
+    background-color: #2A1820;
   }
-  
+
   /* Admonition headers */
   .md-typeset .admonition-title {
     background-color: rgba(240, 123, 166, 0.1);
@@ -80,7 +80,7 @@
 
 [data-md-color-scheme="slate"] .md-button--primary {
   background-color: #F07BA6 !important;
-  color: #1C1B1F !important;
+  color: #1A1014 !important;
   border-color: #F07BA6 !important;
 }
 
@@ -111,6 +111,11 @@
   border-color: #FAD6E4 !important;
 }
 
+/* Additional rosé-tinted backgrounds */
+[data-md-color-scheme="slate"] .md-header {
+  background-color: #1A1014;
+}
+
 /* Logo styling */
 .md-header__button.md-logo img,
 .md-header__button.md-logo svg {
@@ -136,7 +141,7 @@
 
 /* Tabs styling */
 [data-md-color-scheme="slate"] .md-tabs {
-  background-color: #1C1B1F;
+  background-color: #1A1014;
   border-bottom: 0.05rem solid rgba(240, 123, 166, 0.1);
 }
 
@@ -156,4 +161,44 @@
 .md-typeset details {
   border-width: 0;
   border-left-width: 4px;
+}
+
+/* Ensure all links use accent color - using !important to override Material defaults */
+.md-typeset a {
+  color: #F07BA6 !important;
+}
+
+.md-typeset a:hover {
+  color: #F07BA6 !important;
+  opacity: 0.8;
+}
+
+/* Light mode links */
+:root .md-typeset a {
+  color: #F07BA6 !important;
+}
+
+:root .md-typeset a:hover {
+  color: #F07BA6 !important;
+  opacity: 0.8;
+}
+
+/* Dark mode links */
+[data-md-color-scheme="slate"] .md-typeset a {
+  color: #F07BA6 !important;
+}
+
+[data-md-color-scheme="slate"] .md-typeset a:hover {
+  color: #F07BA6 !important;
+  opacity: 0.8;
+}
+
+/* Override any other link selectors */
+a {
+  color: #F07BA6 !important;
+}
+
+a:hover {
+  color: #F07BA6 !important;
+  opacity: 0.8;
 }
