@@ -152,6 +152,9 @@ nav:
       - Configuration & Overrides: guides/configuration.md
       - Auto Updates: guides/auto-updates.md
       - Troubleshooting: guides/troubleshooting.md
+  - Related:
+      - MatchZy Auto Tournament: https://mat.sivert.io
+      - MatchZy Enhanced: https://me.sivert.io
 
 # Additional CSS
 extra_css:

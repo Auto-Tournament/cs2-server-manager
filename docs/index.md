@@ -6,6 +6,11 @@ title: CS2 Server Manager
 
 Automated multi-server management for Counter-Strike 2. Deploy multiple dedicated CS2 servers in minutes with competitive plugins, auto-updates, and tournament integration.
 
+Designed to work hand-in-hand with:
+
+- **[MatchZy Auto Tournament](https://mat.sivert.io)** – web UI and API for automated CS2 tournaments.
+- **[MatchZy Enhanced](https://me.sivert.io)** – enhanced MatchZy plugin for in-server automation.
+
 ## What it does
 
 - **Multi-server deployment**: Spin up 3–5 CS2 servers with a single command.
