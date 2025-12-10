@@ -51,4 +51,10 @@ See:
 - **Guides → Auto Updates** – how updates are handled behind the scenes.
 - **Guides → Troubleshooting** – common problems and fixes.
 
+---
 
+## License & credits
+
+<div align="center" markdown>
+
+MIT License • Made with :material-heart: for the CS2 community

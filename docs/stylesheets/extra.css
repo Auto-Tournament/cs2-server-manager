@@ -2,62 +2,62 @@
 
 :root {
   /* Light mode overrides */
-  --md-primary-fg-color: #C65C82;        /* Rosé pink for light mode */
-  --md-primary-fg-color--light: #F07BA6;
-  --md-primary-fg-color--dark: #6B2F45;
-  --md-accent-fg-color: #F07BA6;         /* Bright rosé pink for accents */
-  --md-typeset-a-color: #F07BA6;         /* Links use accent rosé in light mode */
+  --md-primary-fg-color: hsl(336, 47%, 57%);        /* Rosé pink for light mode (#C65C82) */
+  --md-primary-fg-color--light: hsl(334, 84%, 68%); /* #F07BA6 */
+  --md-primary-fg-color--dark: hsl(336, 37%, 30%);  /* #6B2F45 */
+  --md-accent-fg-color: hsl(334, 84%, 68%);         /* Bright rosé pink for accents (#F07BA6) */
+  --md-typeset-a-color: hsl(334, 84%, 68%);         /* Links use accent rosé in light mode (#F07BA6) */
 }
 
 [data-md-color-scheme="slate"] {
   /* Dark mode */
 
   /* Header/Navbar - dark rosé-tinted background */
-  --md-primary-fg-color: #1A1014;        /* Dark rosé-tinted background */
-  --md-primary-fg-color--light: #FAD6E4;
-  --md-primary-fg-color--dark: #0D0D0F;
-  --md-primary-bg-color: #E6E1E5;
+  --md-primary-fg-color: hsl(330, 26%, 8%);         /* Dark rosé-tinted background (#1A1014) */
+  --md-primary-fg-color--light: hsl(334, 71%, 89%); /* #FAD6E4 */
+  --md-primary-fg-color--dark: hsl(250, 7%, 5%) ;   /* #0D0D0F */
+  --md-primary-bg-color: hsl(289, 20%, 90%);        /* #E6E1E5 */
 
   /* Accent - bright rosé for links, buttons, active states */
-  --md-accent-fg-color: #F07BA6;         /* Rosé primary - same as frontend */
-  --md-accent-fg-color--transparent: rgba(240, 123, 166, 0.1);
+  --md-accent-fg-color: hsl(334, 84%, 68%);         /* Rosé primary - same as frontend (#F07BA6) */
+  --md-accent-fg-color--transparent: hsla(334, 84%, 68%, 0.1);
 
   /* Background colors with rosé hue */
-  --md-default-bg-color: #1A1014;        /* Rosé-tinted dark background */
-  --md-default-fg-color: #E6E1E5;        /* Text primary */
-  --md-default-fg-color--light: #CAC4D0; /* Text secondary */
+  --md-default-bg-color: hsl(330, 26%, 8%);         /* Rosé-tinted dark background (#1A1014) */
+  --md-default-fg-color: hsl(289, 20%, 90%);        /* Text primary (#E6E1E5) */
+  --md-default-fg-color--light: hsl(270, 15%, 76%); /* Text secondary (#CAC4D0) */
 
   /* Code block colors with rosé hue */
-  --md-code-bg-color: #2A1820;           /* Rosé-tinted code background */
-  --md-code-fg-color: #E6E1E5;
+  --md-code-bg-color: hsl(330, 24%, 14%);           /* Rosé-tinted code background (#2A1820) */
+  --md-code-fg-color: hsl(289, 20%, 90%);           /* #E6E1E5 */
 
   /* Links - use bright rosé */
-  --md-typeset-a-color: #F07BA6;
+  --md-typeset-a-color: hsl(334, 84%, 68%);         /* #F07BA6 */
 
   /* Table of contents active item */
-  --md-typeset-table-color: #2A1820;
+  --md-typeset-table-color: hsl(330, 24%, 14%);     /* #2A1820 */
 }
 
 /* Enhanced rosé highlights for dark mode */
 [data-md-color-scheme="slate"] {
   /* Sidebar active nav item */
   .md-nav__link--active {
-    color: #F07BA6 !important;
+    color: hsl(334, 84%, 68%) !important; /* #F07BA6 */
   }
 
   /* Hover states */
   .md-nav__link:hover {
-    color: #FAD6E4 !important;
+    color: hsl(334, 71%, 89%) !important; /* #FAD6E4 */
   }
 
   /* Search highlights */
   .md-search-result__meta {
-    background-color: #2A1820;
+    background-color: hsl(330, 24%, 14%);
   }
 
   /* Admonition headers */
   .md-typeset .admonition-title {
-    background-color: rgba(240, 123, 166, 0.1);
+    background-color: hsla(334, 84%, 68%, 0.1);
   }
 }
 
@@ -68,52 +68,52 @@
 
 /* Primary button - filled rosé */
 .md-button--primary {
-  background-color: #C65C82 !important;
+  background-color: hsl(336, 47%, 57%) !important; /* #C65C82 */
   color: white !important;
-  border-color: #C65C82 !important;
+  border-color: hsl(336, 47%, 57%) !important;     /* #C65C82 */
 }
 
 .md-button--primary:hover {
-  background-color: #D67296 !important;
-  border-color: #D67296 !important;
+  background-color: hsl(332, 55%, 65%) !important; /* #D67296 */
+  border-color: hsl(332, 55%, 65%) !important;     /* #D67296 */
 }
 
 [data-md-color-scheme="slate"] .md-button--primary {
-  background-color: #F07BA6 !important;
-  color: #1A1014 !important;
-  border-color: #F07BA6 !important;
+  background-color: hsl(334, 84%, 68%) !important; /* #F07BA6 */
+  color: hsl(330, 26%, 8%) !important;             /* #1A1014 */
+  border-color: hsl(334, 84%, 68%) !important;     /* #F07BA6 */
 }
 
 [data-md-color-scheme="slate"] .md-button--primary:hover {
   background-color: transparent !important;
-  color: #F07BA6 !important;
-  border-color: #F07BA6 !important;
+  color: hsl(334, 84%, 68%) !important;            /* #F07BA6 */
+  border-color: hsl(334, 84%, 68%) !important;     /* #F07BA6 */
 }
 
 /* Secondary button - outlined rosé */
 .md-button:not(.md-button--primary) {
-  color: #C65C82 !important;
-  border-color: #C65C82 !important;
+  color: hsl(336, 47%, 57%) !important;            /* #C65C82 */
+  border-color: hsl(336, 47%, 57%) !important;     /* #C65C82 */
 }
 
 .md-button:not(.md-button--primary):hover {
-  background-color: rgba(240, 123, 166, 0.1) !important;
-  border-color: #D67296 !important;
+  background-color: hsla(334, 84%, 68%, 0.1) !important;
+  border-color: hsl(332, 55%, 65%) !important;     /* #D67296 */
 }
 
 [data-md-color-scheme="slate"] .md-button:not(.md-button--primary) {
-  color: #F07BA6 !important;
-  border-color: #F07BA6 !important;
+  color: hsl(334, 84%, 68%) !important;            /* #F07BA6 */
+  border-color: hsl(334, 84%, 68%) !important;     /* #F07BA6 */
 }
 
 [data-md-color-scheme="slate"] .md-button:not(.md-button--primary):hover {
-  background-color: rgba(240, 123, 166, 0.1) !important;
-  border-color: #FAD6E4 !important;
+  background-color: hsla(334, 84%, 68%, 0.1) !important;
+  border-color: hsl(334, 71%, 89%) !important;     /* #FAD6E4 */
 }
 
 /* Additional rosé-tinted backgrounds */
 [data-md-color-scheme="slate"] .md-header {
-  background-color: #1A1014;
+  background-color: hsl(330, 26%, 8%);             /* #1A1014 */
 }
 
 /* Logo styling */
@@ -141,8 +141,8 @@
 
 /* Tabs styling */
 [data-md-color-scheme="slate"] .md-tabs {
-  background-color: #1A1014;
-  border-bottom: 0.05rem solid rgba(240, 123, 166, 0.1);
+  background-color: hsl(330, 26%, 8%);             /* #1A1014 */
+  border-bottom: 0.05rem solid hsla(334, 84%, 68%, 0.1);
 }
 
 /* Code blocks with subtle borders */
@@ -152,7 +152,7 @@
 
 /* Navigation path breadcrumbs */
 [data-md-color-scheme="slate"] .md-path {
-  color: #CAC4D0;
+  color: hsl(270, 15%, 76%);                       /* #CAC4D0 */
 }
 
 /* Admonition styling to match mkdocs-material style */
@@ -165,10 +165,10 @@
 
 /* Only content links (markdown content) use accent color - exclude nav, buttons, etc. */
 .md-typeset a:not(.md-button):not(.md-nav__link):not(.md-header__button):not(.md-footer__link):not(.md-search-result__link) {
-  color: #F07BA6 !important;
+  color: hsl(334, 84%, 68%) !important;            /* #F07BA6 */
 }
 
 .md-typeset a:not(.md-button):not(.md-nav__link):not(.md-header__button):not(.md-footer__link):not(.md-search-result__link):hover {
-  color: #F07BA6 !important;
+  color: hsl(334, 84%, 68%) !important;            /* #F07BA6 */
   opacity: 0.8;
 }
