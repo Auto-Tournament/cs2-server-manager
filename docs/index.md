@@ -1,5 +1,8 @@
 ---
 title: CS2 Server Manager
+hide:
+  - navigation
+  - toc
 ---
 
 # CS2 Server Manager
@@ -53,8 +56,23 @@ See:
 
 ---
 
+## Support
+
+- [GitHub Issues](https://github.com/sivert-io/cs2-server-manager/issues) – report bugs or request features.
+- [Discussions](https://github.com/sivert-io/cs2-server-manager/discussions) – ask questions and share ideas.
+- [Discord Community](https://discord.gg/n7gHYau7aW) – real-time support and chat with other hosts.
+
+## Related projects
+
+- [CS2 Server Manager](https://sivert-io.github.io/cs2-server-manager/) – multi-server CS2 deployment and management.
+- [MatchZy Auto Tournament](https://mat.sivert.io) – web UI and API for automated CS2 tournaments.
+- [MatchZy Enhanced](https://me.sivert.io) – enhanced MatchZy plugin for in-server automation.
+
+---
+
 ## License & credits
 
 <div align="center" markdown>
 
-MIT License • Made with :material-heart: for the CS2 community
+MIT License • Built on MatchZy • Made with :material-heart: for the CS2 community
+MIT License • Built on MatchZy • Made with :material-heart: for the CS2 community
