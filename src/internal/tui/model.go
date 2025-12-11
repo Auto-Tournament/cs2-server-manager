@@ -28,6 +28,7 @@ const (
 	itemInstallWizard
 	itemInstallDepsGo
 	itemUpdateNow
+	itemForceUpdateNow
 	itemServersStatusViewport
 	itemMatchzyDBViewport
 	itemLogsViewport
@@ -292,6 +293,11 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemPublicIPGo,
 			},
 			{
+				title:       "Force update CSM now (sudo)",
+				description: "",
+				kind:        itemForceUpdateNow,
+			},
+			{
 				title:       "Extract map thumbnails",
 				description: "",
 				kind:        itemExtractThumbnailsGo,
@@ -460,6 +466,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.updateProgress = progress.New(progress.WithDefaultGradient())
 					cmds = append(cmds, runSelfUpdate(m.latestVersion), m.spin.Tick)
 				}
+			case itemForceUpdateNow:
+				// Force update ignores the local cache TTL and always hits the
+				// GitHub API, then immediately runs the self-update if a newer
+				// version is available.
+				m.running = true
+				m.selfUpdating = false
+				m.status = "Forcing CSM update check (bypassing local cache)..."
+				m.lastOutput = ""
+				cmds = append(cmds, checkForUpdatesForce(), m.spin.Tick)
 			case itemInstallWizard:
 				m.view = viewInstallWizard
 				m.wizard.active = true
@@ -690,6 +705,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.rebuildItems()
 			}
 		}
+
+	case forceUpdateInfoMsg:
+		// Result of an explicit "Force update CSM now" action from Utilities.
+		if msg.err != nil {
+			m.running = false
+			m.selfUpdating = false
+			m.status = fmt.Sprintf("Force update check failed: %v", msg.err)
+			return m, tea.Batch(cmds...)
+		}
+
+		m.latestVersion = msg.latest
+		m.updateAvailable = isNewerVersion(m.version, msg.latest)
+
+		if !m.updateAvailable {
+			m.running = false
+			m.selfUpdating = false
+			m.status = fmt.Sprintf("CSM is already up to date (remote %s).", m.latestVersion)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Newer version available: immediately run the self-update with a
+		// proper progress bar.
+		m.selfUpdating = true
+		m.status = fmt.Sprintf("Updating CSM to %s...", m.latestVersion)
+		m.lastOutput = ""
+		m.updateProgress = progress.New(progress.WithDefaultGradient())
+		cmds = append(cmds, runSelfUpdate(m.latestVersion), m.spin.Tick)
+		return m, tea.Batch(cmds...)
 
 	case selfUpdateFinishedMsg:
 		m.running = false

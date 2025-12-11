@@ -21,11 +21,18 @@ type updateInfoMsg struct {
 // updateCacheTTL defines how long we trust a cached update check result before
 // hitting the GitHub API again. This helps avoid rate limits when the TUI is
 // opened/closed frequently.
-const updateCacheTTL = 10 * time.Minute
+const updateCacheTTL = 1 * time.Minute
 
 type updateCache struct {
 	Latest    string    `json:"latest"`
 	CheckedAt time.Time `json:"checked_at"`
+}
+
+// forceUpdateInfoMsg is used when the user explicitly triggers a "force
+// update" from the Utilities tab, bypassing the local cache TTL.
+type forceUpdateInfoMsg struct {
+	latest string
+	err    error
 }
 
 func checkForUpdates() tea.Cmd {
@@ -38,9 +45,28 @@ func checkForUpdates() tea.Cmd {
 	}
 }
 
+// checkForUpdatesForce bypasses the local cache TTL and always performs a
+// direct GitHub API check, while still updating the cache on success.
+func checkForUpdatesForce() tea.Cmd {
+	return func() tea.Msg {
+		latest, err := getCachedOrFetchLatestWithTTL(false)
+		if err != nil {
+			return forceUpdateInfoMsg{err: err}
+		}
+		return forceUpdateInfoMsg{latest: latest}
+	}
+}
+
 // getCachedOrFetchLatest returns the latest version tag, using a small cache on
 // disk to avoid hammering the GitHub API when the TUI is opened repeatedly.
 func getCachedOrFetchLatest() (string, error) {
+	return getCachedOrFetchLatestWithTTL(true)
+}
+
+// getCachedOrFetchLatestWithTTL is the internal implementation that optionally
+// honours the cache TTL. When useTTL is false we always perform a fresh GitHub
+// check (while still updating the cache on success).
+func getCachedOrFetchLatestWithTTL(useTTL bool) (string, error) {
 	cachePath := updateCachePath()
 
 	// Try cached value first.
@@ -48,7 +74,7 @@ func getCachedOrFetchLatest() (string, error) {
 	if cachePath != "" {
 		if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 {
 			if err := json.Unmarshal(data, &cached); err == nil && cached.Latest != "" && !cached.CheckedAt.IsZero() {
-				if time.Since(cached.CheckedAt) < updateCacheTTL {
+				if useTTL && time.Since(cached.CheckedAt) < updateCacheTTL {
 					return cached.Latest, nil
 				}
 			}
