@@ -9,22 +9,16 @@ This guide gets you from zero to running CS2 servers in a few minutes.
 - **Docker** installed and running (for MySQL and supporting services).
 - **Enough resources** for multiple CS2 servers (CPU, RAM, and disk).
 
-## 1. Download and run the installer
+## 1. Download CSM and run the installer wizard
 
-From your target server:
-
-```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
-```
-
-To run fully unattended with 5 servers:
+From your target server, download the latest **prebuilt `csm` binary** from GitHub Releases and run it. The installer is a guided form built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [huh](https://github.com/charmbracelet/huh), so you can navigate with arrows and confirm with Enter:
 
 ```bash
-bash install.sh --auto --servers 5
+chmod +x csm
+sudo ./csm            # launches the interactive TUI installer
 ```
 
-The installer will:
+The installer wizard will:
 
 - Install required system dependencies.
 - Download CS2 server files.
@@ -32,33 +26,28 @@ The installer will:
 - Install Metamod, CounterStrikeSharp, MatchZy, and AutoUpdater.
 - Configure multiple CS2 instances with sane defaults.
 
-## 2. Use the management menu
+## 2. Use the CSM TUI
 
-Once installation completes, manage everything with:
+Once installation completes, you can re-open the TUI at any time with `./csm` (or rebuild locally via `./scripts/start.sh`).
 
-```bash
-./manage.sh
-```
+From the TUI you can:
 
-From the menu you can:
+- Install or repair servers (wizard).
+- Start/stop/restart all servers.
+- Check status and logs.
+- Run game/plugin updates.
 
-- Install or repair servers.
-- Start/stop all servers.
-- Check status.
-- Run updates.
+## 3. Common CLI one-liners
 
-## 3. Common one-liners
-
-These commands are shortcuts around the menu:
+These commands are shortcuts around the TUI:
 
 ```bash
-./manage.sh install          # Install servers
-./manage.sh start            # Start all servers
-./manage.sh stop             # Stop all servers
-./manage.sh status           # Check status
-./manage.sh update-game      # Update CS2
-./manage.sh update-plugins   # Update plugins
-./manage.sh repair           # Fix issues
+./csm install-deps           # Install core system dependencies (run with sudo)
+./csm status                 # Check tmux status
+./csm update-game            # Update CS2
+./csm update-plugins         # Update plugins
+./csm monitor                # Run one monitor iteration
+./csm install-monitor-cron   # Install cron-based auto-update monitor
 ```
 
 ## 4. Next steps
@@ -66,14 +55,3 @@ These commands are shortcuts around the menu:
 - See **Guides → Managing Servers** for day-to-day operations.
 - See **Guides → Configuration & Overrides** to customize configs before or after installation.
 - See **Guides → Auto Updates** to understand how updates are handled.
-
-{
-"cells": [],
-"metadata": {
-"language_info": {
-"name": "python"
-}
-},
-"nbformat": 4,
-"nbformat_minor": 2
-}

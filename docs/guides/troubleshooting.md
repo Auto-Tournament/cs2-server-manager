@@ -7,7 +7,7 @@ This page collects common issues and how to diagnose them.
 Run the server in debug mode to see full console output:
 
 ```bash
-sudo ./scripts/cs2_tmux.sh debug 1
+sudo ./csm debug 1
 ```
 
 Check for:
@@ -18,16 +18,16 @@ Check for:
 
 ## Plugin errors or crashes
 
-First, try the built-in repair:
+First, refresh plugins across all servers:
 
 ```bash
-./manage.sh repair
+./csm update-plugins
 ```
 
 Then check logs:
 
 ```bash
-sudo ./scripts/cs2_tmux.sh logs 1 200
+sudo ./csm logs 1 200
 ```
 
 Look in the CounterStrikeSharp logs under each server’s `game/csgo/addons/counterstrikesharp/logs` directory for stack traces or error messages.
@@ -42,7 +42,7 @@ sudo tail -n 200 /var/log/cs2_auto_update_monitor.log
 ```
 
 - Confirm the AutoUpdater plugin is actually shutting servers down on updates.
-- Run `./manage.sh update-game` manually to confirm updates work outside the monitor.
+-- Run `./csm update-game` manually to confirm updates work outside the monitor.
 
 ## Can’t connect to server
 
@@ -52,15 +52,14 @@ Check:
 - That the server is running:
 
 ```bash
-./manage.sh status
-sudo ./scripts/cs2_tmux.sh status
+./csm status
 ```
 
 - Any errors in the server console or logs.
 
 ## When in doubt
 
-- Re-run the installer or `./manage.sh install` to repair a broken installation.
+- Re-run the installer (see Quick Start) or use the TUI install wizard to repair a broken installation.
 - Temporarily remove custom overrides to see if a config change is causing the problem.
 - Use `debug` mode on a single server until it runs cleanly, then roll changes out to others.
 

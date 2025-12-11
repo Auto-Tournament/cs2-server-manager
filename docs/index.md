@@ -27,23 +27,15 @@ Designed to work hand-in-hand with:
 For most users, this is all you need:
 
 ```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
-```
-
-For automated installs (no prompts):
-
-```bash
-bash install.sh --auto --servers 5
+chmod +x csm
+sudo ./csm            # launches the interactive TUI installer
 ```
 
 Read the **Getting Started** section for a full walkthrough.
 
 ## Project layout
 
-- `install.sh` – one-shot installer for CS2 servers and required dependencies.
-- `manage.sh` – main CLI for installing, starting, stopping, and repairing servers.
-- `scripts/` – supporting utilities (`cs2_tmux.sh`, update helpers, etc.).
+- `scripts/` – dev/ops helper scripts (TUI launcher, release tooling, optional webhooks).
 - `overrides/` – your persistent game and plugin configuration.
 
 See:

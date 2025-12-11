@@ -1,3 +1,18 @@
+build/
+dist/
+
+# Local binaries
+csm
+csm.exe
+csm-linux-*
+csm-darwin-*
+csm-windows-*
+
+# OS/editor noise
+.DS_Store
+*.swp
+*.swo
+
 # Data directories with permission issues
 data/logs/
 data/tmp/

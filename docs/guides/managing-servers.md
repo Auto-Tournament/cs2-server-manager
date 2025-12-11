@@ -2,52 +2,50 @@
 
 This guide covers everyday operations: starting, stopping, and inspecting your CS2 servers.
 
-## Using `manage.sh`
+## Using `csm`
 
-The main entrypoint for managing servers is `manage.sh`:
+The main entrypoint for managing servers is the `csm` binary:
 
 ```bash
-./manage.sh
+./csm            # Launch interactive TUI (non-privileged actions)
+sudo ./csm       # Launch TUI with sudo for privileged actions (cron, cleanup, etc.)
+./csm status     # Show tmux status in the CLI
 ```
 
-From the interactive menu you can:
-
-- **Install servers** (initial setup or repair).
-- **Start / stop all servers**.
-- **Check status**.
-- **Run game or plugin updates**.
-
-You can also call common actions directly:
+Common CLI commands:
 
 ```bash
-./manage.sh install          # Install servers
-./manage.sh start            # Start all servers
-./manage.sh stop             # Stop all servers
-./manage.sh status           # Check status
-./manage.sh update-game      # Update CS2
-./manage.sh update-plugins   # Update plugins
-./manage.sh repair           # Fix issues
+./csm install-deps           # Install core system dependencies (run with sudo)
+./csm bootstrap              # Install/redeploy servers (reads env for options)
+./csm start                  # Start all servers
+./csm stop                   # Stop all servers
+./csm restart                # Restart all servers
+./csm update-game            # Update CS2 game files
+./csm update-plugins         # Update plugins (download + deploy)
+./csm monitor                # Run one iteration of the auto-update monitor
+./csm install-monitor-cron   # Install cron-based auto-update monitor (run with sudo)
+./csm cleanup-all            # Danger: remove all CS2 data and user (run with sudo)
 ```
 
-## Using `cs2_tmux.sh` for consoles and logs
+## Using `csm` for consoles and logs
 
-Servers run inside tmux sessions for easy console access. The helper script lives in `scripts/cs2_tmux.sh`:
+Servers run inside tmux sessions for easy console access. The `csm` binary provides convenient helpers:
 
 ```bash
-sudo ./scripts/cs2_tmux.sh status      # See all server sessions
-sudo ./scripts/cs2_tmux.sh attach 1    # Attach to server 1 console
-sudo ./scripts/cs2_tmux.sh logs 1 100  # Show last 100 lines of console output
+sudo ./csm status          # See all server sessions
+sudo ./csm attach 1        # Attach to server 1 console
+sudo ./csm logs 1 100      # Show last 100 lines of console output
 ```
 
 Other useful commands:
 
 ```bash
-sudo ./scripts/cs2_tmux.sh start          # Start all servers
-sudo ./scripts/cs2_tmux.sh start 1        # Start server 1 only
-sudo ./scripts/cs2_tmux.sh stop 2         # Stop server 2
-sudo ./scripts/cs2_tmux.sh restart 3      # Restart server 3
-sudo ./scripts/cs2_tmux.sh list           # List all tmux sessions
-sudo ./scripts/cs2_tmux.sh debug 1        # Run server 1 in foreground for debugging
+sudo ./csm start           # Start all servers
+sudo ./csm start 1         # Start server 1 only
+sudo ./csm stop 2          # Stop server 2
+sudo ./csm restart 3       # Restart server 3
+sudo ./csm list-sessions   # List all tmux sessions
+sudo ./csm debug 1         # Run server 1 in foreground for debugging
 ```
 
 When attached to a tmux session:

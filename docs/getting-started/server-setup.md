@@ -1,6 +1,6 @@
 # Server Setup
 
-This page explains how to prepare a machine for CS2 Server Manager and what the installation script expects.
+This page explains how to prepare a machine for CS2 Server Manager and what the `csm` installer expects.
 
 ## System requirements
 
@@ -12,7 +12,7 @@ This page explains how to prepare a machine for CS2 Server Manager and what the 
 
 ## Required packages
 
-The installer will attempt to install most dependencies for you, but in locked-down environments you may need to do it manually:
+The interactive installer wizard in `csm` will attempt to install most dependencies for you, but in locked-down environments you may need to do it manually:
 
 ```bash
 sudo apt-get update
@@ -49,15 +49,4 @@ See **Guides → Configuration & Overrides** for details on how overrides work.
 
 ## Running the installer
 
-Once prerequisites are in place, follow **Getting Started → Quick Start** to run the installer script and bring up your first servers.
-
-{
-"cells": [],
-"metadata": {
-"language_info": {
-"name": "python"
-}
-},
-"nbformat": 4,
-"nbformat_minor": 2
-}
+Once prerequisites are in place, follow **Getting Started → Quick Start** to run the `csm` installer wizard and bring up your first servers.

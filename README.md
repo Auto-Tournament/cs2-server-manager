@@ -18,18 +18,12 @@
 
 ## 🚀 Quick Start
 
-```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
-```
-
-**Automated install:**
+Download the latest **prebuilt `csm` binary** from the GitHub Releases page and copy it to your server, then:
 
 ```bash
-bash install.sh --auto --servers 5
+chmod +x csm
+./csm              # launches the interactive TUI
 ```
-
-**That's it!** Servers will be installed, configured, and started automatically.
 
 ---
 
@@ -45,32 +39,47 @@ bash install.sh --auto --servers 5
 
 ---
 
-## 🎮 Usage
+## 🎮 Usage (CSM CLI + TUI)
 
-### Interactive Menu
+### Interactive TUI (recommended)
+
+Use the Bubble Tea–based TUI to manage everything:
 
 ```bash
-./manage.sh
+./scripts/start.sh          # builds and runs the CSM (CS2 Server Manager) TUI
+
+# or manually:
+go build -o csm ./src/cmd/cs2-tui
+./csm
 ```
 
-### Quick Commands
+The TUI handles installs, status, start/stop/restart, updates, and more using the [Bubble Tea](https://github.com/charmbracelet/bubbletea) Go framework.
+
+### CLI commands (non-interactive)
+
+Once `csm` is built or downloaded, you can also use it directly:
 
 ```bash
-./manage.sh install          # Install servers
-./manage.sh start            # Start all
-./manage.sh stop             # Stop all
-./manage.sh status           # Check status
-./manage.sh update-game      # Update CS2
-./manage.sh update-plugins   # Update plugins
-./manage.sh repair           # Fix issues
+./csm install-deps           # Install core system dependencies (run with sudo)
+./csm bootstrap              # Install/redeploy servers (reads env for options, run with sudo)
+./csm status                 # Tmux status overview
+./csm start                  # Start all servers
+./csm stop                   # Stop all servers
+./csm restart                # Restart all servers
+./csm update-game            # Update CS2 game files
+./csm update-plugins         # Update plugins (download + deploy)
+./csm monitor                # Run one iteration of the auto-update monitor
+./csm install-monitor-cron   # Install cron-based auto-update monitor
+./csm cleanup-all            # Danger: remove all CS2 data and user
+./csm public-ip              # Print public IP
 ```
 
 ### Debug & Logs
 
 ```bash
-sudo ./scripts/cs2_tmux.sh attach 1    # Attach to console
-sudo ./scripts/cs2_tmux.sh debug 1     # Debug mode
-sudo ./scripts/cs2_tmux.sh logs 1 100  # View logs
+sudo ./csm attach 1       # Attach to server 1 console (tmux)
+sudo ./csm debug 1        # Run server 1 in foreground (debug mode)
+sudo ./csm logs 1 100     # View last 100 lines of server 1 logs
 ```
 
 ---
@@ -107,30 +116,20 @@ sudo tail -f /var/log/cs2_auto_update_monitor.log
 
 ### Installation Methods
 
-**Option 1: Quick Install (Recommended for most users)**
+**Option 1: Download prebuilt binary (recommended)**
 
 ```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
+chmod +x csm
+sudo ./csm            # launches the interactive TUI installer
 ```
 
-Uses the default `overrides/` folder from the repository.
-
-**Option 2: Quick Install with Custom Overrides**
-
-```bash
-bash install.sh --auto --overrides /path/to/your-overrides
-```
-
-Use your own overrides directory (must have same structure as `overrides/game/`).
-
-**Option 3: Git Clone & Customize (Recommended for advanced users)**
+**Option 2: Git Clone & Customize (Recommended for advanced users)**
 
 ```bash
 git clone https://github.com/sivert-io/cs2-server-manager.git
 cd cs2-server-manager
 # Edit overrides/ folder as needed
-./manage.sh install
+./scripts/start.sh          # or: go build -o csm ./src/cmd/cs2-tui && ./csm
 ```
 
 Best for users who want to customize configs before installation or maintain their own fork.
@@ -170,19 +169,19 @@ These persist through all updates.
 **Server won't start:**
 
 ```bash
-sudo ./scripts/cs2_tmux.sh debug 1
+sudo ./csm debug 1
 ```
 
 **Plugin errors:**
 
 ```bash
-./manage.sh repair
+./csm update-plugins
 ```
 
 **Check logs:**
 
 ```bash
-sudo ./scripts/cs2_tmux.sh logs 1 100
+sudo ./csm logs 1 100
 ```
 
 ---
@@ -202,8 +201,8 @@ sudo apt-get install -y lib32gcc-s1 lib32stdc++6 steamcmd tmux curl jq unzip tar
 git clone https://github.com/sivert-io/cs2-server-manager.git
 cd cs2-server-manager
 
-# Run installer
-./manage.sh
+# Run TUI/CLI after cloning
+./scripts/start.sh         # or: go build -o csm ./src/cmd/cs2-tui && ./csm
 ```
 
 ---
