@@ -105,7 +105,38 @@ RELEASE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/tag/${CURREN
 # Build Discord payload
 echo -e "${BLUE}Preparing Discord payload...${NC}"
 
-PAYLOAD=$(cat <<EOF
+if command -v jq >/dev/null 2>&1; then
+  PAYLOAD=$(jq -n \
+    --arg tag "$CURRENT_TAG" \
+    --arg ver "$NEW_VERSION" \
+    --arg changelog "$CHANGELOG" \
+    --arg url "$RELEASE_URL" \
+    '{
+      content: ("🚀 **New CSM release: " + $tag + "**"),
+      embeds: [{
+        title: ("CS2 Server Manager " + $tag),
+        description: "A new version of CSM has been released.",
+        color: 3066993,
+        fields: [
+          {
+            name: "📦 Changelog (recent commits)",
+            value: $changelog,
+            inline: false
+          },
+          {
+            name: "🔗 GitHub Release",
+            value: ("[View Release](" + $url + ")"),
+            inline: true
+          }
+        ]
+      }]
+    }')
+else
+  # Fallback: minimal manual JSON construction with basic escaping.
+  ESC_CHANGELOG=$(printf '%s' "$CHANGELOG" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  ESC_CHANGELOG=${ESC_CHANGELOG//$'\n'/'\\n'}
+
+  PAYLOAD=$(cat <<EOF
 {
   "content": "🚀 **New CSM release: v${NEW_VERSION}**",
   "embeds": [{
@@ -115,7 +146,7 @@ PAYLOAD=$(cat <<EOF
     "fields": [
       {
         "name": "📦 Changelog (recent commits)",
-        "value": "$(printf '%s' "$CHANGELOG" | sed 's/"/\\"/g')",
+        "value": "${ESC_CHANGELOG}",
         "inline": false
       },
       {
@@ -128,6 +159,7 @@ PAYLOAD=$(cat <<EOF
 }
 EOF
 )
+fi
 
 echo -e "${BLUE}Sending webhook to Discord...${NC}"
 
