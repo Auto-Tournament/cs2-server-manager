@@ -511,8 +511,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if m.updateAvailable {
 				updateItem := menuItem{
-					title:       fmt.Sprintf("Update CSM to %s now", m.latestVersion),
-					description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s).", m.version, m.latestVersion),
+					title:       fmt.Sprintf("Update CSM to %s now (sudo)", m.latestVersion),
+					description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s). May require sudo if installed globally.", m.version, m.latestVersion),
 					kind:        itemUpdateNow,
 				}
 				// Prepend update item to the existing menu.

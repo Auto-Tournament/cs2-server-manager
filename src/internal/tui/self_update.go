@@ -24,6 +24,35 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 			return selfUpdateFinishedMsg{newVersion: "", err: err}
 		}
 
+		exePath, err := os.Executable()
+		if err != nil {
+			return selfUpdateFinishedMsg{newVersion: "", err: err}
+		}
+
+		// Write to a temporary file in the same directory, then atomically replace.
+		dir := filepath.Dir(exePath)
+		tmpPath := filepath.Join(dir, ".csm.tmp")
+
+		// Pre-flight permission check: if we can't create a temp file next to the
+		// binary (e.g. global install in /usr/local/bin), surface a friendly
+		// message so users know they should rerun with sudo or update manually.
+		if f, err := os.CreateTemp(dir, ".csm-perm-check-*"); err != nil {
+			return selfUpdateFinishedMsg{
+				newVersion: "",
+				err: fmt.Errorf(
+					"CSM cannot write to %s to perform a self-update.\n\n"+
+						"If CSM is installed globally (for example in /usr/local/bin), "+
+						"please restart it with sudo and run the update again:\n\n"+
+						"  sudo csm\n\n"+
+						"Alternatively, download the new binary from GitHub Releases and replace it manually.",
+					dir,
+				),
+			}
+		} else {
+			f.Close()
+			_ = os.Remove(f.Name())
+		}
+
 		url := fmt.Sprintf("https://github.com/sivert-io/cs2-server-manager/releases/download/%s/%s", targetVersion, asset)
 
 		client := http.Client{Timeout: 30 * time.Second}
@@ -36,15 +65,6 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 		if resp.StatusCode != http.StatusOK {
 			return selfUpdateFinishedMsg{newVersion: "", err: fmt.Errorf("download failed with status %d", resp.StatusCode)}
 		}
-
-		exePath, err := os.Executable()
-		if err != nil {
-			return selfUpdateFinishedMsg{newVersion: "", err: err}
-		}
-
-		// Write to a temporary file in the same directory, then atomically replace.
-		dir := filepath.Dir(exePath)
-		tmpPath := filepath.Join(dir, ".csm.tmp")
 
 		f, err := os.Create(tmpPath)
 		if err != nil {
