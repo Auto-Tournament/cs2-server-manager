@@ -405,6 +405,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.wizard.active = false
 				m.wizard.reviewing = false
 				m.status = "Select an action and press Enter to run it."
+				m.confirmQuit = false
 				return m, nil
 			case "ctrl+c":
 				if !m.confirmQuit {
@@ -414,6 +415,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Quit
 			default:
+				// Any other key breaks a pending quit sequence; require
+				// consecutive Ctrl+C presses.
+				if m.confirmQuit {
+					m.confirmQuit = false
+				}
 				var cmd tea.Cmd
 				m, cmd = m.updateInstallWizard(msg)
 				cmds = append(cmds, cmd)
@@ -442,11 +448,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// the current operation running.
 				if m.confirmQuit {
 					m.confirmQuit = false
-					// Don't overwrite more specific status messages; just
-					// clear the confirmation.
 				}
 				return m, tea.Batch(cmds...)
 			default:
+				// Any other key breaks a pending quit sequence; require
+				// consecutive Q/Ctrl+C presses.
+				if m.confirmQuit {
+					m.confirmQuit = false
+				}
 				return m, tea.Batch(cmds...)
 			}
 		}
@@ -490,7 +499,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// command is running.
 			if m.confirmQuit {
 				m.confirmQuit = false
-				// Don't overwrite any more specific status; just clear the flag.
 			}
 			return m, tea.Batch(cmds...)
 
@@ -499,12 +507,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tab--
 				m.rebuildItems()
 				m.cursor = 0
+				// Switching tabs clears the last output section to reduce
+				// cross-page noise.
+				m.lastOutput = ""
+				if m.confirmQuit {
+					m.confirmQuit = false
+				}
 			}
 		case "right", "l":
 			if m.view == viewMain && m.tab < tabUtilities {
 				m.tab++
 				m.rebuildItems()
 				m.cursor = 0
+				m.lastOutput = ""
+				if m.confirmQuit {
+					m.confirmQuit = false
+				}
 			}
 		case "up", "k":
 			if m.cursor > 0 {
