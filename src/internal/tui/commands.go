@@ -215,4 +215,21 @@ func runInstallDepsGo() tea.Cmd {
 	}
 }
 
+// runExtractThumbnailsGo runs the Go-based map thumbnail extraction pipeline.
+// It mirrors the old VPK + thumbnail scripts and writes PNGs into
+// map_thumbnails/ under the current working directory.
+func runExtractThumbnailsGo() tea.Cmd {
+	return func() tea.Msg {
+		out, err := csm.ExtractMapThumbnails()
+		return commandFinishedMsg{
+			item: menuItem{
+				title: "Extract map thumbnails",
+				kind:  itemExtractThumbnailsGo,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
 

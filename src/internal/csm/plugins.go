@@ -407,8 +407,7 @@ func (u *PluginUpdater) downloadCS2AutoUpdater(w io.Writer, dryRun bool) error {
 		} `json:"assets"`
 	}
 
-	api := "https://api.github.com/repos/dran1-io/dran1" // placeholder
-	api = "https://api.github.com/repos/dran1/CS2-AutoUpdater/releases/latest"
+	api := "https://api.github.com/repos/dran1x/CS2-AutoUpdater/releases/latest"
 
 	if dryRun {
 		logf(w, "[DRY-RUN] Would query %s\n", api)

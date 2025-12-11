@@ -37,6 +37,7 @@ const (
 	itemStopAllGo
 	itemRestartAllGo
 	itemPublicIPGo
+	itemExtractThumbnailsGo
 )
 
 // top-level tabs for grouping actions
@@ -225,6 +226,11 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "",
 				kind:        itemPublicIPGo,
 			},
+			{
+				title:       "Extract map thumbnails",
+				description: "",
+				kind:        itemExtractThumbnailsGo,
+			},
 		}
 	default:
 		return nil
@@ -290,6 +296,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 
+		// While a command is running (e.g. install wizard, updates), lock the UI
+		// so the user can't navigate to other tabs or trigger new actions.
+		// Allow quitting with ctrl+c or q.
+		if m.running {
+			switch msg.String() {
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			default:
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 		if m.view == viewLogsPrompt {
 			var cmd tea.Cmd
 			m, cmd = m.updateLogsPromptKey(msg)
@@ -313,8 +331,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
 		case "left", "h":
 			if m.view == viewMain && m.tab > tabSetup {
 				m.tab--
@@ -413,6 +429,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Resolving public IP..."
 				m.lastOutput = ""
 				cmds = append(cmds, runPublicIP(), m.spin.Tick)
+			case itemExtractThumbnailsGo:
+				m.running = true
+				m.status = "Extracting and converting map thumbnails..."
+				m.lastOutput = ""
+				cmds = append(cmds, runExtractThumbnailsGo(), m.spin.Tick)
 			case itemRunCommand:
 				m.running = true
 				m.status = fmt.Sprintf("Running: %s ...", selected.title)
@@ -531,13 +552,17 @@ func (m model) View() string {
 	fmt.Fprintln(&b, headerBorderStyle.Render(titleStyle.Render("CS2 Server Manager")))
 	fmt.Fprintln(&b)
 
-	// Tab bar
+	// Tab bar (disabled visually while a command is running).
 	tabs := []string{"Setup", "Servers", "Maintenance", "Utilities"}
 	var tabParts []string
 	for i, name := range tabs {
 		style := tabInactiveStyle
 		if tab(i) == m.tab {
 			style = tabActiveStyle
+		}
+		if m.running {
+			// Dim the tabs slightly when locked.
+			style = style.Faint(true)
 		}
 		tabParts = append(tabParts, style.Render(name))
 	}
@@ -556,15 +581,21 @@ func (m model) View() string {
 
 	// Menu list.
 	for i, item := range m.items {
-		selected := m.cursor == i
+		selected := m.cursor == i && !m.running
 
 		label := item.title
 		lineStyle := menuItemStyle
-		if m.cursor == i {
+		if selected {
 			lineStyle = menuSelectedStyle
 		}
 		checkbox := checkboxStyle.Render("[x] ")
 		if !selected {
+			checkbox = subtleStyle.Render("[ ] ")
+		}
+
+		if m.running {
+			// When locked, make the whole menu look disabled.
+			lineStyle = lineStyle.Faint(true)
 			checkbox = subtleStyle.Render("[ ] ")
 		}
 

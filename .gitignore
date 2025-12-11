@@ -53,3 +53,8 @@ game_files/
 extracted_csgo/
 
 .env
+
+# Ensure Go source under src/internal is always tracked (even if a global
+# gitignore or exclude file ignores "internal" or similar patterns).
+!src/internal/
+!src/internal/**
