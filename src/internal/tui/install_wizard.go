@@ -291,7 +291,7 @@ func runInstallFromWizard(cfg installConfig) tea.Cmd {
 				logs = append(logs, out)
 				logs = append(logs, fmt.Sprintf("Plugin download failed: %v", err))
 				return commandFinishedMsg{
-					item:   menuItem{title: "Install wizard"},
+					item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
 					output: strings.Join(logs, "\n"),
 					err:    err,
 				}
@@ -320,7 +320,7 @@ func runInstallFromWizard(cfg installConfig) tea.Cmd {
 			logs = append(logs, out)
 			logs = append(logs, fmt.Sprintf("Bootstrap failed: %v", err))
 			return commandFinishedMsg{
-				item:   menuItem{title: "Install wizard"},
+				item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
 				output: strings.Join(logs, "\n"),
 				err:    err,
 			}
@@ -335,7 +335,7 @@ func runInstallFromWizard(cfg installConfig) tea.Cmd {
 			logs = append(logs, fmt.Sprintf("Auto-update monitor setup failed: %v", err))
 			// Non-fatal for install, but we do propagate the error.
 			return commandFinishedMsg{
-				item:   menuItem{title: "Install wizard"},
+				item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
 				output: strings.Join(logs, "\n"),
 				err:    err,
 			}
@@ -357,7 +357,7 @@ func runInstallFromWizard(cfg installConfig) tea.Cmd {
 		if err := manager.StartAll(); err != nil {
 			logs = append(logs, fmt.Sprintf("Failed to start servers: %v", err))
 			return commandFinishedMsg{
-				item:   menuItem{title: "Install wizard"},
+				item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
 				output: strings.Join(logs, "\n"),
 				err:    err,
 			}
@@ -365,7 +365,7 @@ func runInstallFromWizard(cfg installConfig) tea.Cmd {
 		logs = append(logs, "All servers started via tmux.")
 
 		return commandFinishedMsg{
-			item:   menuItem{title: "Install wizard"},
+			item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
 			output: strings.Join(logs, "\n"),
 			err:    err,
 		}

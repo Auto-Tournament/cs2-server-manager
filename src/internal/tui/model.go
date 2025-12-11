@@ -468,10 +468,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			out := strings.TrimSpace(msg.output)
 
 			if out != "" {
-				// Truncate output to last ~24 lines to keep the view readable.
 				lines := strings.Split(out, "\n")
-				if len(lines) > 24 {
-					lines = lines[len(lines)-24:]
+
+				// For the install wizard, keep the log view tight: show only the
+				// last 3 lines so the UI doesn't get flooded, while still giving
+				// the user a sense of what happened.
+				maxLines := 24
+				if msg.item.kind == itemInstallWizard {
+					maxLines = 3
+				}
+				if len(lines) > maxLines {
+					lines = lines[len(lines)-maxLines:]
 				}
 				m.lastOutput = strings.Join(lines, "\n")
 			} else {
