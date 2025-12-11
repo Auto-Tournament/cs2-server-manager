@@ -49,6 +49,20 @@ git_commit_and_tag() {
   else
     echo "[csm] git tag ${tag} failed (maybe it already exists); continuing."
   fi
+
+  # Push the commit and tag to the default remote (origin) unless disabled.
+  if [[ "${CSM_SKIP_GIT_PUSH:-false}" == "true" ]]; then
+    echo "[csm] Skipping git push (CSM_SKIP_GIT_PUSH=true)."
+    return 0
+  fi
+
+  if git rev-parse --git-dir >/dev/null 2>&1; then
+    echo "[csm] Pushing commit and tag ${tag} to origin..."
+    # Push the current branch and the tag; ignore errors but warn.
+    if ! git push origin HEAD --follow-tags; then
+      echo "[csm] Warning: git push origin HEAD --follow-tags failed."
+    fi
+  fi
 }
 
 if [[ "$MODE" =~ ^(patch|minor|major)$ ]]; then
@@ -179,13 +193,13 @@ fi
 # Optional Discord webhook notification via scripts/discord-webhook.sh.
 # Configure DISCORD_WEBHOOK_URL in .env at the project root.
 if [[ "$CSM_DRY_RUN" != "true" && "${CSM_SKIP_DISCORD:-false}" != "true" ]]; then
-  if [[ -x "./scripts/discord-webhook.sh" ]]; then
+  if [[ -f "./scripts/discord-webhook.sh" ]]; then
     echo "[csm] Sending Discord notification for ${TAG}..."
-    if ! ./scripts/discord-webhook.sh "${TAG}"; then
+    if ! bash ./scripts/discord-webhook.sh "${TAG}"; then
       echo "[csm] Warning: Discord webhook script failed."
     fi
   else
-    echo "[csm] Skipping Discord webhook: scripts/discord-webhook.sh not found or not executable."
+    echo "[csm] Skipping Discord webhook: scripts/discord-webhook.sh not found."
   fi
 fi
 
