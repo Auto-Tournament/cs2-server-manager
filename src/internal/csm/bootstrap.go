@@ -276,12 +276,38 @@ steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 `, masterDir)
 
 	cmd := exec.Command("su", "-", cfg.CS2User, "-c", script)
-	out, err := cmd.CombinedOutput()
-	if len(out) > 0 {
-		fmt.Fprintln(w, string(out))
-	}
-	if err != nil {
-		return fmt.Errorf("steamcmd failed: %w", err)
+
+	// If CSM_BOOTSTRAP_LOG is set, stream steamcmd output into that file so
+	// the TUI can show a live tail while the install is running.
+	if logPath, ok := os.LookupEnv("CSM_BOOTSTRAP_LOG"); ok && logPath != "" {
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err == nil {
+			defer f.Close()
+			tw := &teeWriter{buf: w, file: f}
+			cmd.Stdout = tw
+			cmd.Stderr = tw
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("steamcmd failed: %w", err)
+			}
+		} else {
+			// Fall back to non-streaming mode if we can't open the log file.
+			out, err := cmd.CombinedOutput()
+			if len(out) > 0 {
+				fmt.Fprintln(w, string(out))
+			}
+			if err != nil {
+				return fmt.Errorf("steamcmd failed: %w", err)
+			}
+		}
+	} else {
+		// No streaming requested; just run and capture the full output.
+		out, err := cmd.CombinedOutput()
+		if len(out) > 0 {
+			fmt.Fprintln(w, string(out))
+		}
+		if err != nil {
+			return fmt.Errorf("steamcmd failed: %w", err)
+		}
 	}
 
 	if _, err := os.Stat(gameinfo); err == nil {
@@ -829,6 +855,23 @@ func ensureMatchZyDatabaseExistsGo(w *bytes.Buffer, containerName string, cfg ma
 		fmt.Fprintf(w, "  [✓] User '%s' has permissions on '%s'\n", cfg.MySQLUsername, cfg.MySQLDatabase)
 	}
 	return nil
+}
+
+// teeWriter mirrors writes into both the in-memory bootstrap buffer and an
+// on-disk log file so that the TUI can tail live output while steamcmd runs.
+type teeWriter struct {
+	buf  *bytes.Buffer
+	file *os.File
+}
+
+func (t *teeWriter) Write(p []byte) (int, error) {
+	n, err := t.buf.Write(p)
+	if t.file != nil {
+		if _, ferr := t.file.Write(p); ferr != nil && err == nil {
+			err = ferr
+		}
+	}
+	return n, err
 }
 
 func ensureDockerGo(w *bytes.Buffer) error {
