@@ -81,6 +81,7 @@ sudo csm logs 1 100      # View last 100 lines of server 1 logs
 
 ## 📚 Documentation & Links
 
+- [Full documentation site](https://sivert-io.github.io/cs2-server-manager/) – hosted docs and guides.
 - [Getting Started](docs/getting-started/quick-start.md) – installation and first run.
 - [Managing Servers](docs/guides/managing-servers.md) – day-to-day operations.
 - [Configuration & Overrides](docs/guides/configuration.md) – customizing configs.
