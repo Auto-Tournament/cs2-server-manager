@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
-	huh "github.com/charmbracelet/huh"
 	tea "github.com/charmbracelet/bubbletea"
+	huh "github.com/charmbracelet/huh"
 )
 
 type viewMode int
@@ -150,9 +150,9 @@ type model struct {
 	vp      viewport.Model
 	vpTitle string
 
-	version        string
-	latestVersion  string
-	updateChecked  bool
+	version         string
+	latestVersion   string
+	updateChecked   bool
 	updateAvailable bool
 
 	// Self-update UI state
@@ -177,14 +177,14 @@ func initialModel() model {
 	up := progress.New(progress.WithDefaultGradient())
 
 	m := model{
-		view:     viewMain,
-		tab:      tabSetup,
-		items:    nil, // will be set by initWizardDefaults + rebuildItems
-		status:   "",
-		spin:     spin,
+		view:           viewMain,
+		tab:            tabSetup,
+		items:          nil, // will be set by initWizardDefaults + rebuildItems
+		status:         "",
+		spin:           spin,
 		updateProgress: up,
-		version:  currentVersion,
-		updateChecked: false,
+		version:        currentVersion,
+		updateChecked:  false,
 	}
 
 	// Initialize wizard defaults
@@ -566,7 +566,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// On success, truncate output to keep the view readable.
 					maxLines := 24
 					if msg.item.kind == itemInstallWizard {
-						maxLines = 3
+						maxLines = 20
 					}
 					if len(lines) > maxLines {
 						lines = lines[len(lines)-maxLines:]
@@ -593,10 +593,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if out != "" {
 			lines := strings.Split(out, "\n")
 
-			// For successful steps, keep the log view tight (last 3 lines). On
+			// For successful steps, keep the log view tight (last N lines). On
 			// failures, show the full output to aid debugging.
 			if msg.err == nil {
-				maxLines := 3
+				maxLines := 10
 				if len(lines) > maxLines {
 					lines = lines[len(lines)-maxLines:]
 				}
@@ -815,5 +815,3 @@ func (m model) View() string {
 
 	return mainStyle.Render("\n" + b.String() + "\n")
 }
-
-
