@@ -11,10 +11,17 @@ This guide gets you from zero to running CS2 servers in a few minutes.
 
 ## 1. Download CSM and run the installer wizard
 
-From your target server, download the latest **prebuilt `csm` binary** from GitHub Releases and run it. The installer is a guided form built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [huh](https://github.com/charmbracelet/huh), so you can navigate with arrows and confirm with Enter:
+From your target server, you can install and launch the latest **prebuilt `csm` binary** from GitHub Releases with a single command. The installer is a guided form built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [huh](https://github.com/charmbracelet/huh), so you can navigate with arrows and confirm with Enter:
 
 ```bash
-chmod +x csm
+arch=$(uname -m); \
+case "$arch" in \
+  x86_64)  asset="csm-linux-amd64" ;; \
+  aarch64|arm64) asset="csm-linux-arm64" ;; \
+  *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+esac; \
+curl -L "https://github.com/sivert-io/cs2-server-manager/releases/latest/download/$asset" -o csm && \
+chmod +x csm && \
 sudo ./csm            # launches the interactive TUI installer
 ```
 
@@ -29,6 +36,13 @@ The installer wizard will:
 ## 2. Use the CSM TUI
 
 Once installation completes, you can re-open the TUI at any time with `./csm` (or rebuild locally via `./scripts/start.sh`).
+
+If you installed `csm` globally (for example with `sudo install ./csm /usr/local/bin/csm`), you can run it from anywhere:
+
+```bash
+csm                 # run non-privileged actions
+sudo csm            # run privileged actions (install-deps, bootstrap, cron, cleanup)
+```
 
 From the TUI you can:
 
@@ -48,6 +62,13 @@ These commands are shortcuts around the TUI:
 ./csm update-plugins         # Update plugins
 ./csm monitor                # Run one monitor iteration
 ./csm install-monitor-cron   # Install cron-based auto-update monitor
+```
+
+If you keep your `overrides/` and `game_files/` in a specific directory (for example `/opt/cs2-server-manager`), you can point CSM at it explicitly:
+
+```bash
+export CSM_ROOT=/opt/cs2-server-manager
+cd /opt/cs2-server-manager && csm
 ```
 
 ## 4. Next steps

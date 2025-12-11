@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -102,7 +103,26 @@ func buildInstallForm(w *installWizard) *huh.Form {
 			huh.NewInput().
 				Key("cs2_user").
 				Title("Linux user that owns the servers").
-				Value(&w.cfg.cs2User),
+				Value(&w.cfg.cs2User).
+				Validate(func(v string) error {
+					name := strings.TrimSpace(v)
+					if name == "" {
+						return fmt.Errorf("user name is required")
+					}
+
+					// Disallow obviously dangerous choices to avoid wiping the
+					// current login user during cleanup.
+					current := os.Getenv("USER")
+					sudoUser := os.Getenv("SUDO_USER")
+
+					if name == "root" || name == current || name == sudoUser {
+						if current == "" {
+							current = "your login"
+						}
+						return fmt.Errorf("please choose a dedicated service user (e.g. \"cs2\"), not your own login user (%q)", current)
+					}
+					return nil
+				}),
 		),
 		huh.NewGroup(
 			huh.NewConfirm().

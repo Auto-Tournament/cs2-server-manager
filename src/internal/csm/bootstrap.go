@@ -16,17 +16,17 @@ import (
 // BootstrapConfig mirrors the high-level options used by the original
 // bootstrap_cs2.sh script.
 type BootstrapConfig struct {
-	CS2User          string
-	NumServers       int
-	BaseGamePort     int
-	BaseTVPort       int
-	EnableMetamod    bool
-	FreshInstall     bool
-	UpdateMaster     bool
-	RCONPassword     string
+	CS2User           string
+	NumServers        int
+	BaseGamePort      int
+	BaseTVPort        int
+	EnableMetamod     bool
+	FreshInstall      bool
+	UpdateMaster      bool
+	RCONPassword      string
 	MatchzySkipDocker bool
-	GameFilesDir     string // typically <root>/game_files
-	OverridesDir     string // typically <root>/overrides
+	GameFilesDir      string // typically <root>/game_files
+	OverridesDir      string // typically <root>/overrides
 }
 
 // Bootstrap installs or redeploys the CS2 servers, performing roughly the
@@ -60,15 +60,37 @@ func Bootstrap(cfg BootstrapConfig) (string, error) {
 		cfg.RCONPassword = "ntlan2025"
 	}
 
-	root, err := os.Getwd()
-	if err != nil {
-		root = "."
+	// Determine the project root for game_files/ and overrides/.
+	// Priority:
+	//   1) Explicit cfg.GameFilesDir / cfg.OverridesDir (from CLI env or caller)
+	//   2) CSM_ROOT environment variable, if set
+	//   3) Directory of the CSM executable
+	//   4) Current working directory
+	root := ""
+	if v, ok := os.LookupEnv("CSM_ROOT"); ok && v != "" {
+		root = v
+	} else if exe, err := os.Executable(); err == nil && exe != "" {
+		if dir := filepath.Dir(exe); dir != "" {
+			root = dir
+		}
+	}
+	if root == "" {
+		if wd, err := os.Getwd(); err == nil && wd != "" {
+			root = wd
+		} else {
+			root = "."
+		}
 	}
 	if cfg.GameFilesDir == "" {
 		cfg.GameFilesDir = filepath.Join(root, "game_files")
 	}
 	if cfg.OverridesDir == "" {
 		cfg.OverridesDir = filepath.Join(root, "overrides")
+	}
+
+	// If no overrides directory exists yet, seed it with the built-in defaults.
+	if err := ensureDefaultOverrides(cfg.OverridesDir); err != nil {
+		log("  [!] Failed to write default overrides to %s: %v", cfg.OverridesDir, err)
 	}
 
 	log("[*] Setting up %d CS2 servers...", cfg.NumServers)
@@ -852,5 +874,3 @@ func stopTmuxServerGo(w *bytes.Buffer, user string, serverNum int) error {
 	_ = exec.Command("su", "-", user, "-c", "tmux kill-session -t "+session).Run()
 	return nil
 }
-
-

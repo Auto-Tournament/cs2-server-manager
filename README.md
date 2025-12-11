@@ -18,11 +18,18 @@
 
 ## 🚀 Quick Start
 
-Download the latest **prebuilt `csm` binary** from the GitHub Releases page and copy it to your server, then:
+On a Linux server, you can install and launch the latest release with a single command:
 
 ```bash
-chmod +x csm
-./csm              # launches the interactive TUI
+arch=$(uname -m); \
+case "$arch" in \
+  x86_64)  asset="csm-linux-amd64" ;; \
+  aarch64|arm64) asset="csm-linux-arm64" ;; \
+  *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+esac; \
+curl -L "https://github.com/sivert-io/cs2-server-manager/releases/latest/download/$asset" -o csm && \
+chmod +x csm && \
+sudo ./csm    # launches the interactive TUI installer
 ```
 
 ---
@@ -51,6 +58,15 @@ Use the Bubble Tea–based TUI to manage everything:
 # or manually:
 go build -o csm ./src/cmd/cs2-tui
 ./csm
+```
+
+To install `csm` globally so you can run it from anywhere:
+
+```bash
+sudo install -m 0755 ./csm /usr/local/bin/csm
+
+csm        # non-privileged commands
+sudo csm   # privileged commands (install-deps, bootstrap, cron, cleanup)
 ```
 
 The TUI handles installs, status, start/stop/restart, updates, and more using the [Bubble Tea](https://github.com/charmbracelet/bubbletea) Go framework.
