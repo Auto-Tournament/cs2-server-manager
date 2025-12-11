@@ -470,15 +470,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if out != "" {
 				lines := strings.Split(out, "\n")
 
-				// For the install wizard, keep the log view tight: show only the
-				// last 3 lines so the UI doesn't get flooded, while still giving
-				// the user a sense of what happened.
-				maxLines := 24
-				if msg.item.kind == itemInstallWizard {
-					maxLines = 3
-				}
-				if len(lines) > maxLines {
-					lines = lines[len(lines)-maxLines:]
+				// When a command fails, keep the full output to make debugging
+				// easier (especially for long bootstrap/steamcmd logs).
+				if msg.err == nil {
+					// On success, truncate output to keep the view readable.
+					maxLines := 24
+					if msg.item.kind == itemInstallWizard {
+						maxLines = 3
+					}
+					if len(lines) > maxLines {
+						lines = lines[len(lines)-maxLines:]
+					}
 				}
 				m.lastOutput = strings.Join(lines, "\n")
 			} else {
@@ -625,8 +627,15 @@ func (m model) View() string {
 	// Output section.
 	if m.lastOutput != "" {
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, outputTitleStyle.Render("Last command output (truncated):"))
+		fmt.Fprintln(&b, outputTitleStyle.Render("Last command output:"))
 		fmt.Fprintln(&b, outputBodyStyle.Render(m.lastOutput))
+	}
+
+	// Footer: always show current version in subtle gray so users can quickly
+	// see which build they're running.
+	if strings.TrimSpace(m.version) != "" {
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, footerVersionStyle.Render(fmt.Sprintf("CSM %s", m.version)))
 	}
 
 	return mainStyle.Render("\n" + b.String() + "\n")

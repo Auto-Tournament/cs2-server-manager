@@ -241,7 +241,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.view = viewMain
 				m.wizard.active = false
 				m.running = true
-				m.status = "Installing servers..."
+				m.status = "Installing servers (downloading game files via steamcmd; this may take several minutes)..."
 				m.lastOutput = ""
 
 				cfg := m.wizard.cfg
