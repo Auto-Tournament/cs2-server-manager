@@ -161,17 +161,14 @@ func New() tea.Model {
 }
 
 func initialModel() model {
-	t := tabSetup
-	items := buildItemsForTab(t)
-
 	spin := spinner.New()
 	spin.Spinner = spinner.Dot
 	spin.Style = titleStyle
 
 	m := model{
 		view:     viewMain,
-		tab:      t,
-		items:    items,
+		tab:      tabSetup,
+		items:    nil, // will be set by initWizardDefaults + rebuildItems
 		status:   "",
 		spin:     spin,
 		version:  currentVersion,
@@ -180,7 +177,32 @@ func initialModel() model {
 
 	// Initialize wizard defaults
 	m.initWizardDefaults()
+	m.rebuildItems()
 	return m
+}
+
+// rebuildItems rebuilds the menu for the current tab, optionally appending
+// dynamic items like the self-update action at the bottom.
+func (m *model) rebuildItems() {
+	items := buildItemsForTab(m.tab)
+
+	// Append self-update item at the bottom of the Setup tab when an update is
+	// available. This keeps the main actions visually grouped and the update
+	// affordance easy to discover without dominating the menu.
+	if m.tab == tabSetup && m.updateAvailable && m.latestVersion != "" {
+		updateItem := menuItem{
+			title:       fmt.Sprintf("Update CSM to %s now (sudo)", m.latestVersion),
+			description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s). May require sudo if installed globally.", m.version, m.latestVersion),
+			kind:        itemUpdateNow,
+		}
+		items = append(items, updateItem)
+	}
+
+	m.items = items
+	// Keep cursor in range.
+	if m.cursor >= len(m.items) {
+		m.cursor = max(0, len(m.items)-1)
+	}
 }
 
 // buildItemsForTab returns the menu items for a given top-level tab.
@@ -294,6 +316,9 @@ func (m *model) initWizardDefaults() {
 		reviewing: false,
 		input:     ti,
 	}
+
+	// Ensure the menu reflects any existing update state.
+	m.rebuildItems()
 }
 
 func (m model) Init() tea.Cmd {
@@ -366,13 +391,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "left", "h":
 			if m.view == viewMain && m.tab > tabSetup {
 				m.tab--
-				m.items = buildItemsForTab(m.tab)
+				m.rebuildItems()
 				m.cursor = 0
 			}
 		case "right", "l":
 			if m.view == viewMain && m.tab < tabUtilities {
 				m.tab++
-				m.items = buildItemsForTab(m.tab)
+				m.rebuildItems()
 				m.cursor = 0
 			}
 		case "up", "k":
@@ -618,15 +643,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateAvailable = isNewerVersion(m.version, msg.latest)
 
 			if m.updateAvailable {
-				updateItem := menuItem{
-					title:       fmt.Sprintf("Update CSM to %s now (sudo)", m.latestVersion),
-					description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s). May require sudo if installed globally.", m.version, m.latestVersion),
-					kind:        itemUpdateNow,
-				}
-				// Prepend update item to the existing menu.
-				m.items = append([]menuItem{updateItem}, m.items...)
-				// Keep cursor on the update item initially.
-				m.cursor = 0
+				// Rebuild the menu so the Setup tab gets an "Update CSM…" item
+				// appended at the bottom. We don't force-move the cursor; users
+				// can choose when to trigger the update.
+				m.rebuildItems()
 			}
 		}
 
@@ -678,15 +698,19 @@ func (m model) View() string {
 		fmt.Fprintln(&b)
 	}
 
-	// Version / update banner
-	if !m.updateChecked {
-		// Optional: show a subtle one-time checking message.
-		fmt.Fprintln(&b, subtleStyle.Render("Checking for updates..."))
-	} else if m.updateAvailable && m.latestVersion != "" {
-		text := fmt.Sprintf("New update available! CSM %s → %s", m.version, m.latestVersion)
-		fmt.Fprintln(&b, versionBannerStyle.Render(text))
+	// Version / update banner: only on the main Setup tab. Other tabs focus on
+	// their own content without the global banner noise.
+	if m.tab == tabSetup {
+		if !m.updateChecked {
+			fmt.Fprintln(&b, subtleStyle.Render("Checking for updates..."))
+		} else if m.updateAvailable && m.latestVersion != "" {
+			text := fmt.Sprintf("New update available! CSM %s → %s", m.version, m.latestVersion)
+			fmt.Fprintln(&b, versionBannerStyle.Render(text))
+		}
+		fmt.Fprintln(&b)
+	} else {
+		fmt.Fprintln(&b)
 	}
-	fmt.Fprintln(&b)
 
 	// Menu list. While a command is running we hide the menu entirely so the
 	// user isn't staring at disabled options they can't interact with.
