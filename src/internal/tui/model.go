@@ -121,6 +121,12 @@ type installStepMsg struct {
 	err  error
 }
 
+// installLogTickMsg carries a snapshot of the latest tail of the install log
+// so we can render live progress while long-running steps (like steamcmd) run.
+type installLogTickMsg struct {
+	lines string
+}
+
 type model struct {
 	view   viewMode
 	tab    tab
@@ -557,6 +563,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Install wizard finished successfully."
 			return m, tea.Batch(cmds...)
 		}
+
+	case installLogTickMsg:
+		// Live tail of the bootstrap log while steamcmd and other long-running
+		// operations are in progress. We keep this very small so it feels like a
+		// "what's happening right now" view rather than a full log.
+		out := strings.TrimSpace(msg.lines)
+		if out != "" {
+			m.lastOutput = out
+		}
+		// No new commands scheduled here; the tailer goroutine drives further
+		// updates by sending more installLogTickMsg values.
+		return m, tea.Batch(cmds...)
 
 	case viewportFinishedMsg:
 		// A long-running viewport operation (status, logs, DB verify, etc.)

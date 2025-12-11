@@ -3,8 +3,10 @@ package tui
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 	huh "github.com/charmbracelet/huh"
@@ -329,6 +331,23 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				RCONPassword:      cfg.rconPassword,
 				MatchzySkipDocker: cfg.matchzySkipDocker,
 			}
+
+			// Stream bootstrap progress by mirroring logs into a temp file that
+			// a background goroutine tails, sending installLogTickMsg updates.
+			logPath := filepath.Join(os.TempDir(), "csm-bootstrap.log")
+			_ = os.Remove(logPath)
+
+			// Signal goroutine when we're done (success or failure).
+			done := make(chan struct{})
+			defer close(done)
+
+			// Start log tailer in the background.
+			go tailBootstrapLog(logPath, done)
+
+			// Configure Bootstrap to mirror logs into the temp file.
+			_ = os.Setenv("CSM_BOOTSTRAP_LOG", logPath)
+			defer os.Unsetenv("CSM_BOOTSTRAP_LOG")
+
 			if out, err := csm.Bootstrap(bcfg); err != nil {
 				if out != "" {
 					logs = append(logs, out)
@@ -406,4 +425,34 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 		}
 	}
 }
+
+// tailBootstrapLog periodically reads the bootstrap log file and sends the
+// last few lines back into the TUI as installLogTickMsg values so users can
+// see live progress while steamcmd and other long-running steps run.
+func tailBootstrapLog(path string, done <-chan struct{}) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			text := strings.TrimSpace(string(data))
+			if text == "" {
+				continue
+			}
+			lines := strings.Split(text, "\n")
+			if len(lines) > 4 {
+				lines = lines[len(lines)-4:]
+			}
+			send(installLogTickMsg{lines: strings.Join(lines, "\n")})
+		}
+	}
+}
+
 
