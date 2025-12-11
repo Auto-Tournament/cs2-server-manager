@@ -292,6 +292,20 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 		case installStepPlugins:
 			if cfg.updatePlugins {
 				logs = append(logs, "[1/4] Downloading latest plugins...")
+
+				// Stream plugin update progress by mirroring logs into a temp
+				// file that a background goroutine tails.
+				logPath := filepath.Join(os.TempDir(), "csm-plugins.log")
+				_ = os.Remove(logPath)
+
+				done := make(chan struct{})
+				defer close(done)
+
+				go tailInstallLog(logPath, done)
+
+				_ = os.Setenv("CSM_PLUGINS_LOG", logPath)
+				defer os.Unsetenv("CSM_PLUGINS_LOG")
+
 				if out, err := csm.UpdatePlugins(); err != nil {
 					if out != "" {
 						logs = append(logs, out)
@@ -342,7 +356,7 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			defer close(done)
 
 			// Start log tailer in the background.
-			go tailBootstrapLog(logPath, done)
+			go tailInstallLog(logPath, done)
 
 			// Configure Bootstrap to mirror logs into the temp file.
 			_ = os.Setenv("CSM_BOOTSTRAP_LOG", logPath)
@@ -426,10 +440,10 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 	}
 }
 
-// tailBootstrapLog periodically reads the bootstrap log file and sends the
-// last few lines back into the TUI as installLogTickMsg values so users can
-// see live progress while steamcmd and other long-running steps run.
-func tailBootstrapLog(path string, done <-chan struct{}) {
+// tailInstallLog periodically reads a log file and sends the last few lines
+// back into the TUI as installLogTickMsg values so users can see live progress
+// while long-running steps run.
+func tailInstallLog(path string, done <-chan struct{}) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 

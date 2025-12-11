@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -153,6 +154,10 @@ type model struct {
 	latestVersion  string
 	updateChecked  bool
 	updateAvailable bool
+
+	// Self-update UI state
+	selfUpdating   bool
+	updateProgress progress.Model
 }
 
 // New constructs the initial Bubble Tea model for the CS2 TUI.
@@ -165,12 +170,15 @@ func initialModel() model {
 	spin.Spinner = spinner.Dot
 	spin.Style = titleStyle
 
+	up := progress.New(progress.WithDefaultGradient())
+
 	m := model{
 		view:     viewMain,
 		tab:      tabSetup,
 		items:    nil, // will be set by initWizardDefaults + rebuildItems
 		status:   "",
 		spin:     spin,
+		updateProgress: up,
 		version:  currentVersion,
 		updateChecked: false,
 	}
@@ -425,6 +433,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.running = true
 					m.status = fmt.Sprintf("Updating CSM to %s...", m.latestVersion)
 					m.lastOutput = ""
+					m.selfUpdating = true
+					// Reset progress bar.
+					m.updateProgress = progress.New(progress.WithDefaultGradient())
 					cmds = append(cmds, runSelfUpdate(m.latestVersion), m.spin.Tick)
 				}
 			case itemInstallWizard:
@@ -608,9 +619,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case selfUpdateProgressMsg:
-		// Live progress for self-update: show a simple textual indicator under
-		// the spinner so the user can see that bytes are flowing.
+		// Live progress for self-update: drive the progress bar and keep an
+		// optional textual label for additional clarity.
 		if msg.Percent >= 0 {
+			pct := float64(msg.Percent) / 100.0
+			cmd := m.updateProgress.SetPercent(pct)
+			cmds = append(cmds, cmd)
 			m.lastOutput = fmt.Sprintf("Downloading update: %d%%", msg.Percent)
 		} else {
 			m.lastOutput = "Downloading update..."
@@ -652,12 +666,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case selfUpdateFinishedMsg:
 		m.running = false
+		m.selfUpdating = false
 		if msg.err != nil {
 			m.status = fmt.Sprintf("Update failed: %v", msg.err)
 		} else {
 			m.status = fmt.Sprintf("CSM updated to %s. Restart CSM to use the new version.", msg.newVersion)
 			m.version = msg.newVersion
 			m.updateAvailable = false
+			// Rebuild menu so the update item disappears once we're on the new version.
+			m.rebuildItems()
 		}
 	}
 
@@ -742,7 +759,20 @@ func (m model) View() string {
 	}
 
 	// Output section.
-	if m.lastOutput != "" {
+	if m.selfUpdating {
+		// For self-update, show a proper progress bar plus an optional label
+		// instead of the generic "Last command output" box.
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, outputTitleStyle.Render("Downloading update:"))
+		bar := m.updateProgress.View()
+		label := strings.TrimSpace(m.lastOutput)
+		if label == "" {
+			fmt.Fprintln(&b, outputBodyStyle.Render(bar))
+		} else {
+			fmt.Fprintln(&b, outputBodyStyle.Render(bar))
+			fmt.Fprintln(&b, outputBodyStyle.Render(label))
+		}
+	} else if m.lastOutput != "" {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, outputTitleStyle.Render("Last command output:"))
 		fmt.Fprintln(&b, outputBodyStyle.Render(m.lastOutput))
