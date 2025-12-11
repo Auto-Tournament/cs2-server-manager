@@ -1,6 +1,6 @@
 package tui
 
 // currentVersion should be bumped whenever you cut a new CSM release.
-const currentVersion = "v1.0.1"
+const currentVersion = "v1.0.2"
 
 
