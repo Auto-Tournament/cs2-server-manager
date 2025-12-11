@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -88,6 +89,17 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 			return selfUpdateFinishedMsg{newVersion: "", err: err}
 		}
 
+		// Try to restart CSM in-place with the new binary. On success this call
+		// does not return. If it fails for some reason, fall back to telling the
+		// user to restart manually via the selfUpdateFinishedMsg.
+		if err := syscall.Exec(exePath, os.Args, os.Environ()); err != nil {
+			return selfUpdateFinishedMsg{
+				newVersion: targetVersion,
+				err:        fmt.Errorf("update installed, but failed to restart automatically: %w", err),
+			}
+		}
+
+		// Not reached on success.
 		return selfUpdateFinishedMsg{newVersion: targetVersion, err: nil}
 	}
 }

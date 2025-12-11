@@ -315,22 +315,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		if m.view == viewViewport {
-			switch msg.String() {
-			case "q", "esc":
-				// Return to main menu.
-				m.view = viewMain
-				m.status = "Select an action and press Enter to run it."
-				return m, nil
-			default:
-				var cmd tea.Cmd
-				m.vp, cmd = m.vp.Update(msg)
-				cmds = append(cmds, cmd)
-				return m, tea.Batch(cmds...)
-			}
-		}
-
 		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "q":
+			// In viewport mode, q navigates back; from the main menu, q quits.
+			if m.view == viewViewport {
+				m.view = viewMain
+				// Keep whatever status we already had; no extra noise.
+				return m, nil
+			}
+			if m.view == viewMain {
+				return m, tea.Quit
+			}
+
+			// In other views (e.g. wizard), let huh/textinput handle q normally.
+			return m, tea.Batch(cmds...)
+
 		case "left", "h":
 			if m.view == viewMain && m.tab > tabSetup {
 				m.tab--
