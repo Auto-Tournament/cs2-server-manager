@@ -1,13 +1,18 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-isatty"
+
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 	tui "github.com/sivert-io/cs2-server-manager/src/internal/tui"
 )
@@ -24,10 +29,24 @@ func main() {
 		}
 	}
 
-	// CLI subcommands for non-interactive usage (cron, automation, tmux
-	// control, etc.). If no recognised subcommand is given, we fall back
+	// Global flags and CLI subcommands. We parse flags first so that
+	// "csm -d" and "csm -h" work, then interpret any remaining args as
+	// subcommands. If no recognised subcommand is given, we fall back
 	// to the TUI.
-	args := os.Args[1:]
+	fs := flag.NewFlagSet("csm", flag.ExitOnError)
+	var daemonMode bool
+	var showHelp bool
+	fs.BoolVar(&daemonMode, "d", false, "run without TUI renderer (daemon mode)")
+	fs.BoolVar(&showHelp, "h", false, "show help")
+	fs.BoolVar(&showHelp, "help", false, "show help")
+	_ = fs.Parse(os.Args[1:])
+	args := fs.Args()
+
+	if showHelp && len(args) == 0 {
+		printUsage()
+		return
+	}
+
 	if len(args) > 0 {
 		switch args[0] {
             		case "install-deps":
@@ -322,7 +341,18 @@ func main() {
 		}
 	}
 
-	p := tea.NewProgram(tui.New(), tea.WithAltScreen())
+	// No subcommand matched: run the TUI. If we're in daemon mode or stdout is
+	// not a TTY, disable the renderer. Otherwise, use full-screen TUI and
+	// silence log output to avoid mixing logs into the UI.
+	var opts []tea.ProgramOption
+	if daemonMode || !isatty.IsTerminal(os.Stdout.Fd()) {
+		opts = append(opts, tea.WithoutRenderer())
+	} else {
+		opts = append(opts, tea.WithAltScreen())
+		log.SetOutput(io.Discard)
+	}
+
+	p := tea.NewProgram(tui.New(), opts...)
 	tui.SetProgram(p)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "error running TUI: %v\n", err)
@@ -347,5 +377,34 @@ func intFromEnv(key string, def int) int {
 	}
 	return def
 }
-
+func printUsage() {
+	fmt.Println("CSM - CS2 Server Manager")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Println("  csm [flags]")
+	fmt.Println("  csm <command> [args]")
+	fmt.Println()
+	fmt.Println("Flags:")
+	fmt.Println("  -d           run without TUI renderer (daemon mode)")
+	fmt.Println("  -h, --help   show this help message")
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
+	fmt.Println("  cleanup-all            Remove all servers and related resources")
+	fmt.Println("  extract-map-data       Extract map thumbnails from VPKs")
+	fmt.Println("  public-ip              Print public IP address")
+	fmt.Println("  status                 Show tmux server status")
+	fmt.Println("  start|stop|restart     Control servers via tmux")
+	fmt.Println("  logs                   Tail server logs")
+	fmt.Println("  attach                 Attach to a server tmux session")
+	fmt.Println("  list-sessions          List tmux sessions")
+	fmt.Println("  debug                  Attach in debug mode")
+	fmt.Println("  update-game            Update CS2 game files")
+	fmt.Println("  update-plugins         Update plugins and deploy to servers")
+	fmt.Println("  monitor                Run auto-update monitor")
+	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
+	fmt.Println("  install-deps           Install system dependencies (sudo)")
+	fmt.Println()
+	fmt.Println("If no command is given, the interactive TUI is started.")
+}
 
