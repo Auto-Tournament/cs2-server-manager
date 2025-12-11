@@ -239,6 +239,15 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	if m.wizard.reviewing {
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
+			case "left", "h":
+				// Go back to the form to adjust settings.
+				m.wizard.reviewing = false
+				m.status = "Install wizard: configure your servers."
+				m.wizard.form = buildInstallForm(&m.wizard)
+				return m, m.wizard.form.Init()
+			case "right", "l":
+				// Treat as confirm/install.
+				fallthrough
 			case "enter", "y":
 				// Start install.
 				m.wizard.reviewing = false
@@ -257,8 +266,6 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.view = viewMain
 				m.status = "Select an action and press Enter to run it."
 				return m, nil
-			case "ctrl+c", "q":
-				return m, tea.Quit
 			}
 		}
 		return m, nil
@@ -275,7 +282,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	if m.wizard.form.State == huh.StateCompleted {
 		m.wizard.applyWizardNumericFields()
 		m.wizard.reviewing = true
-		m.status = "Review settings. Press Enter to start install, Esc to cancel."
+		m.status = "Review settings. Press Enter to start install, Esc to cancel. Use ←/→ to go back and forth."
 		return m, cmd
 	}
 

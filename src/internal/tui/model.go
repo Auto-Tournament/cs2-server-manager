@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/progress"
@@ -203,8 +204,9 @@ func (m *model) rebuildItems() {
 	// available. This keeps the main actions visually grouped and the update
 	// affordance easy to discover without dominating the menu.
 	if m.tab == tabSetup && m.updateAvailable && m.latestVersion != "" {
+		sudo := sudoSuffix()
 		updateItem := menuItem{
-			title:       fmt.Sprintf("Update CSM to %s now (sudo)", m.latestVersion),
+			title:       fmt.Sprintf("Update CSM to %s now%s", m.latestVersion, sudo),
 			description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s). May require sudo if installed globally.", m.version, m.latestVersion),
 			kind:        itemUpdateNow,
 		}
@@ -218,13 +220,43 @@ func (m *model) rebuildItems() {
 	}
 }
 
+// sudoSuffix returns " (requires sudo)" when running as a non-root user, or an
+// empty string when already root. Used to annotate menu items that require
+// elevated privileges.
+func sudoSuffix() string {
+	if isRoot() {
+		return ""
+	}
+	return " (requires sudo)"
+}
+
+// requiresSudo returns true for menu items that should only be run as root.
+func requiresSudo(kind itemKind) bool {
+	switch kind {
+	case itemInstallDepsGo,
+		itemInstallMonitorGo,
+		itemUpdateGameGo,
+		itemForceUpdateNow,
+		itemUpdateNow,
+		itemInstallWizard:
+		return true
+	default:
+		return false
+	}
+}
+
+func isRoot() bool {
+	return os.Geteuid() == 0
+}
+
 // buildItemsForTab returns the menu items for a given top-level tab.
 func buildItemsForTab(t tab) []menuItem {
 	switch t {
 	case tabSetup:
+		sudo := sudoSuffix()
 		return []menuItem{
 			{
-				title:       "Install system dependencies (sudo)",
+				title:       "Install system dependencies" + sudo,
 				description: "",
 				kind:        itemInstallDepsGo,
 			},
@@ -234,7 +266,7 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemInstallWizard,
 			},
 			{
-				title:       "Install/reinstall auto-update monitor (sudo)",
+				title:       "Install/reinstall auto-update monitor" + sudo,
 				description: "",
 				kind:        itemInstallMonitorGo,
 			},
@@ -286,6 +318,7 @@ func buildItemsForTab(t tab) []menuItem {
 			},
 		}
 	case tabUtilities:
+		sudo := sudoSuffix()
 		return []menuItem{
 			{
 				title:       "Show public IP",
@@ -293,7 +326,7 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemPublicIPGo,
 			},
 			{
-				title:       "Force update CSM now (sudo)",
+				title:       "Force update CSM now" + sudo,
 				description: "",
 				kind:        itemForceUpdateNow,
 			},
@@ -359,14 +392,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
-	// If the install wizard is active, delegate messages to the huh form.
-	if m.view == viewInstallWizard && m.wizard.form != nil {
-		var cmd tea.Cmd
-		m, cmd = m.updateInstallWizard(msg)
-		cmds = append(cmds, cmd)
-		return m, tea.Batch(cmds...)
-	}
-
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 
@@ -411,17 +436,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
-			// In viewport mode, q navigates back; from the main menu, q quits.
+			// In viewport mode, q navigates back.
 			if m.view == viewViewport {
 				m.view = viewMain
 				// Keep whatever status we already had; no extra noise.
 				return m, nil
 			}
+			// In the install wizard, q cancels the wizard and returns to the
+			// main menu without quitting CSM.
+			if m.view == viewInstallWizard {
+				m.view = viewMain
+				m.wizard.active = false
+				m.wizard.reviewing = false
+				m.status = "Select an action and press Enter to run it."
+				return m, nil
+			}
+			// From the main menu, q quits.
 			if m.view == viewMain {
 				return m, tea.Quit
 			}
 
-			// In other views (e.g. wizard), let huh/textinput handle q normally.
 			return m, tea.Batch(cmds...)
 
 		case "left", "h":
@@ -450,6 +484,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			selected := m.items[m.cursor]
+
+			// If this action requires sudo and we're not root, keep it visible
+			// but non-interactive and instruct the user to restart CSM with
+			// sudo instead of attempting to run it.
+			if !isRoot() && requiresSudo(selected.kind) {
+				m.status = "This action requires sudo. Restart CSM with sudo and run it again:  sudo csm"
+				return m, tea.Batch(cmds...)
+			}
+
 			switch selected.kind {
 			case itemInstallDepsGo:
 				m.running = true
@@ -800,19 +843,24 @@ func (m model) View() string {
 		fmt.Fprintln(&b)
 	}
 
-	// Menu list. While a command is running we hide the menu entirely so the
-	// user isn't staring at disabled options they can't interact with.
+		// Menu list. While a command is running we hide the menu entirely so the
+		// user isn't staring at disabled options they can't interact with.
 	if !m.running {
 		for i, item := range m.items {
 			selected := m.cursor == i
 
 			label := item.title
 			lineStyle := menuItemStyle
-			if selected {
-				lineStyle = menuSelectedStyle
-			}
 			checkbox := checkboxStyle.Render("[x] ")
-			if !selected {
+
+			disabled := !isRoot() && requiresSudo(item.kind)
+
+			if disabled {
+				lineStyle = lineStyle.Faint(true)
+				checkbox = subtleStyle.Render("[ ] ")
+			} else if selected {
+				lineStyle = menuSelectedStyle
+			} else {
 				checkbox = subtleStyle.Render("[ ] ")
 			}
 
@@ -821,7 +869,7 @@ func (m model) View() string {
 		}
 	}
 	// Status bar with spinner.
-	statusText := m.status
+			statusText := m.status
 	if m.running {
 		statusText = fmt.Sprintf("%s %s", m.spin.View(), m.status)
 	}
