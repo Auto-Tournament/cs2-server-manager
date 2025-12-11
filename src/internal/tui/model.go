@@ -102,6 +102,25 @@ type installWizard struct {
 	errMsg string
 }
 
+// installStep represents the high-level phases of the install wizard so we can
+// show progress and run each step sequentially with its own status.
+type installStep int
+
+const (
+	installStepPlugins installStep = iota
+	installStepBootstrap
+	installStepMonitor
+	installStepStartServers
+)
+
+// installStepMsg is emitted after each install step completes so the TUI can
+// update status/output and schedule the next step.
+type installStepMsg struct {
+	step installStep
+	out  string
+	err  error
+}
+
 type model struct {
 	view   viewMode
 	tab    tab
@@ -496,6 +515,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case installStepMsg:
+		// Keep showing the spinner while we chain through install steps; we'll
+		// only mark running=false after the final step or on error.
+		out := strings.TrimSpace(msg.out)
+		if out != "" {
+			lines := strings.Split(out, "\n")
+
+			// For successful steps, keep the log view tight (last 3 lines). On
+			// failures, show the full output to aid debugging.
+			if msg.err == nil {
+				maxLines := 3
+				if len(lines) > maxLines {
+					lines = lines[len(lines)-maxLines:]
+				}
+			}
+			m.lastOutput = strings.Join(lines, "\n")
+		} else {
+			m.lastOutput = ""
+		}
+
+		if msg.err != nil {
+			m.running = false
+			m.status = fmt.Sprintf("Install failed during step: %v", msg.err)
+			return m, tea.Batch(cmds...)
+		}
+
+		// Chain to the next step with an updated status line.
+		switch msg.step {
+		case installStepPlugins:
+			m.status = "Step 2/4: Setting up CS2 servers (steamcmd)..."
+			return m, tea.Batch(append(cmds, runInstallStep(m.wizard.cfg, installStepBootstrap), m.spin.Tick)...)
+		case installStepBootstrap:
+			m.status = "Step 3/4: Configuring auto-update monitor (cron)..."
+			return m, tea.Batch(append(cmds, runInstallStep(m.wizard.cfg, installStepMonitor), m.spin.Tick)...)
+		case installStepMonitor:
+			m.status = "Step 4/4: Starting all servers..."
+			return m, tea.Batch(append(cmds, runInstallStep(m.wizard.cfg, installStepStartServers), m.spin.Tick)...)
+		case installStepStartServers:
+			m.running = false
+			m.status = "Install wizard finished successfully."
+			return m, tea.Batch(cmds...)
+		}
+
 	case viewportFinishedMsg:
 		// A long-running viewport operation (status, logs, DB verify, etc.)
 		// has completed. Show the content in a scrollable viewport.
@@ -564,22 +626,23 @@ func (m model) View() string {
 	fmt.Fprintln(&b, headerBorderStyle.Render(titleStyle.Render("CS2 Server Manager")))
 	fmt.Fprintln(&b)
 
-	// Tab bar (disabled visually while a command is running).
-	tabs := []string{"Setup", "Servers", "Maintenance", "Utilities"}
-	var tabParts []string
-	for i, name := range tabs {
-		style := tabInactiveStyle
-		if tab(i) == m.tab {
-			style = tabActiveStyle
+	// Tab bar. While a long-running command is active, we hide the tabs to
+	// reduce visual clutter and focus attention on the status/output.
+	if !m.running {
+		tabs := []string{"Setup", "Servers", "Maintenance", "Utilities"}
+		var tabParts []string
+		for i, name := range tabs {
+			style := tabInactiveStyle
+			if tab(i) == m.tab {
+				style = tabActiveStyle
+			}
+			tabParts = append(tabParts, style.Render(name))
 		}
-		if m.running {
-			// Dim the tabs slightly when locked.
-			style = style.Faint(true)
-		}
-		tabParts = append(tabParts, style.Render(name))
+		fmt.Fprintln(&b, tabBarStyle.Render(strings.Join(tabParts, "  ")))
+		fmt.Fprintln(&b)
+	} else {
+		fmt.Fprintln(&b)
 	}
-	fmt.Fprintln(&b, tabBarStyle.Render(strings.Join(tabParts, "  ")))
-	fmt.Fprintln(&b)
 
 	// Version / update banner
 	if !m.updateChecked {
@@ -591,30 +654,26 @@ func (m model) View() string {
 	}
 	fmt.Fprintln(&b)
 
-	// Menu list.
-	for i, item := range m.items {
-		selected := m.cursor == i && !m.running
+	// Menu list. While a command is running we hide the menu entirely so the
+	// user isn't staring at disabled options they can't interact with.
+	if !m.running {
+		for i, item := range m.items {
+			selected := m.cursor == i
 
-		label := item.title
-		lineStyle := menuItemStyle
-		if selected {
-			lineStyle = menuSelectedStyle
-		}
-		checkbox := checkboxStyle.Render("[x] ")
-		if !selected {
-			checkbox = subtleStyle.Render("[ ] ")
-		}
+			label := item.title
+			lineStyle := menuItemStyle
+			if selected {
+				lineStyle = menuSelectedStyle
+			}
+			checkbox := checkboxStyle.Render("[x] ")
+			if !selected {
+				checkbox = subtleStyle.Render("[ ] ")
+			}
 
-		if m.running {
-			// When locked, make the whole menu look disabled.
-			lineStyle = lineStyle.Faint(true)
-			checkbox = subtleStyle.Render("[ ] ")
+			fmt.Fprintln(&b, lineStyle.Render(checkbox+label))
+			fmt.Fprintln(&b)
 		}
-
-		fmt.Fprintln(&b, lineStyle.Render(checkbox+label))
-		fmt.Fprintln(&b)
 	}
-
 	// Status bar with spinner.
 	statusText := m.status
 	if m.running {

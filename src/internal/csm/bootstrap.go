@@ -219,7 +219,8 @@ func createCS2User(w *bytes.Buffer, user string) error {
 }
 
 func installMasterViaSteamCMD(w *bytes.Buffer, cfg BootstrapConfig) error {
-	masterDir := filepath.Join("/home", cfg.CS2User, "master-install")
+	homeDir := filepath.Join("/home", cfg.CS2User)
+	masterDir := filepath.Join(homeDir, "master-install")
 	gameinfo := filepath.Join(masterDir, "game", "csgo", "gameinfo.gi")
 
 	if cfg.FreshInstall {
@@ -242,14 +243,31 @@ func installMasterViaSteamCMD(w *bytes.Buffer, cfg BootstrapConfig) error {
 		fmt.Fprintf(w, "  [*] Installing fresh CS2 master to %s\n", masterDir)
 	}
 
+	// Ensure the CS2 user's home directory and master install exist and are
+	// owned by the CS2 user, mirroring the original bootstrap script. This
+	// prevents permission issues when steamcmd tries to create ~/.steam or
+	// write into the master install directory.
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		return err
+	}
+	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), homeDir).Run()
+
 	if err := os.MkdirAll(masterDir, 0o755); err != nil {
 		return err
 	}
+	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), masterDir).Run()
 
 	// Ensure dependencies (apt-get, steamcmd) - Debian/Ubuntu only for now.
 	if err := ensureBootstrapDependencies(w); err != nil {
 		return err
 	}
+
+	// Pre-create ~/.steam for the CS2 user and ensure it is owned correctly.
+	steamDir := filepath.Join(homeDir, ".steam")
+	if err := os.MkdirAll(steamDir, 0o755); err != nil {
+		return err
+	}
+	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), steamDir).Run()
 
 	// Run steamcmd as CS2 user
 	script := fmt.Sprintf(`

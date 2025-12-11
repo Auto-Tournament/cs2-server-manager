@@ -225,7 +225,8 @@ func (m model) viewInstallWizard() string {
 }
 
 // updateInstallWizard routes messages into the huh.Form and, once the form
-// is completed, kicks off the actual install via runInstallFromWizard.
+// is completed, kicks off the actual install via a series of discrete steps
+// (plugins, bootstrap, monitor, start servers).
 func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	if m.wizard.form == nil {
 		return m, nil
@@ -241,11 +242,11 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.view = viewMain
 				m.wizard.active = false
 				m.running = true
-				m.status = "Installing servers (downloading game files via steamcmd; this may take several minutes)..."
+				m.status = "Step 1/4: Preparing plugin update..."
 				m.lastOutput = ""
 
 				cfg := m.wizard.cfg
-				return m, tea.Batch(runInstallFromWizard(cfg), m.spin.Tick)
+				return m, tea.Batch(runInstallStep(cfg, installStepPlugins), m.spin.Tick)
 			case "esc":
 				// Cancel and go back to main menu without installing.
 				m.wizard.reviewing = false
@@ -278,96 +279,130 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	return m, cmd
 }
 
-// runInstallFromWizard orchestrates the install using existing scripts and the
-// configuration gathered from the wizard.
-func runInstallFromWizard(cfg installConfig) tea.Cmd {
+// runInstallStep performs a single phase of the install wizard. Each call
+// returns an installStepMsg so the TUI can update status/output and decide
+// which step to run next.
+func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 	return func() tea.Msg {
 		var logs []string
 
-		// 1) Optionally download plugins via Go implementation
-		if cfg.updatePlugins {
-			logs = append(logs, "Downloading latest plugins...")
-			if out, err := csm.UpdatePlugins(); err != nil {
-				logs = append(logs, out)
-				logs = append(logs, fmt.Sprintf("Plugin download failed: %v", err))
-				return commandFinishedMsg{
-					item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
-					output: strings.Join(logs, "\n"),
-					err:    err,
+		switch step {
+		case installStepPlugins:
+			if cfg.updatePlugins {
+				logs = append(logs, "[1/4] Downloading latest plugins...")
+				if out, err := csm.UpdatePlugins(); err != nil {
+					if out != "" {
+						logs = append(logs, out)
+					}
+					logs = append(logs, fmt.Sprintf("Plugin download failed: %v", err))
+					return installStepMsg{
+						step: installStepPlugins,
+						out:  strings.Join(logs, "\n"),
+						err:  err,
+					}
+				} else if out != "" {
+					logs = append(logs, out)
+				}
+				logs = append(logs, "[1/4] Plugin update finished.")
+			} else {
+				logs = append(logs, "[1/4] Skipping plugin download (user disabled update plugins).")
+			}
+			return installStepMsg{
+				step: installStepPlugins,
+				out:  strings.Join(logs, "\n"),
+				err:  nil,
+			}
+
+		case installStepBootstrap:
+			logs = append(logs, "[2/4] Setting up CS2 servers (this may take several minutes)...")
+
+			// Derive MatchZy Docker behaviour from dbMode.
+			cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
+			bcfg := csm.BootstrapConfig{
+				CS2User:           cfg.cs2User,
+				NumServers:        cfg.numServers,
+				BaseGamePort:      cfg.basePort,
+				BaseTVPort:        cfg.tvPort,
+				EnableMetamod:     cfg.enableMetamod,
+				FreshInstall:      cfg.freshInstall,
+				UpdateMaster:      cfg.updateMaster,
+				RCONPassword:      cfg.rconPassword,
+				MatchzySkipDocker: cfg.matchzySkipDocker,
+			}
+			if out, err := csm.Bootstrap(bcfg); err != nil {
+				if out != "" {
+					logs = append(logs, out)
+				}
+				logs = append(logs, fmt.Sprintf("Bootstrap failed: %v", err))
+				return installStepMsg{
+					step: installStepBootstrap,
+					out:  strings.Join(logs, "\n"),
+					err:  err,
 				}
 			} else if out != "" {
 				logs = append(logs, out)
 			}
-		}
-
-		// 2) Bootstrap CS2 servers via Go implementation
-		logs = append(logs, "Setting up CS2 servers...")
-		// Derive MatchZy Docker behaviour from dbMode.
-		cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
-
-		bcfg := csm.BootstrapConfig{
-			CS2User:          cfg.cs2User,
-			NumServers:       cfg.numServers,
-			BaseGamePort:     cfg.basePort,
-			BaseTVPort:       cfg.tvPort,
-			EnableMetamod:    cfg.enableMetamod,
-			FreshInstall:     cfg.freshInstall,
-			UpdateMaster:     cfg.updateMaster,
-			RCONPassword:     cfg.rconPassword,
-			MatchzySkipDocker: cfg.matchzySkipDocker,
-		}
-		if out, err := csm.Bootstrap(bcfg); err != nil {
-			logs = append(logs, out)
-			logs = append(logs, fmt.Sprintf("Bootstrap failed: %v", err))
-			return commandFinishedMsg{
-				item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
-				output: strings.Join(logs, "\n"),
-				err:    err,
+			logs = append(logs, "[2/4] CS2 servers setup finished.")
+			return installStepMsg{
+				step: installStepBootstrap,
+				out:  strings.Join(logs, "\n"),
+				err:  nil,
 			}
-		} else if out != "" {
-			logs = append(logs, out)
-		}
 
-		// 3) Setup auto-update monitor cronjob via Go implementation
-		logs = append(logs, "Configuring auto-update monitor (cron job)...")
-		if out, err := csm.InstallAutoUpdateCron(""); err != nil {
-			logs = append(logs, out)
-			logs = append(logs, fmt.Sprintf("Auto-update monitor setup failed: %v", err))
-			// Non-fatal for install, but we do propagate the error.
-			return commandFinishedMsg{
-				item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
-				output: strings.Join(logs, "\n"),
-				err:    err,
+		case installStepMonitor:
+			logs = append(logs, "[3/4] Configuring auto-update monitor (cron job)...")
+			if out, err := csm.InstallAutoUpdateCron(""); err != nil {
+				if out != "" {
+					logs = append(logs, out)
+				}
+				logs = append(logs, fmt.Sprintf("Auto-update monitor setup failed: %v", err))
+				return installStepMsg{
+					step: installStepMonitor,
+					out:  strings.Join(logs, "\n"),
+					err:  err,
+				}
+			} else if out != "" {
+				logs = append(logs, out)
 			}
-		} else if out != "" {
-			logs = append(logs, out)
-		}
+			logs = append(logs, "[3/4] Auto-update monitor configured.")
+			return installStepMsg{
+				step: installStepMonitor,
+				out:  strings.Join(logs, "\n"),
+				err:  nil,
+			}
 
-		// 4) Start all servers using the Go tmux manager
-		logs = append(logs, "Starting all servers...")
-		manager, err := csm.NewTmuxManager()
-		if err != nil {
-			logs = append(logs, fmt.Sprintf("Failed to initialize tmux manager: %v", err))
-			return commandFinishedMsg{
-				item:   menuItem{title: "Install wizard"},
-				output: strings.Join(logs, "\n"),
-				err:    err,
+		case installStepStartServers:
+			logs = append(logs, "[4/4] Starting all servers...")
+			manager, err := csm.NewTmuxManager()
+			if err != nil {
+				logs = append(logs, fmt.Sprintf("Failed to initialize tmux manager: %v", err))
+				return installStepMsg{
+					step: installStepStartServers,
+					out:  strings.Join(logs, "\n"),
+					err:  err,
+				}
 			}
-		}
-		if err := manager.StartAll(); err != nil {
-			logs = append(logs, fmt.Sprintf("Failed to start servers: %v", err))
-			return commandFinishedMsg{
-				item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
-				output: strings.Join(logs, "\n"),
-				err:    err,
+			if err := manager.StartAll(); err != nil {
+				logs = append(logs, fmt.Sprintf("Failed to start servers: %v", err))
+				return installStepMsg{
+					step: installStepStartServers,
+					out:  strings.Join(logs, "\n"),
+					err:  err,
+				}
+			}
+			logs = append(logs, "[4/4] All servers started via tmux.")
+			return installStepMsg{
+				step: installStepStartServers,
+				out:  strings.Join(logs, "\n"),
+				err:  nil,
 			}
 		}
-		logs = append(logs, "All servers started via tmux.")
 
-		return commandFinishedMsg{
-			item:   menuItem{title: "Install wizard", kind: itemInstallWizard},
-			output: strings.Join(logs, "\n"),
-			err:    err,
+		// Should not happen; treat as no-op.
+		return installStepMsg{
+			step: step,
+			out:  "",
+			err:  nil,
 		}
 	}
 }
