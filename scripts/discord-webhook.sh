@@ -1,8 +1,8 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# MatchZy Auto Tournament - Discord Webhook Script
-# Sends a Discord webhook notification for a release
+# CSM (CS2 Server Manager) - Discord Webhook Script
+# Sends a Discord webhook notification for a CSM release.
 
 # Colors for output
 RED='\033[0;31m'
@@ -11,51 +11,138 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Source .env file if it exists (from project root)
+# Locate project root and source .env if present
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PROJECT_ROOT}"
+
 if [ -f "${PROJECT_ROOT}/.env" ]; then
-    echo -e "${BLUE}Sourcing .env file...${NC}"
-    # Export variables from .env, handling comments and empty lines
-    set -a
-    source "${PROJECT_ROOT}/.env"
-    set +a
+  echo -e "${BLUE}Sourcing .env file...${NC}"
+  set -a
+  # shellcheck disable=SC1090
+  source "${PROJECT_ROOT}/.env"
+  set +a
 fi
 
 # Configuration
-DOCKER_USERNAME="${DOCKER_USERNAME:-sivertio}"
-IMAGE_NAME="matchzy-auto-tournament"
-DOCKER_IMAGE="${DOCKER_USERNAME}/${IMAGE_NAME}"
-REPO_OWNER="sivert-io"
-REPO_NAME="matchzy-auto-tournament"
+REPO_OWNER="${REPO_OWNER:-sivert-io}"
+REPO_NAME="${REPO_NAME:-cs2-server-manager}"
+DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
 
-echo -e "${GREEN}MatchZy Auto Tournament - Discord Webhook${NC}"
-echo "========================================="
+echo -e "${GREEN}CSM - Discord Webhook${NC}"
+echo "======================="
 echo ""
 
-# Get version from argument or package.json
-if [ -n "$1" ]; then
-    NEW_VERSION="$1"
-    # Remove 'v' prefix if present
-    NEW_VERSION="${NEW_VERSION#v}"
+# Determine version (NEW_VERSION without "v", TAG with "v")
+TAG_RAW="${1:-}"
+NEW_VERSION=""
+TAG=""
+
+if [ -n "$TAG_RAW" ]; then
+  # Accept either vX.Y.Z or X.Y.Z
+  TAG="$TAG_RAW"
+  NEW_VERSION="${TAG_RAW#v}"
 else
-    # Get current version from package.json
-    if [ -f "package.json" ]; then
-        NEW_VERSION=$(grep '"version"' package.json | head -1 | awk -F '"' '{print $4}')
-        echo -e "${BLUE}Using version from package.json: ${GREEN}${NEW_VERSION}${NC}"
-    else
-        echo -e "${RED}Error: package.json not found and no version provided${NC}"
-        echo ""
-        echo "Usage:"
-        echo "  ./scripts/discord-webhook.sh [VERSION]"
-        echo ""
-        echo "Or set DISCORD_WEBHOOK_URL environment variable:"
-        echo "  export DISCORD_WEBHOOK_URL=\"https://discord.com/api/webhooks/...\""
-        echo "  ./scripts/discord-webhook.sh [VERSION]"
-        exit 1
+  VERSION_FILE="src/internal/tui/version.go"
+  if [ -f "$VERSION_FILE" ]; then
+    TAG=$(grep 'const[[:space:]]\+currentVersion' "$VERSION_FILE" | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)
+    if [ -z "$TAG" ]; then
+      echo -e "${RED}Error: could not determine currentVersion from ${VERSION_FILE}${NC}"
+      exit 1
     fi
+    NEW_VERSION="${TAG#v}"
+  else
+    echo -e "${RED}Error: ${VERSION_FILE} not found and no version provided${NC}"
+    echo ""
+    echo "Usage:"
+    echo "  ./scripts/discord-webhook.sh vX.Y.Z"
+    echo "  ./scripts/discord-webhook.sh X.Y.Z"
+    echo ""
+    echo "Make sure DISCORD_WEBHOOK_URL is set in .env or your environment."
+    exit 1
+  fi
 fi
 
-# (rest of script unchanged) ...
+if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo -e "${RED}Invalid version format. Use semantic versioning (e.g., 0.2.0 or v0.2.0).${NC}"
+  exit 1
+fi
 
+if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+  echo -e "${RED}Error: DISCORD_WEBHOOK_URL is not set.${NC}"
+  echo "Set it in your .env file at the project root or export it in your shell:"
+  echo
+  echo "  export DISCORD_WEBHOOK_URL=\"https://discord.com/api/webhooks/...\""
+  echo "  ./scripts/discord-webhook.sh v${NEW_VERSION}"
+  exit 1
+fi
+
+echo -e "${BLUE}Version: ${GREEN}v${NEW_VERSION}${NC}"
+echo -e "${BLUE}Repository: ${GREEN}${REPO_OWNER}/${REPO_NAME}${NC}"
+echo ""
+
+# Compute changelog: recent commits since previous tag
+CURRENT_TAG="v${NEW_VERSION}"
+PREV_TAG=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | grep -vx "$CURRENT_TAG" | head -n 1 || true)
+
+if [ -n "$PREV_TAG" ]; then
+  LOG_RANGE="${PREV_TAG}..${CURRENT_TAG}"
+else
+  # Fallback: just show recent commits leading to the current tag/HEAD
+  LOG_RANGE="${CURRENT_TAG}"
+fi
+
+CHANGELOG=$(git log --oneline --no-decorate ${LOG_RANGE} 2>/dev/null | head -20 || true)
+if [ -z "$CHANGELOG" ]; then
+  CHANGELOG="- Release ${CURRENT_TAG}"
+else
+  # Turn into bullet list
+  CHANGELOG="- ${CHANGELOG//$'\n'/$'\n- '}"
+fi
+
+RELEASE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/tag/${CURRENT_TAG}"
+
+# Build Discord payload
+echo -e "${BLUE}Preparing Discord payload...${NC}"
+
+PAYLOAD=$(cat <<EOF
+{
+  "content": "🚀 **New CSM release: v${NEW_VERSION}**",
+  "embeds": [{
+    "title": "CS2 Server Manager v${NEW_VERSION}",
+    "description": "A new version of CSM has been released.",
+    "color": 3066993,
+    "fields": [
+      {
+        "name": "📦 Changelog (recent commits)",
+        "value": "$(printf '%s' "$CHANGELOG" | sed 's/"/\\"/g')",
+        "inline": false
+      },
+      {
+        "name": "🔗 GitHub Release",
+        "value": "[View Release](${RELEASE_URL})",
+        "inline": true
+      }
+    ]
+  }]
+}
+EOF
+)
+
+echo -e "${BLUE}Sending webhook to Discord...${NC}"
+
+HTTP_CODE=$(curl -sS -w "%{http_code}" -o /tmp/csm_webhook_resp.txt \
+  -H "Content-Type: application/json" \
+  -X POST \
+  -d "$PAYLOAD" \
+  "$DISCORD_WEBHOOK_URL" || echo "000")
+
+if [ "$HTTP_CODE" = "204" ] || [ "$HTTP_CODE" = "200" ]; then
+  echo -e "${GREEN}Discord notification sent successfully.${NC}"
+else
+  echo -e "${RED}Failed to send Discord notification. HTTP status: ${HTTP_CODE}${NC}"
+  echo "Response body:"
+  cat /tmp/csm_webhook_resp.txt || true
+  exit 1
+fi
 

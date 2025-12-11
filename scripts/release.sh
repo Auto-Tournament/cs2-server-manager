@@ -5,13 +5,67 @@ set -euo pipefail
 # Always run from the repository root
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.."
 
-TAG="${1:-}"
+MODE="${1:-}"
+TAG=""
 CSM_DRY_RUN="${CSM_DRY_RUN:-false}"
 CSM_WEBHOOK_DRY_RUN="${CSM_WEBHOOK_DRY_RUN:-false}"
 
-if [[ -z "$TAG" ]]; then
-  echo "Usage: ./scripts/release.sh vX.Y.Z"
-  echo "Example: ./scripts/release.sh v0.2.0"
+VERSION_FILE="src/internal/tui/version.go"
+
+if [[ "$MODE" =~ ^(patch|minor|major)$ ]]; then
+  # Auto-bump mode: read currentVersion from version.go and compute next tag.
+  if [[ ! -f "$VERSION_FILE" ]]; then
+    echo "Error: $VERSION_FILE not found; cannot auto-bump version."
+    exit 1
+  fi
+
+  CURRENT_VERSION=$(grep 'const[[:space:]]\+currentVersion' "$VERSION_FILE" | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)
+  if [[ -z "$CURRENT_VERSION" ]]; then
+    echo "Could not determine currentVersion from $VERSION_FILE"
+    exit 1
+  fi
+
+  # Strip leading "v" if present, then split into semver components.
+  BASE="${CURRENT_VERSION#v}"
+  IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+  MAJOR=${MAJOR:-0}
+  MINOR=${MINOR:-0}
+  PATCH=${PATCH:-0}
+
+  case "$MODE" in
+    patch)
+      PATCH=$((PATCH + 1))
+      ;;
+    minor)
+      MINOR=$((MINOR + 1))
+      PATCH=0
+      ;;
+    major)
+      MAJOR=$((MAJOR + 1))
+      MINOR=0
+      PATCH=0
+      ;;
+  esac
+
+  TAG="v${MAJOR}.${MINOR}.${PATCH}"
+
+  echo "[csm] Bumping version: ${CURRENT_VERSION} -> ${TAG}"
+
+  # Update currentVersion in version.go to match the new tag.
+  # Use a portable in-place edit (creates a .bak on macOS/BSD).
+  # We anchor on the const line to avoid touching comments.
+  sed -i.bak -E 's/^(const[[:space:]]+currentVersion[[:space:]]*=[[:space:]]*")([^"]+)(")/\1'"${TAG}"'\3/' "$VERSION_FILE"
+  rm -f "${VERSION_FILE}.bak"
+
+elif [[ "$MODE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  # Explicit tag provided, e.g. v0.2.0
+  TAG="$MODE"
+else
+  echo "Usage:"
+  echo "  ./scripts/release.sh vX.Y.Z        # create release for explicit tag"
+  echo "  ./scripts/release.sh patch         # bump patch version and release"
+  echo "  ./scripts/release.sh minor         # bump minor version and release"
+  echo "  ./scripts/release.sh major         # bump major version and release"
   echo
   echo "Environment flags:"
   echo "  CSM_DRY_RUN=true         Build binaries but DO NOT create a GitHub release or send webhooks."
@@ -34,9 +88,8 @@ if [[ "$CSM_DRY_RUN" != "true" ]]; then
 fi
 
 # Ensure the internal CSM version matches the tag we are releasing.
-VERSION_FILE="src/internal/tui/version.go"
 if [[ -f "$VERSION_FILE" ]]; then
-  FILE_VERSION=$(grep 'currentVersion' "$VERSION_FILE" | sed -E 's/.*\"([^\"]+)\".*/\1/')
+  FILE_VERSION=$(grep 'const[[:space:]]\+currentVersion' "$VERSION_FILE" | sed -E 's/.*\"([^\"]+)\".*/\1/' | head -n 1)
   if [[ -z "$FILE_VERSION" ]]; then
     echo "Could not determine currentVersion from $VERSION_FILE"
     exit 1
