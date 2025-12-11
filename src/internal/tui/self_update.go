@@ -18,6 +18,33 @@ type selfUpdateFinishedMsg struct {
 	err        error
 }
 
+// selfUpdateProgressWriter wraps the target file so that as bytes are written
+// we can emit selfUpdateProgressMsg messages into the TUI, giving the user a
+// sense of download progress while the update runs.
+type selfUpdateProgressWriter struct {
+	w       io.Writer
+	total   int64
+	written int64
+}
+
+func (pw *selfUpdateProgressWriter) Write(p []byte) (int, error) {
+	n, err := pw.w.Write(p)
+	if n > 0 {
+		pw.written += int64(n)
+		if pw.total > 0 {
+			percent := int(pw.written * 100 / pw.total)
+			if percent > 100 {
+				percent = 100
+			}
+			send(selfUpdateProgressMsg{Percent: percent})
+		} else {
+			// Unknown total size; just signal that data is flowing.
+			send(selfUpdateProgressMsg{Percent: -1})
+		}
+	}
+	return n, err
+}
+
 func runSelfUpdate(targetVersion string) tea.Cmd {
 	return func() tea.Msg {
 		asset, err := selectAssetForCurrentPlatform()
@@ -72,7 +99,15 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 			return selfUpdateFinishedMsg{newVersion: "", err: err}
 		}
 
-		if _, err := io.Copy(f, resp.Body); err != nil {
+		// Wrap the file in a progress writer so we can emit selfUpdateProgressMsg
+		// events while the binary is downloading.
+		pw := &selfUpdateProgressWriter{
+			w:      f,
+			total:  resp.ContentLength,
+			written: 0,
+		}
+
+		if _, err := io.Copy(pw, resp.Body); err != nil {
 			f.Close()
 			_ = os.Remove(tmpPath)
 			return selfUpdateFinishedMsg{newVersion: "", err: err}

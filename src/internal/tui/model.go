@@ -127,6 +127,12 @@ type installLogTickMsg struct {
 	lines string
 }
 
+// selfUpdateProgressMsg represents download progress for the self-update flow.
+// Percent is 0-100; a negative value means "unknown/streaming without size".
+type selfUpdateProgressMsg struct {
+	Percent int
+}
+
 type model struct {
 	view   viewMode
 	tab    tab
@@ -574,6 +580,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// No new commands scheduled here; the tailer goroutine drives further
 		// updates by sending more installLogTickMsg values.
+		return m, tea.Batch(cmds...)
+
+	case selfUpdateProgressMsg:
+		// Live progress for self-update: show a simple textual indicator under
+		// the spinner so the user can see that bytes are flowing.
+		if msg.Percent >= 0 {
+			m.lastOutput = fmt.Sprintf("Downloading update: %d%%", msg.Percent)
+		} else {
+			m.lastOutput = "Downloading update..."
+		}
 		return m, tea.Batch(cmds...)
 
 	case viewportFinishedMsg:
