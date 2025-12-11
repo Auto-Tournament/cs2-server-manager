@@ -205,8 +205,6 @@ func createCS2User(w *bytes.Buffer, user string) error {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return err
 	}
-	_ = os.Chown(home, 0, 0) // best effort; ownership should already be user:user from useradd
-
 	// Ensure /usr/games is in PATH for steamcmd
 	bashrc := filepath.Join(home, ".bashrc")
 	data, _ := os.ReadFile(bashrc)

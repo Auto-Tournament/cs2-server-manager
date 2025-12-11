@@ -465,17 +465,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		default:
 			out := strings.TrimSpace(msg.output)
-			if out == "" {
-				out = "(no output)"
-			}
 
-			// Truncate output to last ~24 lines to keep the view readable.
-			lines := strings.Split(out, "\n")
-			if len(lines) > 24 {
-				lines = lines[len(lines)-24:]
+			if out != "" {
+				// Truncate output to last ~24 lines to keep the view readable.
+				lines := strings.Split(out, "\n")
+				if len(lines) > 24 {
+					lines = lines[len(lines)-24:]
+				}
+				m.lastOutput = strings.Join(lines, "\n")
+			} else {
+				// If the command produced no output, don't show a noisy
+				// "(no output)" block – just keep the status line.
+				m.lastOutput = ""
 			}
-
-			m.lastOutput = strings.Join(lines, "\n")
 
 			if msg.err != nil {
 				m.status = fmt.Sprintf("Command failed: %v", msg.err)
