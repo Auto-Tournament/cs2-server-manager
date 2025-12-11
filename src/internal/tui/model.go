@@ -395,6 +395,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 
+		// Dedicated handling while inside the install wizard:
+		// - q      → exit wizard back to main menu
+		// - ctrl+c → double-press to quit CSM
+		// - others → forwarded to the huh form / review logic
+		if m.view == viewInstallWizard {
+			switch msg.String() {
+			case "q":
+				m.view = viewMain
+				m.wizard.active = false
+				m.wizard.reviewing = false
+				m.status = "Select an action and press Enter to run it."
+				return m, nil
+			case "ctrl+c":
+				if !m.confirmQuit {
+					m.confirmQuit = true
+					m.status = "Press Ctrl+C again to quit CSM, or C to continue."
+					return m, tea.Batch(cmds...)
+				}
+				return m, tea.Quit
+			default:
+				var cmd tea.Cmd
+				m, cmd = m.updateInstallWizard(msg)
+				cmds = append(cmds, cmd)
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 		// While a command is running (e.g. install wizard, updates), lock the UI
 		// so the user can't navigate to other tabs or trigger new actions.
 		// Allow quitting with ctrl+c or q.
@@ -434,6 +461,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "ctrl+c":
+			// Double-press Ctrl+C to quit CSM when no command is running.
+			if !m.confirmQuit {
+				m.confirmQuit = true
+				m.status = "Press Ctrl+C again to quit CSM, or C to continue."
+				return m, tea.Batch(cmds...)
+			}
 			return m, tea.Quit
 		case "q":
 			// In viewport mode, q navigates back.
@@ -442,20 +475,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Keep whatever status we already had; no extra noise.
 				return m, nil
 			}
-			// In the install wizard, q cancels the wizard and returns to the
-			// main menu without quitting CSM.
-			if m.view == viewInstallWizard {
-				m.view = viewMain
-				m.wizard.active = false
-				m.wizard.reviewing = false
-				m.status = "Select an action and press Enter to run it."
-				return m, nil
-			}
-			// From the main menu, q quits.
+			// From the main menu, q quits (double-press).
 			if m.view == viewMain {
+				if !m.confirmQuit {
+					m.confirmQuit = true
+					m.status = "Press Q again to quit CSM, or C to continue."
+					return m, tea.Batch(cmds...)
+				}
 				return m, tea.Quit
 			}
 
+			return m, tea.Batch(cmds...)
+		case "c":
+			// Allow users to cancel a pending quit confirmation even when no
+			// command is running.
+			if m.confirmQuit {
+				m.confirmQuit = false
+				// Don't overwrite any more specific status; just clear the flag.
+			}
 			return m, tea.Batch(cmds...)
 
 		case "left", "h":
@@ -506,7 +543,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.lastOutput = ""
 					m.selfUpdating = true
 					// Reset progress bar.
-					m.updateProgress = progress.New(progress.WithDefaultGradient())
+				m.updateProgress = progress.New(progress.WithDefaultGradient())
+				m.updateProgress.Width = 60
 					cmds = append(cmds, runSelfUpdate(m.latestVersion), m.spin.Tick)
 				}
 			case itemForceUpdateNow:
@@ -716,6 +754,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case progress.FrameMsg:
+		// Drive the internal animation of the progress bar while a self-update
+		// is in progress.
+		if m.selfUpdating {
+			pm, cmd := m.updateProgress.Update(msg)
+			if p, ok := pm.(progress.Model); ok {
+				m.updateProgress = p
+			}
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 	case viewportFinishedMsg:
 		// A long-running viewport operation (status, logs, DB verify, etc.)
 		// has completed. Show the content in a scrollable viewport.
@@ -774,6 +824,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Updating CSM to %s...", m.latestVersion)
 		m.lastOutput = ""
 		m.updateProgress = progress.New(progress.WithDefaultGradient())
+		m.updateProgress.Width = 60
 		cmds = append(cmds, runSelfUpdate(m.latestVersion), m.spin.Tick)
 		return m, tea.Batch(cmds...)
 
