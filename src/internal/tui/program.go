@@ -7,6 +7,11 @@ import tea "github.com/charmbracelet/bubbletea"
 // update loop for streaming output.
 var program *tea.Program
 
+// installCancel, when set, cancels the currently running install operation
+// (bootstrap/plugins) so long-running processes like steamcmd are terminated
+// when the user quits the TUI.
+var installCancel func()
+
 // SetProgram is called from main after creating the Bubble Tea program.
 func SetProgram(p *tea.Program) {
 	program = p
@@ -16,6 +21,21 @@ func SetProgram(p *tea.Program) {
 func send(msg tea.Msg) {
 	if program != nil && msg != nil {
 		program.Send(msg)
+	}
+}
+
+// SetInstallCancel registers a cancel function for the active install
+// operation. Passing nil clears any existing cancel function.
+func SetInstallCancel(cancel func()) {
+	installCancel = cancel
+}
+
+// CancelInstall cancels any active install operation. It's safe to call even
+// if no install is currently running.
+func CancelInstall() {
+	if installCancel != nil {
+		installCancel()
+		installCancel = nil
 	}
 }
 

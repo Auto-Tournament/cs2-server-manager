@@ -158,6 +158,10 @@ type model struct {
 	// Self-update UI state
 	selfUpdating   bool
 	updateProgress progress.Model
+
+	// When true, the next 'q' while a command is running will confirm quitting
+	// and cancel any active operations (steamcmd, installs, etc.).
+	confirmQuit bool
 }
 
 // New constructs the initial Bubble Tea model for the CS2 TUI.
@@ -366,7 +370,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.running {
 			switch msg.String() {
 			case "ctrl+c", "q":
+				// First press: ask for confirmation so users don't accidentally
+				// kill long-running installs or updates.
+				if !m.confirmQuit {
+					m.confirmQuit = true
+					m.status = "Press Q again to abort the current operation and exit, or press C to continue."
+					return m, tea.Batch(cmds...)
+				}
+				// Second Q (or ctrl+c twice): cancel and quit.
+				CancelInstall()
 				return m, tea.Quit
+			case "c":
+				// Allow users to back out of the quit confirmation and keep
+				// the current operation running.
+				if m.confirmQuit {
+					m.confirmQuit = false
+					// Don't overwrite more specific status messages; just
+					// clear the confirmation.
+				}
+				return m, tea.Batch(cmds...)
 			default:
 				return m, tea.Batch(cmds...)
 			}
@@ -512,6 +534,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case commandFinishedMsg:
 		m.running = false
+		m.confirmQuit = false
 
 		// Special-case commands that want minimal UI chrome.
 		switch msg.item.kind {
@@ -584,6 +607,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if msg.err != nil {
+			m.confirmQuit = false
+			CancelInstall()
 			m.running = false
 			m.status = fmt.Sprintf("Install failed during step: %v", msg.err)
 			return m, tea.Batch(cmds...)
@@ -601,7 +626,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Step 4/4: Starting all servers..."
 			return m, tea.Batch(append(cmds, runInstallStep(m.wizard.cfg, installStepStartServers), m.spin.Tick)...)
 		case installStepStartServers:
+			CancelInstall()
 			m.running = false
+			m.confirmQuit = false
 			m.status = "Install wizard finished successfully."
 			return m, tea.Batch(cmds...)
 		}
@@ -667,6 +694,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case selfUpdateFinishedMsg:
 		m.running = false
 		m.selfUpdating = false
+		m.confirmQuit = false
 		if msg.err != nil {
 			m.status = fmt.Sprintf("Update failed: %v", msg.err)
 		} else {

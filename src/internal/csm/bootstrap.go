@@ -2,6 +2,7 @@ package csm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -32,6 +33,13 @@ type BootstrapConfig struct {
 // Bootstrap installs or redeploys the CS2 servers, performing roughly the
 // same steps as scripts/bootstrap_cs2.sh. It returns a human-readable log.
 func Bootstrap(cfg BootstrapConfig) (string, error) {
+	return BootstrapWithContext(context.Background(), cfg)
+}
+
+// BootstrapWithContext is like Bootstrap but allows callers to provide a
+// context that can be cancelled to terminate long-running operations such as
+// steamcmd. The plain Bootstrap function uses a background context.
+func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, error) {
 	var buf bytes.Buffer
 	log := func(format string, args ...any) {
 		fmt.Fprintf(&buf, format, args...)
@@ -104,7 +112,7 @@ func Bootstrap(cfg BootstrapConfig) (string, error) {
 	log("")
 
 	log("[2/5] Installing/updating master CS2 installation...")
-	if err := installMasterViaSteamCMD(&buf, cfg); err != nil {
+	if err := installMasterViaSteamCMD(ctx, &buf, cfg); err != nil {
 		log("  [!] Failed to install/update master: %v", err)
 		return buf.String(), err
 	}
@@ -218,7 +226,7 @@ func createCS2User(w *bytes.Buffer, user string) error {
 	return nil
 }
 
-func installMasterViaSteamCMD(w *bytes.Buffer, cfg BootstrapConfig) error {
+func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg BootstrapConfig) error {
 	homeDir := filepath.Join("/home", cfg.CS2User)
 	masterDir := filepath.Join(homeDir, "master-install")
 	gameinfo := filepath.Join(masterDir, "game", "csgo", "gameinfo.gi")
@@ -275,7 +283,7 @@ set -e
 steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 `, masterDir)
 
-	cmd := exec.Command("su", "-", cfg.CS2User, "-c", script)
+	cmd := exec.CommandContext(ctx, "su", "-", cfg.CS2User, "-c", script)
 
 	// If CSM_BOOTSTRAP_LOG is set, stream steamcmd output into that file so
 	// the TUI can show a live tail while the install is running.

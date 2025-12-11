@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -362,7 +363,13 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			_ = os.Setenv("CSM_BOOTSTRAP_LOG", logPath)
 			defer os.Unsetenv("CSM_BOOTSTRAP_LOG")
 
-			if out, err := csm.Bootstrap(bcfg); err != nil {
+			// Use a cancellable context so steamcmd and the rest of bootstrap
+			// are terminated if the user quits the TUI mid-install.
+			ctx, cancel := context.WithCancel(context.Background())
+			SetInstallCancel(cancel)
+			defer CancelInstall()
+
+			if out, err := csm.BootstrapWithContext(ctx, bcfg); err != nil {
 				if out != "" {
 					logs = append(logs, out)
 				}
