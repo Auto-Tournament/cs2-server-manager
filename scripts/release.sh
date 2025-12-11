@@ -12,6 +12,45 @@ CSM_WEBHOOK_DRY_RUN="${CSM_WEBHOOK_DRY_RUN:-false}"
 
 VERSION_FILE="src/internal/tui/version.go"
 
+git_commit_and_tag() {
+  local tag="$1"
+  local version_file="$2"
+
+  if [[ "${CSM_SKIP_GIT:-false}" == "true" ]]; then
+    echo "[csm] Skipping git commit/tag (CSM_SKIP_GIT=true)."
+    return 0
+  fi
+
+  if ! command -v git >/dev/null 2>&1; then
+    echo "[csm] git not found; skipping commit/tag."
+    return 0
+  fi
+
+  # Stage the version file.
+  if ! git add "$version_file"; then
+    echo "[csm] git add failed for ${version_file}; aborting release."
+    return 1
+  fi
+
+  # Only commit if there is something staged.
+  if git diff --cached --quiet; then
+    echo "[csm] No changes to commit in ${version_file}; skipping commit."
+  else
+    if ! git commit -m "chore: release ${tag}"; then
+      echo "[csm] git commit failed; aborting release."
+      return 1
+    fi
+    echo "[csm] Committed version bump for ${tag}."
+  fi
+
+  # Try to create an annotated tag; if it already exists, continue.
+  if git tag -a "${tag}" -m "CSM ${tag}" 2>/dev/null; then
+    echo "[csm] Created git tag ${tag}."
+  else
+    echo "[csm] git tag ${tag} failed (maybe it already exists); continuing."
+  fi
+}
+
 if [[ "$MODE" =~ ^(patch|minor|major)$ ]]; then
   # Auto-bump mode: read currentVersion from version.go and compute next tag.
   if [[ ! -f "$VERSION_FILE" ]]; then
@@ -57,12 +96,35 @@ if [[ "$MODE" =~ ^(patch|minor|major)$ ]]; then
   sed -i.bak -E 's/^(const[[:space:]]+currentVersion[[:space:]]*=[[:space:]]*")([^"]+)(")/\1'"${TAG}"'\3/' "$VERSION_FILE"
   rm -f "${VERSION_FILE}.bak"
 
-elif [[ "$MODE" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  # Explicit tag provided, e.g. v0.2.0
-  TAG="$MODE"
+  # Commit and tag the version bump.
+  if ! git_commit_and_tag "${TAG}" "${VERSION_FILE}"; then
+    exit 1
+  fi
+
+elif [[ "$MODE" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  # Explicit version provided, e.g. v0.2.0 or 0.2.0
+  BASE="${MODE#v}"
+  TAG="v${BASE}"
+
+  echo "[csm] Using explicit version: ${TAG}"
+
+  # Update currentVersion in version.go to match the requested tag so the
+  # consistency check passes and the binary reports the correct version.
+  if [[ -f "$VERSION_FILE" ]]; then
+    sed -i.bak -E 's/^(const[[:space:]]+currentVersion[[:space:]]*=[[:space:]]*")([^"]+)(")/\1'"${TAG}"'\3/' "$VERSION_FILE"
+    rm -f "${VERSION_FILE}.bak"
+  else
+    echo "Warning: $VERSION_FILE not found; skipping version.go update."
+  fi
+
+  # Commit and tag the version bump.
+  if ! git_commit_and_tag "${TAG}" "${VERSION_FILE}"; then
+    exit 1
+  fi
 else
   echo "Usage:"
   echo "  ./scripts/release.sh vX.Y.Z        # create release for explicit tag"
+  echo "  ./scripts/release.sh X.Y.Z         # create release for explicit tag"
   echo "  ./scripts/release.sh patch         # bump patch version and release"
   echo "  ./scripts/release.sh minor         # bump minor version and release"
   echo "  ./scripts/release.sh major         # bump major version and release"
@@ -85,25 +147,6 @@ if [[ "$CSM_DRY_RUN" != "true" ]]; then
     echo "Install it from https://cli.github.com/ and run 'gh auth login' first."
     exit 1
   fi
-fi
-
-# Ensure the internal CSM version matches the tag we are releasing.
-if [[ -f "$VERSION_FILE" ]]; then
-  FILE_VERSION=$(grep 'const[[:space:]]\+currentVersion' "$VERSION_FILE" | sed -E 's/.*\"([^\"]+)\".*/\1/' | head -n 1)
-  if [[ -z "$FILE_VERSION" ]]; then
-    echo "Could not determine currentVersion from $VERSION_FILE"
-    exit 1
-  fi
-  if [[ "$FILE_VERSION" != "$TAG" ]]; then
-    echo "Version mismatch:"
-    echo "  Tag:          $TAG"
-    echo "  version.go:   $FILE_VERSION"
-    echo ""
-    echo "Please bump currentVersion in $VERSION_FILE to match the tag before releasing."
-    exit 1
-  fi
-else
-  echo "Warning: $VERSION_FILE not found; skipping version consistency check."
 fi
 
 DIST_DIR="dist/releases/${TAG}"
@@ -133,62 +176,16 @@ else
   echo "[csm] Release ${TAG} created with assets in ${DIST_DIR}"
 fi
 
-# Optional Discord webhook notification.
-# Set CSM_DISCORD_WEBHOOK_URL to enable, e.g.:
-#   export CSM_DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/..."
-if [[ -n "${CSM_DISCORD_WEBHOOK_URL:-}" || "$CSM_WEBHOOK_DRY_RUN" == "true" ]]; then
-  if [[ -z "${CSM_DISCORD_WEBHOOK_URL:-}" && "$CSM_WEBHOOK_DRY_RUN" != "true" ]]; then
-    echo "[csm] Skipping Discord webhook: CSM_DISCORD_WEBHOOK_URL not set."
-  fi
-
-  echo "[csm] Preparing Discord release notification..."
-
-  REPO_OWNER="${REPO_OWNER:-sivert-io}"
-  REPO_NAME="${REPO_NAME:-cs2-server-manager}"
-  RELEASE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/tag/${TAG}"
-
-  CHANGELOG=$(git log --oneline --no-decorate "$(git describe --tags --abbrev=0 --match 'v*' --exclude="$TAG" 2>/dev/null)..${TAG}" 2>/dev/null | head -20)
-  if [[ -z "$CHANGELOG" ]]; then
-    CHANGELOG="- Release ${TAG}"
+# Optional Discord webhook notification via scripts/discord-webhook.sh.
+# Configure DISCORD_WEBHOOK_URL in .env at the project root.
+if [[ "$CSM_DRY_RUN" != "true" && "${CSM_SKIP_DISCORD:-false}" != "true" ]]; then
+  if [[ -x "./scripts/discord-webhook.sh" ]]; then
+    echo "[csm] Sending Discord notification for ${TAG}..."
+    if ! ./scripts/discord-webhook.sh "${TAG}"; then
+      echo "[csm] Warning: Discord webhook script failed."
+    fi
   else
-    CHANGELOG="- " && CHANGELOG="- ${CHANGELOG//$'\n'/$'\n- '}"
-  fi
-
-  PAYLOAD=$(cat <<EOF
-{
-  "content": "🚀 **New CSM release: ${TAG}**",
-  "embeds": [{
-    "title": "CS2 Server Manager ${TAG}",
-    "description": "A new version of CSM has been released.",
-    "color": 3066993,
-    "fields": [
-      {
-        "name": "📦 Changelog (recent commits)",
-        "value": "$(printf '%s' "$CHANGELOG" | sed 's/\"/\\\"/g')",
-        "inline": false
-      },
-      {
-        "name": "🔗 GitHub Release",
-        "value": "[View Release](${RELEASE_URL})",
-        "inline": true
-      }
-    ]
-  }]
-}
-EOF
-)
-
-  if [[ "$CSM_WEBHOOK_DRY_RUN" == "true" ]]; then
-    echo "[csm] DRY RUN (webhook): would send the following payload to Discord:"
-    echo "$PAYLOAD"
-  elif [[ -n "${CSM_DISCORD_WEBHOOK_URL:-}" && "$CSM_DRY_RUN" != "true" ]]; then
-    echo "[csm] Sending Discord release notification..."
-    curl -sS -X POST \
-      -H "Content-Type: application/json" \
-      -d "$PAYLOAD" \
-      "$CSM_DISCORD_WEBHOOK_URL" >/dev/null || echo "[csm] Warning: failed to send Discord webhook"
-  else
-    echo "[csm] Skipping actual webhook send (CSM_DRY_RUN=${CSM_DRY_RUN}, CSM_WEBHOOK_DRY_RUN=${CSM_WEBHOOK_DRY_RUN})."
+    echo "[csm] Skipping Discord webhook: scripts/discord-webhook.sh not found or not executable."
   fi
 fi
 
