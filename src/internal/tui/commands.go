@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 	tea "github.com/charmbracelet/bubbletea"
@@ -184,7 +185,7 @@ func runPublicIP() tea.Cmd {
 // jq, etc.) using the Go-native helper. This must be run as root.
 func runInstallDepsGo() tea.Cmd {
 	return func() tea.Msg {
-		title := "Install system dependencies (sudo)"
+		title := "Install system dependencies"
 
 		if os.Geteuid() != 0 {
 			out := "System dependency installation must be run as root.\n\n" +
@@ -202,6 +203,18 @@ func runInstallDepsGo() tea.Cmd {
 				err:    nil,
 			}
 		}
+
+		// Stream dependency installation progress by mirroring logs into a
+		// temp file that a background goroutine tails.
+		logPath := filepath.Join(os.TempDir(), "csm-deps.log")
+		_ = os.Remove(logPath)
+
+		done := make(chan struct{})
+		go tailInstallLog(logPath, done)
+		defer close(done)
+
+		_ = os.Setenv("CSM_DEPS_LOG", logPath)
+		defer os.Unsetenv("CSM_DEPS_LOG")
 
 		out, err := csm.InstallDependencies()
 		return commandFinishedMsg{

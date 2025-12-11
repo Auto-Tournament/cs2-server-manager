@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -326,7 +327,7 @@ steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 	return fmt.Errorf("gameinfo.gi not found after steamcmd")
 }
 
-func ensureBootstrapDependencies(w *bytes.Buffer) error {
+func ensureBootstrapDependencies(w io.Writer) error {
 	if _, err := exec.LookPath("apt-get"); err != nil {
 		fmt.Fprintln(w, "Only Debian/Ubuntu-style distributions are supported for automated dependencies.")
 		return fmt.Errorf("apt-get not found")

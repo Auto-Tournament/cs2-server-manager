@@ -237,8 +237,7 @@ func requiresSudo(kind itemKind) bool {
 		itemInstallMonitorGo,
 		itemUpdateGameGo,
 		itemForceUpdateNow,
-		itemUpdateNow,
-		itemInstallWizard:
+		itemUpdateNow:
 		return true
 	default:
 		return false
