@@ -11,7 +11,7 @@ This guide gets you from zero to running CS2 servers in a few minutes.
 
 ## 1. Download CSM and run the installer wizard
 
-From your target server, you can install and launch the latest **prebuilt `csm` binary** from GitHub Releases with a single command. The installer is a guided form built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [huh](https://github.com/charmbracelet/huh), so you can navigate with arrows and confirm with Enter:
+From your target server, you can install and launch the latest **prebuilt `csm` binary** from the [GitHub Releases](https://github.com/sivert-io/cs2-server-manager/releases/latest) page with a single command. The installer is a guided form built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [huh](https://github.com/charmbracelet/huh), so you can navigate with arrows and confirm with Enter:
 
 ```bash
 arch=$(uname -m); \
