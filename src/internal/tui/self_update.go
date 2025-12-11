@@ -83,7 +83,9 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 
 		url := fmt.Sprintf("https://github.com/sivert-io/cs2-server-manager/releases/download/%s/%s", targetVersion, asset)
 
-		client := http.Client{Timeout: 30 * time.Second}
+		// Allow for slow connections: give the download up to 5 minutes before
+		// timing out.
+		client := http.Client{Timeout: 5 * time.Minute}
 		resp, err := client.Get(url)
 		if err != nil {
 			return selfUpdateFinishedMsg{newVersion: "", err: err}
