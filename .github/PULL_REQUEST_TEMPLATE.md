@@ -2,7 +2,7 @@
 
 Brief description of what this PR does.
 
-## 🔗 Related Issue
+## 🔗 Linked Issues
 
 Fixes #(issue number)
 
@@ -24,10 +24,15 @@ Fixes #(issue number)
 - [ ] I have tested my changes locally
 - [ ] I have updated the documentation (if applicable)
 
-## 🧪 Testing
+## 🧪 Testing Instructions
 
-Describe how you tested your changes:
+**How to test these changes:**
 
+1. Step-by-step instructions for reviewers to test the changes
+2. Any setup or prerequisites needed
+3. Expected behavior/outcomes
+
+**How I tested:**
 ```bash
 # Commands used to test
 ```
