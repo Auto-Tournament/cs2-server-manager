@@ -7,6 +7,8 @@ csm.exe
 csm-linux-*
 csm-darwin-*
 csm-windows-*
+cs2-tui
+cs2-tui.exe
 
 # OS/editor noise
 .DS_Store
