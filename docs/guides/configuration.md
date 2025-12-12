@@ -4,24 +4,32 @@ CS2 Server Manager is designed so your custom configs survive updates. This page
 
 ## Installation methods
 
-You can install with one of two common flows:
+You can install with one of three common flows:
 
-### 1. Download prebuilt binary (recommended)
+### 1. Quick install (recommended)
 
 ```bash
-chmod +x csm
-sudo ./csm            # launches the interactive TUI installer
+wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
+bash install.sh
 ```
 
-This uses the default `overrides/` folder that ships with the release, if present.
+This uses the default `overrides/` folder from the repository.
 
-### 2. Git clone & customize
+### 2. Quick install with custom overrides
+
+```bash
+bash install.sh --auto --overrides /path/to/your-overrides
+```
+
+Provide your own overrides directory (must match the structure of `overrides/game/`).
+
+### 3. Git clone & customize
 
 ```bash
 git clone https://github.com/sivert-io/cs2-server-manager.git
 cd cs2-server-manager
 # Edit overrides/ folder as needed
-./scripts/start.sh          # or: go build -o csm ./src/cmd/cs2-tui && ./csm
+./manage.sh install
 ```
 
 Best if you want full control and to keep your own fork.
@@ -60,4 +68,4 @@ Default ports (incrementing by 10):
 - Keep all long-term customizations inside `overrides/`.
 - Use a git repo for your overrides directory so you can version changes.
 - Avoid editing files directly under `/home/cs2/server-*` unless testing something temporarily.
-- After changing configs, restart the relevant server(s) via `csm restart`.
+- After changing configs, restart the relevant server(s) via `manage.sh` or `cs2_tmux.sh`.

@@ -1,18 +1,3 @@
-build/
-dist/
-
-# Local binaries
-csm
-csm.exe
-csm-linux-*
-csm-darwin-*
-csm-windows-*
-
-# OS/editor noise
-.DS_Store
-*.swp
-*.swo
-
 # Data directories with permission issues
 data/logs/
 data/tmp/
@@ -51,10 +36,3 @@ build/
 
 game_files/
 extracted_csgo/
-
-.env
-
-# Ensure Go source under src/internal is always tracked (even if a global
-# gitignore or exclude file ignores "internal" or similar patterns).
-!src/internal/
-!src/internal/**
