@@ -9,23 +9,22 @@ This guide gets you from zero to running CS2 servers in a few minutes.
 - **Docker** installed and running (for MySQL and supporting services).
 - **Enough resources** for multiple CS2 servers (CPU, RAM, and disk).
 
-## 1. Download CSM and run the installer wizard
+## 1. Download and run the installer
 
-From your target server, you can install and launch the latest **prebuilt `csm` binary** from the [GitHub Releases](https://github.com/sivert-io/cs2-server-manager/releases/latest) page with a single command. The installer is a guided form built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and [huh](https://github.com/charmbracelet/huh), so you can navigate with arrows and confirm with Enter:
+From your target server:
 
 ```bash
-arch=$(uname -m); \
-case "$arch" in \
-  x86_64)  asset="csm-linux-amd64" ;; \
-  aarch64|arm64) asset="csm-linux-arm64" ;; \
-  *) echo "Unsupported architecture: $arch" && exit 1 ;; \
-esac; \
-curl -L "https://github.com/sivert-io/cs2-server-manager/releases/latest/download/$asset" -o csm && \
-chmod +x csm && \
-sudo ./csm            # launches the interactive TUI installer
+wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
+bash install.sh
 ```
 
-The installer wizard will:
+To run fully unattended with 5 servers:
+
+```bash
+bash install.sh --auto --servers 5
+```
+
+The installer will:
 
 - Install required system dependencies.
 - Download CS2 server files.
@@ -33,42 +32,33 @@ The installer wizard will:
 - Install Metamod, CounterStrikeSharp, MatchZy, and AutoUpdater.
 - Configure multiple CS2 instances with sane defaults.
 
-## 2. Use the CSM TUI
+## 2. Use the management menu
 
-Once installation completes, you can re-open the TUI at any time with `./csm` (or rebuild locally via `./scripts/start.sh`).
-
-If you installed `csm` globally (for example with `sudo install ./csm /usr/local/bin/csm`), you can run it from anywhere:
+Once installation completes, manage everything with:
 
 ```bash
-csm                 # run non-privileged actions
-sudo csm            # run privileged actions (install-deps, bootstrap, cron, cleanup)
+./manage.sh
 ```
 
-From the TUI you can:
+From the menu you can:
 
-- Install or repair servers (wizard).
-- Start/stop/restart all servers.
-- Check status and logs.
-- Run game/plugin updates.
+- Install or repair servers.
+- Start/stop all servers.
+- Check status.
+- Run updates.
 
-## 3. Common CLI one-liners
+## 3. Common one-liners
 
-These commands are shortcuts around the TUI:
-
-```bash
-./csm install-deps           # Install core system dependencies (run with sudo)
-./csm status                 # Check tmux status
-./csm update-game            # Update CS2
-./csm update-plugins         # Update plugins
-./csm monitor                # Run one monitor iteration
-./csm install-monitor-cron   # Install cron-based auto-update monitor
-```
-
-If you keep your `overrides/` and `game_files/` in a specific directory (for example `/opt/cs2-server-manager`), you can point CSM at it explicitly:
+These commands are shortcuts around the menu:
 
 ```bash
-export CSM_ROOT=/opt/cs2-server-manager
-cd /opt/cs2-server-manager && csm
+./manage.sh install          # Install servers
+./manage.sh start            # Start all servers
+./manage.sh stop             # Stop all servers
+./manage.sh status           # Check status
+./manage.sh update-game      # Update CS2
+./manage.sh update-plugins   # Update plugins
+./manage.sh repair           # Fix issues
 ```
 
 ## 4. Next steps
@@ -76,3 +66,14 @@ cd /opt/cs2-server-manager && csm
 - See **Guides → Managing Servers** for day-to-day operations.
 - See **Guides → Configuration & Overrides** to customize configs before or after installation.
 - See **Guides → Auto Updates** to understand how updates are handled.
+
+{
+"cells": [],
+"metadata": {
+"language_info": {
+"name": "python"
+}
+},
+"nbformat": 4,
+"nbformat_minor": 2
+}
