@@ -2,10 +2,8 @@ package csm
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -34,13 +32,6 @@ type BootstrapConfig struct {
 // Bootstrap installs or redeploys the CS2 servers, performing roughly the
 // same steps as scripts/bootstrap_cs2.sh. It returns a human-readable log.
 func Bootstrap(cfg BootstrapConfig) (string, error) {
-	return BootstrapWithContext(context.Background(), cfg)
-}
-
-// BootstrapWithContext is like Bootstrap but allows callers to provide a
-// context that can be cancelled to terminate long-running operations such as
-// steamcmd. The plain Bootstrap function uses a background context.
-func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, error) {
 	var buf bytes.Buffer
 	log := func(format string, args ...any) {
 		fmt.Fprintf(&buf, format, args...)
@@ -113,7 +104,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("")
 
 	log("[2/5] Installing/updating master CS2 installation...")
-	if err := installMasterViaSteamCMD(ctx, &buf, cfg); err != nil {
+	if err := installMasterViaSteamCMD(&buf, cfg); err != nil {
 		log("  [!] Failed to install/update master: %v", err)
 		return buf.String(), err
 	}
@@ -214,6 +205,8 @@ func createCS2User(w *bytes.Buffer, user string) error {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return err
 	}
+	_ = os.Chown(home, 0, 0) // best effort; ownership should already be user:user from useradd
+
 	// Ensure /usr/games is in PATH for steamcmd
 	bashrc := filepath.Join(home, ".bashrc")
 	data, _ := os.ReadFile(bashrc)
@@ -227,9 +220,8 @@ func createCS2User(w *bytes.Buffer, user string) error {
 	return nil
 }
 
-func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg BootstrapConfig) error {
-	homeDir := filepath.Join("/home", cfg.CS2User)
-	masterDir := filepath.Join(homeDir, "master-install")
+func installMasterViaSteamCMD(w *bytes.Buffer, cfg BootstrapConfig) error {
+	masterDir := filepath.Join("/home", cfg.CS2User, "master-install")
 	gameinfo := filepath.Join(masterDir, "game", "csgo", "gameinfo.gi")
 
 	if cfg.FreshInstall {
@@ -252,31 +244,14 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		fmt.Fprintf(w, "  [*] Installing fresh CS2 master to %s\n", masterDir)
 	}
 
-	// Ensure the CS2 user's home directory and master install exist and are
-	// owned by the CS2 user, mirroring the original bootstrap script. This
-	// prevents permission issues when steamcmd tries to create ~/.steam or
-	// write into the master install directory.
-	if err := os.MkdirAll(homeDir, 0o755); err != nil {
-		return err
-	}
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), homeDir).Run()
-
 	if err := os.MkdirAll(masterDir, 0o755); err != nil {
 		return err
 	}
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), masterDir).Run()
 
 	// Ensure dependencies (apt-get, steamcmd) - Debian/Ubuntu only for now.
 	if err := ensureBootstrapDependencies(w); err != nil {
 		return err
 	}
-
-	// Pre-create ~/.steam for the CS2 user and ensure it is owned correctly.
-	steamDir := filepath.Join(homeDir, ".steam")
-	if err := os.MkdirAll(steamDir, 0o755); err != nil {
-		return err
-	}
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), steamDir).Run()
 
 	// Run steamcmd as CS2 user
 	script := fmt.Sprintf(`
@@ -284,39 +259,13 @@ set -e
 steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 `, masterDir)
 
-	cmd := exec.CommandContext(ctx, "su", "-", cfg.CS2User, "-c", script)
-
-	// If CSM_BOOTSTRAP_LOG is set, stream steamcmd output into that file so
-	// the TUI can show a live tail while the install is running.
-	if logPath, ok := os.LookupEnv("CSM_BOOTSTRAP_LOG"); ok && logPath != "" {
-		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		if err == nil {
-			defer f.Close()
-			tw := &teeWriter{buf: w, file: f}
-			cmd.Stdout = tw
-			cmd.Stderr = tw
-			if err := cmd.Run(); err != nil {
-				return fmt.Errorf("steamcmd failed: %w", err)
-			}
-		} else {
-			// Fall back to non-streaming mode if we can't open the log file.
-			out, err := cmd.CombinedOutput()
-			if len(out) > 0 {
-				fmt.Fprintln(w, string(out))
-			}
-			if err != nil {
-				return fmt.Errorf("steamcmd failed: %w", err)
-			}
-		}
-	} else {
-		// No streaming requested; just run and capture the full output.
-		out, err := cmd.CombinedOutput()
-		if len(out) > 0 {
-			fmt.Fprintln(w, string(out))
-		}
-		if err != nil {
-			return fmt.Errorf("steamcmd failed: %w", err)
-		}
+	cmd := exec.Command("su", "-", cfg.CS2User, "-c", script)
+	out, err := cmd.CombinedOutput()
+	if len(out) > 0 {
+		fmt.Fprintln(w, string(out))
+	}
+	if err != nil {
+		return fmt.Errorf("steamcmd failed: %w", err)
 	}
 
 	if _, err := os.Stat(gameinfo); err == nil {
@@ -327,7 +276,7 @@ steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 	return fmt.Errorf("gameinfo.gi not found after steamcmd")
 }
 
-func ensureBootstrapDependencies(w io.Writer) error {
+func ensureBootstrapDependencies(w *bytes.Buffer) error {
 	if _, err := exec.LookPath("apt-get"); err != nil {
 		fmt.Fprintln(w, "Only Debian/Ubuntu-style distributions are supported for automated dependencies.")
 		return fmt.Errorf("apt-get not found")
@@ -864,23 +813,6 @@ func ensureMatchZyDatabaseExistsGo(w *bytes.Buffer, containerName string, cfg ma
 		fmt.Fprintf(w, "  [✓] User '%s' has permissions on '%s'\n", cfg.MySQLUsername, cfg.MySQLDatabase)
 	}
 	return nil
-}
-
-// teeWriter mirrors writes into both the in-memory bootstrap buffer and an
-// on-disk log file so that the TUI can tail live output while steamcmd runs.
-type teeWriter struct {
-	buf  *bytes.Buffer
-	file *os.File
-}
-
-func (t *teeWriter) Write(p []byte) (int, error) {
-	n, err := t.buf.Write(p)
-	if t.file != nil {
-		if _, ferr := t.file.Write(p); ferr != nil && err == nil {
-			err = ferr
-		}
-	}
-	return n, err
 }
 
 func ensureDockerGo(w *bytes.Buffer) error {

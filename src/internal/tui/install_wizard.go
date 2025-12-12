@@ -1,13 +1,10 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 	huh "github.com/charmbracelet/huh"
@@ -228,8 +225,7 @@ func (m model) viewInstallWizard() string {
 }
 
 // updateInstallWizard routes messages into the huh.Form and, once the form
-// is completed, kicks off the actual install via a series of discrete steps
-// (plugins, bootstrap, monitor, start servers).
+// is completed, kicks off the actual install via runInstallFromWizard.
 func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	if m.wizard.form == nil {
 		return m, nil
@@ -239,26 +235,17 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	if m.wizard.reviewing {
 		if key, ok := msg.(tea.KeyMsg); ok {
 			switch key.String() {
-			case "left", "h":
-				// Go back to the form to adjust settings.
-				m.wizard.reviewing = false
-				m.status = "Install wizard: configure your servers."
-				m.wizard.form = buildInstallForm(&m.wizard)
-				return m, m.wizard.form.Init()
-			case "right", "l":
-				// Treat as confirm/install.
-				fallthrough
 			case "enter", "y":
 				// Start install.
 				m.wizard.reviewing = false
 				m.view = viewMain
 				m.wizard.active = false
 				m.running = true
-				m.status = "Step 1/4: Preparing plugin update..."
+				m.status = "Installing servers..."
 				m.lastOutput = ""
 
 				cfg := m.wizard.cfg
-				return m, tea.Batch(runInstallStep(cfg, installStepPlugins), m.spin.Tick)
+				return m, tea.Batch(runInstallFromWizard(cfg), m.spin.Tick)
 			case "esc":
 				// Cancel and go back to main menu without installing.
 				m.wizard.reviewing = false
@@ -266,6 +253,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.view = viewMain
 				m.status = "Select an action and press Enter to run it."
 				return m, nil
+			case "ctrl+c", "q":
+				return m, tea.Quit
 			}
 		}
 		return m, nil
@@ -282,205 +271,104 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	if m.wizard.form.State == huh.StateCompleted {
 		m.wizard.applyWizardNumericFields()
 		m.wizard.reviewing = true
-		m.status = "Review settings. Press Enter to start install, Esc to cancel. Use ←/→ to go back and forth."
+		m.status = "Review settings. Press Enter to start install, Esc to cancel."
 		return m, cmd
 	}
 
 	return m, cmd
 }
 
-// runInstallStep performs a single phase of the install wizard. Each call
-// returns an installStepMsg so the TUI can update status/output and decide
-// which step to run next.
-func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
+// runInstallFromWizard orchestrates the install using existing scripts and the
+// configuration gathered from the wizard.
+func runInstallFromWizard(cfg installConfig) tea.Cmd {
 	return func() tea.Msg {
 		var logs []string
 
-		switch step {
-		case installStepPlugins:
-			if cfg.updatePlugins {
-				logs = append(logs, "[1/4] Downloading latest plugins...")
-
-				// Stream plugin update progress by mirroring logs into a temp
-				// file that a background goroutine tails.
-				logPath := filepath.Join(os.TempDir(), "csm-plugins.log")
-				_ = os.Remove(logPath)
-
-				done := make(chan struct{})
-				defer close(done)
-
-				go tailInstallLog(logPath, done)
-
-				_ = os.Setenv("CSM_PLUGINS_LOG", logPath)
-				defer os.Unsetenv("CSM_PLUGINS_LOG")
-
-				if out, err := csm.UpdatePlugins(); err != nil {
-					if out != "" {
-						logs = append(logs, out)
-					}
-					logs = append(logs, fmt.Sprintf("Plugin download failed: %v", err))
-					return installStepMsg{
-						step: installStepPlugins,
-						out:  strings.Join(logs, "\n"),
-						err:  err,
-					}
-				} else if out != "" {
-					logs = append(logs, out)
-				}
-				logs = append(logs, "[1/4] Plugin update finished.")
-			} else {
-				logs = append(logs, "[1/4] Skipping plugin download (user disabled update plugins).")
-			}
-			return installStepMsg{
-				step: installStepPlugins,
-				out:  strings.Join(logs, "\n"),
-				err:  nil,
-			}
-
-		case installStepBootstrap:
-			logs = append(logs, "[2/4] Setting up CS2 servers (this may take several minutes)...")
-
-			// Derive MatchZy Docker behaviour from dbMode.
-			cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
-			bcfg := csm.BootstrapConfig{
-				CS2User:           cfg.cs2User,
-				NumServers:        cfg.numServers,
-				BaseGamePort:      cfg.basePort,
-				BaseTVPort:        cfg.tvPort,
-				EnableMetamod:     cfg.enableMetamod,
-				FreshInstall:      cfg.freshInstall,
-				UpdateMaster:      cfg.updateMaster,
-				RCONPassword:      cfg.rconPassword,
-				MatchzySkipDocker: cfg.matchzySkipDocker,
-			}
-
-			// Stream bootstrap progress by mirroring logs into a temp file that
-			// a background goroutine tails, sending installLogTickMsg updates.
-			logPath := filepath.Join(os.TempDir(), "csm-bootstrap.log")
-			_ = os.Remove(logPath)
-
-			// Signal goroutine when we're done (success or failure).
-			done := make(chan struct{})
-			defer close(done)
-
-			// Start log tailer in the background.
-			go tailInstallLog(logPath, done)
-
-			// Configure Bootstrap to mirror logs into the temp file.
-			_ = os.Setenv("CSM_BOOTSTRAP_LOG", logPath)
-			defer os.Unsetenv("CSM_BOOTSTRAP_LOG")
-
-			// Use a cancellable context so steamcmd and the rest of bootstrap
-			// are terminated if the user quits the TUI mid-install.
-			ctx, cancel := context.WithCancel(context.Background())
-			SetInstallCancel(cancel)
-			defer CancelInstall()
-
-			if out, err := csm.BootstrapWithContext(ctx, bcfg); err != nil {
-				if out != "" {
-					logs = append(logs, out)
-				}
-				logs = append(logs, fmt.Sprintf("Bootstrap failed: %v", err))
-				return installStepMsg{
-					step: installStepBootstrap,
-					out:  strings.Join(logs, "\n"),
-					err:  err,
+		// 1) Optionally download plugins via Go implementation
+		if cfg.updatePlugins {
+			logs = append(logs, "Downloading latest plugins...")
+			if out, err := csm.UpdatePlugins(); err != nil {
+				logs = append(logs, out)
+				logs = append(logs, fmt.Sprintf("Plugin download failed: %v", err))
+				return commandFinishedMsg{
+					item:   menuItem{title: "Install wizard"},
+					output: strings.Join(logs, "\n"),
+					err:    err,
 				}
 			} else if out != "" {
 				logs = append(logs, out)
 			}
-			logs = append(logs, "[2/4] CS2 servers setup finished.")
-			return installStepMsg{
-				step: installStepBootstrap,
-				out:  strings.Join(logs, "\n"),
-				err:  nil,
-			}
-
-		case installStepMonitor:
-			logs = append(logs, "[3/4] Configuring auto-update monitor (cron job)...")
-			if out, err := csm.InstallAutoUpdateCron(""); err != nil {
-				if out != "" {
-					logs = append(logs, out)
-				}
-				logs = append(logs, fmt.Sprintf("Auto-update monitor setup failed: %v", err))
-				return installStepMsg{
-					step: installStepMonitor,
-					out:  strings.Join(logs, "\n"),
-					err:  err,
-				}
-			} else if out != "" {
-				logs = append(logs, out)
-			}
-			logs = append(logs, "[3/4] Auto-update monitor configured.")
-			return installStepMsg{
-				step: installStepMonitor,
-				out:  strings.Join(logs, "\n"),
-				err:  nil,
-			}
-
-		case installStepStartServers:
-			logs = append(logs, "[4/4] Starting all servers...")
-			manager, err := csm.NewTmuxManager()
-			if err != nil {
-				logs = append(logs, fmt.Sprintf("Failed to initialize tmux manager: %v", err))
-				return installStepMsg{
-					step: installStepStartServers,
-					out:  strings.Join(logs, "\n"),
-					err:  err,
-				}
-			}
-			if err := manager.StartAll(); err != nil {
-				logs = append(logs, fmt.Sprintf("Failed to start servers: %v", err))
-				return installStepMsg{
-					step: installStepStartServers,
-					out:  strings.Join(logs, "\n"),
-					err:  err,
-				}
-			}
-			logs = append(logs, "[4/4] All servers started via tmux.")
-			return installStepMsg{
-				step: installStepStartServers,
-				out:  strings.Join(logs, "\n"),
-				err:  nil,
-			}
 		}
 
-		// Should not happen; treat as no-op.
-		return installStepMsg{
-			step: step,
-			out:  "",
-			err:  nil,
+		// 2) Bootstrap CS2 servers via Go implementation
+		logs = append(logs, "Setting up CS2 servers...")
+		// Derive MatchZy Docker behaviour from dbMode.
+		cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
+
+		bcfg := csm.BootstrapConfig{
+			CS2User:          cfg.cs2User,
+			NumServers:       cfg.numServers,
+			BaseGamePort:     cfg.basePort,
+			BaseTVPort:       cfg.tvPort,
+			EnableMetamod:    cfg.enableMetamod,
+			FreshInstall:     cfg.freshInstall,
+			UpdateMaster:     cfg.updateMaster,
+			RCONPassword:     cfg.rconPassword,
+			MatchzySkipDocker: cfg.matchzySkipDocker,
 		}
-	}
-}
+		if out, err := csm.Bootstrap(bcfg); err != nil {
+			logs = append(logs, out)
+			logs = append(logs, fmt.Sprintf("Bootstrap failed: %v", err))
+			return commandFinishedMsg{
+				item:   menuItem{title: "Install wizard"},
+				output: strings.Join(logs, "\n"),
+				err:    err,
+			}
+		} else if out != "" {
+			logs = append(logs, out)
+		}
 
-// tailInstallLog periodically reads a log file and sends the last few lines
-// back into the TUI as installLogTickMsg values so users can see live progress
-// while long-running steps run.
-func tailInstallLog(path string, done <-chan struct{}) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+		// 3) Setup auto-update monitor cronjob via Go implementation
+		logs = append(logs, "Configuring auto-update monitor (cron job)...")
+		if out, err := csm.InstallAutoUpdateCron(""); err != nil {
+			logs = append(logs, out)
+			logs = append(logs, fmt.Sprintf("Auto-update monitor setup failed: %v", err))
+			// Non-fatal for install, but we do propagate the error.
+			return commandFinishedMsg{
+				item:   menuItem{title: "Install wizard"},
+				output: strings.Join(logs, "\n"),
+				err:    err,
+			}
+		} else if out != "" {
+			logs = append(logs, out)
+		}
 
-	for {
-		select {
-		case <-done:
-			return
-		case <-ticker.C:
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
+		// 4) Start all servers using the Go tmux manager
+		logs = append(logs, "Starting all servers...")
+		manager, err := csm.NewTmuxManager()
+		if err != nil {
+			logs = append(logs, fmt.Sprintf("Failed to initialize tmux manager: %v", err))
+			return commandFinishedMsg{
+				item:   menuItem{title: "Install wizard"},
+				output: strings.Join(logs, "\n"),
+				err:    err,
 			}
-			text := strings.TrimSpace(string(data))
-			if text == "" {
-				continue
+		}
+		if err := manager.StartAll(); err != nil {
+			logs = append(logs, fmt.Sprintf("Failed to start servers: %v", err))
+			return commandFinishedMsg{
+				item:   menuItem{title: "Install wizard"},
+				output: strings.Join(logs, "\n"),
+				err:    err,
 			}
-			lines := strings.Split(text, "\n")
-			if len(lines) > 4 {
-				lines = lines[len(lines)-4:]
-			}
-			send(installLogTickMsg{lines: strings.Join(lines, "\n")})
+		}
+		logs = append(logs, "All servers started via tmux.")
+
+		return commandFinishedMsg{
+			item:   menuItem{title: "Install wizard"},
+			output: strings.Join(logs, "\n"),
+			err:    err,
 		}
 	}
 }
-
 

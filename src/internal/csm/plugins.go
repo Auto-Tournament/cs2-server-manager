@@ -48,18 +48,7 @@ func NewPluginUpdater() *PluginUpdater {
 func UpdatePlugins() (string, error) {
 	up := NewPluginUpdater()
 	var buf bytes.Buffer
-	w := io.Writer(&buf)
-
-	// If CSM_PLUGINS_LOG is set, mirror plugin update logs into that file so
-	// the TUI can display live progress while Step 1/4 runs.
-	if logPath, ok := os.LookupEnv("CSM_PLUGINS_LOG"); ok && logPath != "" {
-		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
-			defer f.Close()
-			w = &teeWriter{buf: &buf, file: f}
-		}
-	}
-
-	err := up.Update(w, false)
+	err := up.Update(&buf, false)
 	return buf.String(), err
 }
 

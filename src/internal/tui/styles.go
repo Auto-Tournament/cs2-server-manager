@@ -78,10 +78,6 @@ var (
 
 	tabBarStyle = lipgloss.NewStyle().
 			MarginBottom(1)
-
-	footerVersionStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("241")).
-				MarginTop(1)
 )
 
 
