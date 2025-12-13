@@ -1,0 +1,8 @@
+{
+  "DatabaseType": "MySQL",
+  "MySqlHost": "192.168.254.232",
+  "MySqlDatabase": "matchzy",
+  "MySqlUsername": "matchzy",
+  "MySqlPassword": "matchzy",
+  "MySqlPort": 3306
+}
