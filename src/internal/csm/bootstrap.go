@@ -143,6 +143,29 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("[*] Creating %d server instances...", cfg.NumServers)
 	log("")
 
+	// When running a fresh install, proactively delete all existing server-*
+	// directories for this CS2 user so we don't leave old servers around
+	// (for example, when shrinking from 4 servers down to 2). This happens
+	// before we recreate the configured set below.
+	if cfg.FreshInstall {
+		homeDir := filepath.Join("/home", cfg.CS2User)
+		entries, err := os.ReadDir(homeDir)
+		if err == nil {
+			for _, e := range entries {
+				name := e.Name()
+				if !e.IsDir() || !strings.HasPrefix(name, "server-") {
+					continue
+				}
+				full := filepath.Join(homeDir, name)
+				log("  [*] FRESH_INSTALL=1: Deleting existing %s", full)
+				if err := os.RemoveAll(full); err != nil {
+					log("  [!] Failed to delete %s: %v", full, err)
+				}
+			}
+			log("")
+		}
+	}
+
 	for i := 1; i <= cfg.NumServers; i++ {
 		gamePort := cfg.BaseGamePort + (i-1)*10
 		tvPort := cfg.BaseTVPort + (i-1)*10
