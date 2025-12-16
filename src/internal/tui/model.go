@@ -835,8 +835,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			content := strings.TrimSpace(msg.output)
-			if content == "" && msg.err != nil {
-				content = fmt.Sprintf("Error: %v", msg.err)
+			if content == "" {
+				if msg.err != nil {
+					content = fmt.Sprintf("Error: %v", msg.err)
+				} else {
+					content = "No detailed log output was produced for this action."
+				}
 			}
 
 			m.view = viewViewport
