@@ -12,6 +12,18 @@ import (
 func (m model) viewViewport() string {
 	var b strings.Builder
 
+	// If we know the terminal height, resize the viewport so it uses most of
+	// the available vertical space instead of a fixed height.
+	if m.height > 0 {
+		h := m.height - 8
+		if h < 8 {
+			h = 8
+		}
+		if m.vp.Height != h {
+			m.vp.Height = h
+		}
+	}
+
 	header := headerBorderStyle.Render(titleStyle.Render(m.vpTitle)) +
 		"\n" +
 		headerBorderStyle.Render("Scroll with ↑/↓, PgUp/PgDn • q or Esc to return")

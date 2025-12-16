@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -54,6 +55,7 @@ const (
 	tabServers
 	tabMaintenance
 	tabUtilities
+	tabDanger
 )
 
 // menuItem represents a single entry in the main menu.
@@ -134,6 +136,10 @@ type installLogTickMsg struct {
 	lines string
 }
 
+// installElapsedMsg drives live "elapsed time" updates while each install
+// wizard step is running.
+type installElapsedMsg struct{}
+
 // selfUpdateProgressMsg represents download progress for the self-update flow.
 // Percent is 0-100; a negative value means "unknown/streaming without size".
 type selfUpdateProgressMsg struct {
@@ -169,6 +175,10 @@ type model struct {
 	// can size scrollable views (like the install wizard) dynamically.
 	height int
 
+	// menuWindowStart controls which slice of m.items is visible in the main
+	// menu so that the list feels scrollable on smaller terminals.
+	menuWindowStart int
+
 	// When true, the next 'q' while a command is running will confirm quitting
 	// and cancel any active operations (steamcmd, installs, etc.).
 	confirmQuit bool
@@ -188,6 +198,13 @@ type model struct {
 	// Enter (or q/Esc), similar to a separate page on a website.
 	detailTitle   string
 	detailContent string
+
+	// Live timing info for the multi-step install wizard so we can display
+	// "elapsed vs expected" while each step is running.
+	installStepStart   time.Time
+	currentInstallStep installStep
+	installStatusBase  string
+	installExpected    string
 }
 
 // New constructs the initial Bubble Tea model for the CS2 TUI.
@@ -241,6 +258,18 @@ func (m *model) rebuildItems() {
 	// Keep cursor in range.
 	if m.cursor >= len(m.items) {
 		m.cursor = max(0, len(m.items)-1)
+	}
+
+	// Ensure the menu window start keeps the cursor visible when the visible
+	// window is smaller than the full list.
+	windowSize := wizardWindowSizeFor(m.height)
+	if windowSize <= 0 {
+		windowSize = len(m.items)
+	}
+	if m.cursor < m.menuWindowStart {
+		m.menuWindowStart = m.cursor
+	} else if m.cursor >= m.menuWindowStart+windowSize {
+		m.menuWindowStart = m.cursor - windowSize + 1
 	}
 }
 
@@ -324,7 +353,6 @@ func buildItemsForTab(t tab) []menuItem {
 			},
 		}
 	case tabMaintenance:
-		sudo := sudoSuffix()
 		return []menuItem{
 			{
 				title:       "Update CS2 game files",
@@ -340,11 +368,6 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "MatchZy DB: verify/repair",
 				description: "Verify MatchZy database setup and repair in a scrollable view.",
 				kind:        itemMatchzyDBViewport,
-			},
-			{
-				title:       "Danger zone: wipe all servers and CS2 user" + sudo,
-				description: "",
-				kind:        itemCleanupAllGo,
 			},
 		}
 	case tabUtilities:
@@ -366,6 +389,15 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemExtractThumbnailsGo,
 			},
 		}
+	case tabDanger:
+		sudo := sudoSuffix()
+		return []menuItem{
+			{
+				title:       "Wipe all servers and CS2 user" + sudo,
+				description: "",
+				kind:        itemCleanupAllGo,
+			},
+		}
 	default:
 		return nil
 	}
@@ -377,7 +409,7 @@ func (m *model) initWizardDefaults() {
 		numServers:        3,
 		basePort:          27015,
 		tvPort:            27020,
-		cs2User:           "cs2",
+		cs2User:           "cs2servermanager",
 		enableMetamod:     true,
 		freshInstall:      false,
 		updateMaster:      true,
@@ -427,9 +459,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Track terminal height so scrollable views (like the install wizard)
-		// can adapt their visible window dynamically.
+		// Track terminal height so scrollable views (like the install wizard
+		// and scrollable viewports) can adapt their visible window dynamically.
 		m.height = msg.Height
+
+		// Resize the viewport height to make better use of the available space.
+		if m.vp.Width != 0 {
+			h := msg.Height - 8
+			if h < 8 {
+				h = 8
+			}
+			m.vp.Height = h
+		}
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
@@ -595,6 +636,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.tab--
 				m.rebuildItems()
 				m.cursor = 0
+				m.menuWindowStart = 0
 				// Switching tabs clears the last output/status to reduce
 				// cross-page noise.
 				m.lastOutput = ""
@@ -605,10 +647,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "right", "l":
-			if m.view == viewMain && m.tab < tabUtilities {
+			if m.view == viewMain && m.tab < tabDanger {
 				m.tab++
 				m.rebuildItems()
 				m.cursor = 0
+				m.menuWindowStart = 0
 				m.lastOutput = ""
 				m.status = ""
 				m.sudoWarning = ""
@@ -623,6 +666,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastOutput = ""
 				m.status = ""
 				m.sudoWarning = ""
+
+				// Keep cursor within the visible window when scrolling up.
+				windowSize := wizardWindowSizeFor(m.height)
+				if m.cursor < m.menuWindowStart {
+					m.menuWindowStart = m.cursor
+				} else if m.cursor >= m.menuWindowStart+windowSize {
+					m.menuWindowStart = m.cursor - windowSize + 1
+				}
 			}
 		case "down", "j":
 			if m.cursor < len(m.items)-1 {
@@ -631,6 +682,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastOutput = ""
 				m.status = ""
 				m.sudoWarning = ""
+
+				// Keep cursor within the visible window when scrolling down.
+				windowSize := wizardWindowSizeFor(m.height)
+				if m.cursor < m.menuWindowStart {
+					m.menuWindowStart = m.cursor
+				} else if m.cursor >= m.menuWindowStart+windowSize {
+					m.menuWindowStart = m.cursor - windowSize + 1
+				}
 			}
 		case "enter":
 			if m.running || len(m.items) == 0 {
@@ -853,22 +912,72 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		// Chain to the next step with an updated status line.
+		// Chain to the next step with an updated status line and reset timing.
 		switch msg.step {
 		case installStepPlugins:
-			m.status = "Step 2/4: Setting up CS2 servers (steamcmd)..."
-			return m, tea.Batch(append(cmds, runInstallStep(m.wizard.cfg, installStepBootstrap), m.spin.Tick)...)
+			m.currentInstallStep = installStepBootstrap
+			m.installStepStart = time.Now()
+			m.installStatusBase = "Step 2/4: Setting up CS2 servers (steamcmd)..."
+			m.installExpected = "~10–30 minutes (steamcmd + bootstrap)"
+			m.status = m.installStatusBase
+			return m, tea.Batch(append(cmds,
+				runInstallStep(m.wizard.cfg, installStepBootstrap),
+				m.spin.Tick,
+				tea.Tick(time.Second, func(time.Time) tea.Msg { return installElapsedMsg{} }),
+			)...)
 		case installStepBootstrap:
-			m.status = "Step 3/4: Configuring auto-update monitor (cron)..."
-			return m, tea.Batch(append(cmds, runInstallStep(m.wizard.cfg, installStepMonitor), m.spin.Tick)...)
+			m.currentInstallStep = installStepMonitor
+			m.installStepStart = time.Now()
+			m.installStatusBase = "Step 3/4: Configuring auto-update monitor (cron)..."
+			m.installExpected = "~10–60 seconds"
+			m.status = m.installStatusBase
+			return m, tea.Batch(append(cmds,
+				runInstallStep(m.wizard.cfg, installStepMonitor),
+				m.spin.Tick,
+				tea.Tick(time.Second, func(time.Time) tea.Msg { return installElapsedMsg{} }),
+			)...)
 		case installStepMonitor:
-			m.status = "Step 4/4: Starting all servers..."
-			return m, tea.Batch(append(cmds, runInstallStep(m.wizard.cfg, installStepStartServers), m.spin.Tick)...)
+			m.currentInstallStep = installStepStartServers
+			m.installStepStart = time.Now()
+			m.installStatusBase = "Step 4/4: Starting all servers..."
+			m.installExpected = "~10–60 seconds"
+			m.status = m.installStatusBase
+			return m, tea.Batch(append(cmds,
+				runInstallStep(m.wizard.cfg, installStepStartServers),
+				m.spin.Tick,
+				tea.Tick(time.Second, func(time.Time) tea.Msg { return installElapsedMsg{} }),
+			)...)
 		case installStepStartServers:
 			CancelInstall()
 			m.running = false
 			m.confirmQuit = false
-			m.status = "Install wizard finished successfully."
+			m.status = ""
+
+			// Build a summary page the user can review after the wizard
+			// completes, then dismiss with Enter.
+			lines := []string{
+				"Install wizard finished successfully.",
+				"",
+				fmt.Sprintf("CS2 user       : %s", m.wizard.cfg.cs2User),
+				fmt.Sprintf("Servers        : %d", m.wizard.cfg.numServers),
+				fmt.Sprintf("Base ports     : game %d, GOTV %d", m.wizard.cfg.basePort, m.wizard.cfg.tvPort),
+				fmt.Sprintf("Metamod        : %v", m.wizard.cfg.enableMetamod),
+				fmt.Sprintf("Fresh install  : %v", m.wizard.cfg.freshInstall),
+				fmt.Sprintf("Update master  : %v", m.wizard.cfg.updateMaster),
+				fmt.Sprintf("Update plugins : %v", m.wizard.cfg.updatePlugins),
+				"",
+				"Per-server summary:",
+			}
+			for i := 1; i <= m.wizard.cfg.numServers; i++ {
+				gamePort := m.wizard.cfg.basePort + (i-1)*10
+				tvPort := m.wizard.cfg.tvPort + (i-1)*10
+				lines = append(lines,
+					fmt.Sprintf("  Server %d: game %d, GOTV %d, Metamod: %v", i, gamePort, tvPort, m.wizard.cfg.enableMetamod))
+			}
+
+			m.detailTitle = "Install wizard summary"
+			m.detailContent = strings.Join(lines, "\n")
+			m.view = viewActionResult
 			return m, tea.Batch(cmds...)
 		}
 
@@ -883,6 +992,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// No new commands scheduled here; the tailer goroutine drives further
 		// updates by sending more installLogTickMsg values.
 		return m, tea.Batch(cmds...)
+
+	case installElapsedMsg:
+		// Live "elapsed vs expected" timing for the current install step. We
+		// keep this lightweight and only run while the multi-step install is
+		// active.
+		if !m.running || m.installStepStart.IsZero() {
+			return m, tea.Batch(cmds...)
+		}
+
+		elapsed := time.Since(m.installStepStart).Round(time.Second)
+		if m.installStatusBase != "" && m.installExpected != "" {
+			m.status = fmt.Sprintf("%s (elapsed: %s, expected: %s)", m.installStatusBase, elapsed, m.installExpected)
+		}
+		return m, tea.Batch(append(cmds, tea.Tick(time.Second, func(time.Time) tea.Msg {
+			return installElapsedMsg{}
+		}))...)
 
 	case selfUpdateProgressMsg:
 		// Live progress for self-update: drive the progress bar and keep an
@@ -916,9 +1041,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.view = viewViewport
 		m.vpTitle = msg.title
 
-		// Lazily initialize the viewport with a sensible default size.
+		// Lazily initialize the viewport with a sensible default size, then
+		// resize it based on the current terminal height if known.
 		if m.vp.Width == 0 || m.vp.Height == 0 {
-			m.vp = viewport.New(80, 20)
+			h := 20
+			if m.height > 0 {
+				h = m.height - 8
+				if h < 8 {
+					h = 8
+				}
+			}
+			m.vp = viewport.New(80, h)
+		} else if m.height > 0 {
+			h := m.height - 8
+			if h < 8 {
+				h = 8
+			}
+			m.vp.Height = h
 		}
 		m.vp.SetContent(msg.content)
 
@@ -1017,7 +1156,7 @@ func (m model) View() string {
 	// Tab bar. While a long-running command is active, we hide the tabs to
 	// reduce visual clutter and focus attention on the status/output.
 	if !m.running {
-		tabs := []string{"Setup", "Servers", "Maintenance", "Utilities"}
+		tabs := []string{"Setup", "Servers", "Maintenance", "Utilities", "DANGER ZONE"}
 		var tabParts []string
 		for i, name := range tabs {
 			style := tabInactiveStyle
@@ -1056,7 +1195,25 @@ func (m model) View() string {
 	// Menu list. While a command is running we hide the menu entirely so the
 	// user isn't staring at disabled options they can't interact with.
 	if !m.running {
+		// Compute which rows should be visible in the current window so the
+		// main menu feels scrollable on smaller terminals.
+		start := m.menuWindowStart
+		if start < 0 {
+			start = 0
+		}
+		windowSize := wizardWindowSizeFor(m.height)
+		if windowSize <= 0 {
+			windowSize = len(m.items)
+		}
+		end := start + windowSize
+		if end > len(m.items) {
+			end = len(m.items)
+		}
+
 		for i, item := range m.items {
+			if i < start || i >= end {
+				continue
+			}
 			selected := m.cursor == i
 
 			label := item.title
@@ -1083,6 +1240,49 @@ func (m model) View() string {
 			fmt.Fprintln(&b)
 		}
 	}
+
+	// Contextual description for the currently selected menu item, similar to
+	// the install wizard's field description.
+	if !m.running && len(m.items) > 0 && m.cursor >= 0 && m.cursor < len(m.items) {
+		selected := m.items[m.cursor]
+		var desc string
+		switch selected.kind {
+		case itemInstallDepsGo:
+			desc = "Install system dependencies: tmux, steamcmd, rsync, jq, and other required packages (requires sudo)."
+		case itemInstallWizard:
+			desc = "Install / redeploy servers: configure server count, ports, and options, then run a full install."
+		case itemInstallMonitorGo:
+			desc = "Auto-update monitor: install or redeploy the cron-based CS2 auto-update monitor (requires sudo)."
+		case itemServersStatusViewport:
+			desc = "Servers dashboard: view running CS2 tmux sessions and server status in a scrollable view."
+		case itemLogsViewport:
+			desc = "Server logs: pick a server number and view its logs in a scrollable viewport."
+		case itemStartAllGo:
+			desc = "Start all servers: start every configured CS2 server via tmux."
+		case itemStopAllGo:
+			desc = "Stop all servers: stop every running CS2 server via tmux."
+		case itemRestartAllGo:
+			desc = "Restart all servers: restart all CS2 servers via tmux."
+		case itemUpdateGameGo:
+			desc = "Update CS2 game files: run SteamCMD to update the master CS2 install and redeploy servers as needed."
+		case itemDeployPluginsGo:
+			desc = "Deploy plugins: sync plugin files from game_files/ and overrides/ to all servers."
+		case itemMatchzyDBViewport:
+			desc = "MatchZy DB: verify and (if needed) repair the MatchZy MySQL database in a scrollable view."
+		case itemPublicIPGo:
+			desc = "Show public IP: resolve and show the server's public IP on a dedicated screen."
+		case itemForceUpdateNow:
+			desc = "Force update CSM: bypass the cache and check GitHub for a newer CSM version (requires sudo)."
+		case itemExtractThumbnailsGo:
+			desc = "Extract map thumbnails: run the VPK/thumbnails pipeline and write PNGs into map_thumbnails/."
+		case itemCleanupAllGo:
+			desc = "Danger zone: wipe all servers and the dedicated CS2 user; use only when you want a full reset."
+		}
+		if strings.TrimSpace(desc) != "" {
+			fmt.Fprintln(&b, subtleStyle.Render(desc))
+		}
+	}
+
 	// Status bar with spinner.
 	statusText := m.status
 	if m.running {

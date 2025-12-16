@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -69,6 +70,27 @@ func wizardWindowSizeFor(height int) int {
 		rowsForItems = wizardFieldCount
 	}
 	return rowsForItems
+}
+
+// estimateDiskSpace returns total and free space (in GB) for the filesystem
+// that will hold /home/<cs2User>. If cs2User is empty or the check fails, it
+// falls back to "/" and may return ok=false on error.
+func estimateDiskSpace(cs2User string) (totalGB, freeGB float64, ok bool) {
+	path := "/"
+	if strings.TrimSpace(cs2User) != "" {
+		path = filepath.Join("/home", cs2User)
+	}
+
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return 0, 0, false
+	}
+
+	totalBytes := float64(st.Blocks) * float64(st.Bsize)
+	freeBytes := float64(st.Bavail) * float64(st.Bsize)
+
+	const gb = 1024 * 1024 * 1024
+	return totalBytes / gb, freeBytes / gb, true
 }
 
 // validateAll validates the wizard fields before starting the install.
@@ -193,9 +215,6 @@ func (m model) viewInstallWizard() string {
 	renderRow(wizardFieldTVPort, "Base GOTV port:", tvPortVal)
 
 	cs2UserVal := m.wizard.cfg.cs2User
-	if m.wizard.cursor == wizardFieldCS2User && m.wizard.editing {
-		cs2UserVal = m.wizard.input.View()
-	}
 	renderRow(wizardFieldCS2User, "CS2 user:", cs2UserVal)
 
 	// Boolean rows.
@@ -235,7 +254,7 @@ func (m model) viewInstallWizard() string {
 	case wizardFieldTVPort:
 		desc = "Base GOTV port: first GOTV port to use; additional servers use consecutive ports."
 	case wizardFieldCS2User:
-		desc = "CS2 user: Linux user account that owns the CS2 files and runs the servers."
+		desc = "CS2 user: dedicated account for CS2 Server Manager. Danger zone cleanup deletes this user and its home; don't use it for anything else."
 	case wizardFieldMetamod:
 		desc = "Enable Metamod: install Metamod so you can run SourceMod and other plugins."
 	case wizardFieldFreshInstall:
@@ -254,8 +273,42 @@ func (m model) viewInstallWizard() string {
 
 	if strings.TrimSpace(desc) != "" {
 		fmt.Fprintln(&b, subtleStyle.Render(desc))
-		fmt.Fprintln(&b)
 	}
+
+	// Rough disk space estimate: one master (~60 GB) plus N servers (~60 GB
+	// each). This is intentionally conservative to avoid surprises.
+	const masterGB = 60.0
+	const perServerGB = 60.0
+
+	numServers := m.wizard.cfg.numServers
+	if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil && n > 0 {
+		numServers = n
+	}
+	if numServers <= 0 {
+		numServers = 1
+	}
+
+	requiredGB := masterGB + perServerGB*float64(numServers)
+
+	// Try to estimate disk space on the filesystem that will hold /home/<cs2User>.
+	diskLine := fmt.Sprintf("Estimated space required: ~%.1f GB (master + %d server(s)).", requiredGB, numServers)
+	_, freeGB, ok := estimateDiskSpace(m.wizard.cfg.cs2User)
+	if ok {
+		afterGB := freeGB - requiredGB
+		if afterGB >= 0 {
+			diskLine2 := fmt.Sprintf("Approx after install: ~%.1f GB free (currently ~%.1f GB free).", afterGB, freeGB)
+			fmt.Fprintln(&b, subtleStyle.Render(diskLine))
+			fmt.Fprintln(&b, subtleStyle.Render(diskLine2))
+		} else {
+			needed := -afterGB
+			diskLine2 := fmt.Sprintf("Warning: estimated space is short by ~%.1f GB (currently ~%.1f GB free).", needed, freeGB)
+			fmt.Fprintln(&b, warningStyle.Render(diskLine))
+			fmt.Fprintln(&b, warningStyle.Render(diskLine2))
+		}
+	} else {
+		fmt.Fprintln(&b, subtleStyle.Render(diskLine))
+	}
+	fmt.Fprintln(&b)
 
 	// Optional inline error at the bottom of the wizard.
 	if strings.TrimSpace(m.wizard.errMsg) != "" {
@@ -438,8 +491,6 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.basePortStr = val
 			case wizardFieldTVPort:
 				m.wizard.tvPortStr = val
-			case wizardFieldCS2User:
-				m.wizard.cfg.cs2User = val
 			case wizardFieldRCONPassword:
 				m.wizard.cfg.rconPassword = val
 			}
@@ -479,7 +530,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		case wizardFieldUpdatePlugins:
 			m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
 			return m, nil
-		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldCS2User, wizardFieldRCONPassword:
+		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldRCONPassword:
 			// Begin editing the selected text/numeric field.
 			m.wizard.editing = true
 			m.wizard.errMsg = ""
@@ -491,8 +542,6 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				initial = m.wizard.basePortStr
 			case wizardFieldTVPort:
 				initial = m.wizard.tvPortStr
-			case wizardFieldCS2User:
-				initial = m.wizard.cfg.cs2User
 			case wizardFieldRCONPassword:
 				initial = m.wizard.cfg.rconPassword
 			}
@@ -508,14 +557,22 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			// Parse numeric fields into cfg.
 			m.wizard.applyWizardNumericFields()
 
+			// Initialize live timing for step 1.
+			m.currentInstallStep = installStepPlugins
+			m.installStepStart = time.Now()
+			m.installStatusBase = "Step 1/4: Preparing plugin update..."
+			m.installExpected = "~1–5 minutes"
+
 			m.wizard.active = false
 			m.view = viewMain
 			m.running = true
-			m.status = "Step 1/4: Preparing plugin update..."
+			m.status = m.installStatusBase
 			m.lastOutput = ""
 
 			cfg := m.wizard.cfg
-			return m, tea.Batch(runInstallStep(cfg, installStepPlugins), m.spin.Tick)
+			return m, tea.Batch(runInstallStep(cfg, installStepPlugins), m.spin.Tick, tea.Tick(time.Second, func(time.Time) tea.Msg {
+				return installElapsedMsg{}
+			}))
 		case wizardFieldCancel:
 			m.wizard.active = false
 			m.view = viewMain
@@ -532,6 +589,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 // which step to run next.
 func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 	return func() tea.Msg {
+		start := time.Now()
 		var logs []string
 
 		switch step {
@@ -569,6 +627,7 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			} else {
 				logs = append(logs, "[1/4] Skipping plugin download (user disabled update plugins).")
 			}
+			logs = append(logs, fmt.Sprintf("[i] Step 1/4 (plugins) took %s.", time.Since(start).Round(time.Second)))
 			return installStepMsg{
 				step: installStepPlugins,
 				out:  strings.Join(logs, "\n"),
@@ -628,6 +687,7 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				logs = append(logs, out)
 			}
 			logs = append(logs, "[2/4] CS2 servers setup finished.")
+			logs = append(logs, fmt.Sprintf("[i] Step 2/4 (bootstrap) took %s.", time.Since(start).Round(time.Second)))
 			return installStepMsg{
 				step: installStepBootstrap,
 				out:  strings.Join(logs, "\n"),
@@ -650,6 +710,7 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				logs = append(logs, out)
 			}
 			logs = append(logs, "[3/4] Auto-update monitor configured.")
+			logs = append(logs, fmt.Sprintf("[i] Step 3/4 (auto-update monitor) took %s.", time.Since(start).Round(time.Second)))
 			return installStepMsg{
 				step: installStepMonitor,
 				out:  strings.Join(logs, "\n"),
@@ -676,6 +737,7 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				}
 			}
 			logs = append(logs, "[4/4] All servers started via tmux.")
+			logs = append(logs, fmt.Sprintf("[i] Step 4/4 (start servers) took %s.", time.Since(start).Round(time.Second)))
 			return installStepMsg{
 				step: installStepStartServers,
 				out:  strings.Join(logs, "\n"),
