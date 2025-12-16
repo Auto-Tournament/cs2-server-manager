@@ -564,6 +564,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter", "q", "esc":
 				m.view = viewMain
 				m.status = "Select an action and press Enter to run it."
+				m.lastOutput = ""
 				return m, nil
 			default:
 				return m, tea.Batch(cmds...)
@@ -896,6 +897,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// failures, show the full output to aid debugging.
 			if msg.err == nil {
 				maxLines := 10
+				if m.height > 0 {
+					if h := m.height - 12; h > maxLines {
+						maxLines = h
+					}
+				}
 				if len(lines) > maxLines {
 					lines = lines[len(lines)-maxLines:]
 				}
