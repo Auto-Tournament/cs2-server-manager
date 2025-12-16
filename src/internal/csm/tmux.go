@@ -11,7 +11,6 @@ import (
 )
 
 // TmuxManager provides a Go-native interface for managing CS2 tmux sessions.
-// It replaces the old scripts/cs2_tmux.sh helper.
 type TmuxManager struct {
 	CS2User    string
 	NumServers int
@@ -71,6 +70,14 @@ func (m *TmuxManager) Status() (string, error) {
 	fmt.Fprintln(&buf, "==========================================")
 	fmt.Fprintln(&buf)
 
+	if m.NumServers <= 0 {
+		fmt.Fprintln(&buf, "No CS2 servers found.")
+		fmt.Fprintln(&buf, "Run the install wizard from the Setup tab to create servers.")
+		fmt.Fprintln(&buf)
+		fmt.Fprintln(&buf, "==========================================")
+		return buf.String(), nil
+	}
+
 	for i := 1; i <= m.NumServers; i++ {
 		session := m.sessionName(i)
 		cmd := m.runAsCS2User("tmux has-session -t " + session)
@@ -80,7 +87,8 @@ func (m *TmuxManager) Status() (string, error) {
 		}
 		gamePort := 27015 + (i-1)*10
 		fmt.Fprintf(&buf, "Server %d (Port %d): RUNNING\n", i, gamePort)
-		fmt.Fprintf(&buf, "  Attach: csm (attach not yet implemented, use: tmux attach -t %s)\n\n", session)
+		fmt.Fprintf(&buf, "  Attach: csm attach %d\n", i)
+		fmt.Fprintln(&buf)
 	}
 
 	fmt.Fprintln(&buf, "==========================================")

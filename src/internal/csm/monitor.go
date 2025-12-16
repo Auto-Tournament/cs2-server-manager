@@ -29,6 +29,11 @@ func RunAutoUpdateMonitor() error {
 		return writeMonitorLog(buf.String(), err)
 	}
 
+	if mgr.NumServers <= 0 {
+		log("No CS2 servers found for user %s (no /home/%s/server-* directories). Skipping update cycle.", mgr.CS2User, mgr.CS2User)
+		return writeMonitorLog(buf.String(), nil)
+	}
+
 	// Simple heuristic: only run an update if no cs2-* tmux sessions exist.
 	out, _ := mgr.ListSessions()
 	if out != "" {

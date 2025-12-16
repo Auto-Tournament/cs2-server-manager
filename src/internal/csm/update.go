@@ -40,6 +40,12 @@ func UpdateGame() (string, error) {
 		return buf.String(), fmt.Errorf("master install not found at %s", masterDir)
 	}
 
+	if mgr.NumServers <= 0 {
+		log("No CS2 servers found for user %s (no /home/%s/server-* directories).", cs2User, cs2User)
+		log("Nothing to update. Run the install wizard from the TUI first.")
+		return buf.String(), nil
+	}
+
 	log("Stopping all servers...")
 	if err := mgr.StopAll(); err != nil {
 		log("Error stopping servers: %v", err)
@@ -136,6 +142,12 @@ func DeployPluginsToServers() (string, error) {
 	log("  • Sync plugins from %s to each server", gameDir)
 	log("  • Restart all servers")
 	log("")
+
+	if mgr.NumServers <= 0 {
+		log("No CS2 servers found for user %s (no /home/%s/server-* directories).", mgr.CS2User, mgr.CS2User)
+		log("Nothing to update. Run the install wizard from the TUI first.")
+		return buf.String(), nil
+	}
 
 	if err := mgr.StopAll(); err != nil {
 		log("Error stopping servers: %v", err)
