@@ -1068,6 +1068,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.vp.SetContent(msg.content)
 
+		// If the content is shorter than the available viewport height, shrink
+		// the viewport so we don't render a huge block of empty space.
+		if m.height > 0 {
+			contentLines := strings.Count(msg.content, "\n") + 1
+			maxH := m.height - 8
+			if maxH < 4 {
+				maxH = 4
+			}
+			if contentLines < maxH {
+				if contentLines < 4 {
+					contentLines = 4
+				}
+				m.vp.Height = contentLines
+			}
+		}
+
 		if msg.err != nil && strings.TrimSpace(msg.content) == "" {
 			m.status = fmt.Sprintf("Error: %v", msg.err)
 		} else {

@@ -627,7 +627,9 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			} else {
 				logs = append(logs, "[1/4] Skipping plugin download (user disabled update plugins).")
 			}
-			logs = append(logs, fmt.Sprintf("[i] Step 1/4 (plugins) took %s.", time.Since(start).Round(time.Second)))
+			dur := time.Since(start).Round(time.Second)
+			logs = append(logs, fmt.Sprintf("[i] Step 1/4 (plugins) took %s.", dur))
+			appendInstallLog(cfg, installStepPlugins, strings.Join(logs, "\n"))
 			return installStepMsg{
 				step: installStepPlugins,
 				out:  strings.Join(logs, "\n"),
@@ -687,7 +689,9 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				logs = append(logs, out)
 			}
 			logs = append(logs, "[2/4] CS2 servers setup finished.")
-			logs = append(logs, fmt.Sprintf("[i] Step 2/4 (bootstrap) took %s.", time.Since(start).Round(time.Second)))
+			dur := time.Since(start).Round(time.Second)
+			logs = append(logs, fmt.Sprintf("[i] Step 2/4 (bootstrap) took %s.", dur))
+			appendInstallLog(cfg, installStepBootstrap, strings.Join(logs, "\n"))
 			return installStepMsg{
 				step: installStepBootstrap,
 				out:  strings.Join(logs, "\n"),
@@ -710,7 +714,9 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				logs = append(logs, out)
 			}
 			logs = append(logs, "[3/4] Auto-update monitor configured.")
-			logs = append(logs, fmt.Sprintf("[i] Step 3/4 (auto-update monitor) took %s.", time.Since(start).Round(time.Second)))
+			dur := time.Since(start).Round(time.Second)
+			logs = append(logs, fmt.Sprintf("[i] Step 3/4 (auto-update monitor) took %s.", dur))
+			appendInstallLog(cfg, installStepMonitor, strings.Join(logs, "\n"))
 			return installStepMsg{
 				step: installStepMonitor,
 				out:  strings.Join(logs, "\n"),
@@ -737,7 +743,9 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				}
 			}
 			logs = append(logs, "[4/4] All servers started via tmux.")
-			logs = append(logs, fmt.Sprintf("[i] Step 4/4 (start servers) took %s.", time.Since(start).Round(time.Second)))
+			dur := time.Since(start).Round(time.Second)
+			logs = append(logs, fmt.Sprintf("[i] Step 4/4 (start servers) took %s.", dur))
+			appendInstallLog(cfg, installStepStartServers, strings.Join(logs, "\n"))
 			return installStepMsg{
 				step: installStepStartServers,
 				out:  strings.Join(logs, "\n"),
@@ -781,4 +789,32 @@ func tailInstallLog(path string, done <-chan struct{}) {
 			send(installLogTickMsg{lines: strings.Join(lines, "\n")})
 		}
 	}
+}
+
+// appendInstallLog writes a copy of each wizard step's logs to a persistent
+// install log on disk so failures can be investigated after the TUI exits.
+// The path can be overridden with CSM_INSTALL_LOG; by default we use a
+// root-owned location under /var/log.
+func appendInstallLog(cfg installConfig, step installStep, content string) {
+	path := os.Getenv("CSM_INSTALL_LOG")
+	if path == "" {
+		path = "/var/log/csm-install.log"
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	timestamp := time.Now().Format(time.RFC3339)
+
+	fmt.Fprintf(f, "==== CSM install wizard step ====\n")
+	fmt.Fprintf(f, "Time : %s\n", timestamp)
+	fmt.Fprintf(f, "Step : %d\n", step)
+	fmt.Fprintf(f, "User : %s\n", cfg.cs2User)
+	fmt.Fprintf(f, "Servers: %d (base ports: game %d, GOTV %d)\n", cfg.numServers, cfg.basePort, cfg.tvPort)
+	fmt.Fprintln(f, "---- Output ----")
+	fmt.Fprintln(f, content)
+	fmt.Fprintln(f, "===============================\n")
 }
