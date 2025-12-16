@@ -15,12 +15,15 @@ import (
 func InstallDependencies() (string, error) {
 	var buf bytes.Buffer
 	if err := installDeps(&buf); err != nil {
-		return buf.String(), err
+		out := buf.String()
+		AppendLog("deps.log", out)
+		return out, err
 	}
 	out := buf.String()
 	if strings.TrimSpace(out) == "" {
 		out = "System dependencies installed successfully (or already up to date)."
 	}
+	AppendLog("deps.log", out)
 	return out, nil
 }
 

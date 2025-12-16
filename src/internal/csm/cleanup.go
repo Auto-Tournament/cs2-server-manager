@@ -49,7 +49,9 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 	// Check that the user exists.
 	if err := exec.Command("id", "-u", cfg.CS2User).Run(); err != nil {
 		log("User %q not found. Nothing to clean up.", cfg.CS2User)
-		return buf.String(), nil
+		logOut := buf.String()
+		AppendLog("cleanup.log", logOut)
+		return logOut, nil
 	}
 
 	log("CS2 User: %s", cfg.CS2User)
@@ -109,7 +111,9 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 	log("[✓] Cleanup complete!")
 	log("You can now run csm to install or repair servers via the TUI.")
 
-	return buf.String(), nil
+	logOut := buf.String()
+	AppendLog("cleanup.log", logOut)
+	return logOut, nil
 }
 
 func hasDockerName(name string) bool {

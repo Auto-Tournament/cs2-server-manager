@@ -79,15 +79,7 @@ func InstallAutoUpdateCron(interval string) (string, error) {
 }
 
 func writeMonitorLog(content string, err error) error {
-	path := "/var/log/cs2_auto_update_monitor.log"
-	f, ferr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if ferr == nil {
-		defer f.Close()
-		_, _ = f.WriteString(content)
-		if !bytes.HasSuffix([]byte(content), []byte("\n")) {
-			_, _ = f.WriteString("\n")
-		}
-	}
+	AppendLog("auto_update_monitor.log", content)
 	return err
 }
 

@@ -791,28 +791,28 @@ func tailInstallLog(path string, done <-chan struct{}) {
 
 // appendInstallLog writes a copy of each wizard step's logs to a persistent
 // install log on disk so failures can be investigated after the TUI exits.
-// The path can be overridden with CSM_INSTALL_LOG; by default we use a
-// root-owned location under /var/log.
+// The log is written under the shared CSM log directory (or CSM_INSTALL_LOG if
+// explicitly set).
 func appendInstallLog(cfg installConfig, step installStep, content string) {
-	path := os.Getenv("CSM_INSTALL_LOG")
-	if path == "" {
-		path = "/var/log/csm-install.log"
-	}
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
+	override := os.Getenv("CSM_INSTALL_LOG")
 
 	timestamp := time.Now().Format(time.RFC3339)
+	var b strings.Builder
+	fmt.Fprintf(&b, "==== CSM install wizard step ====\n")
+	fmt.Fprintf(&b, "Time : %s\n", timestamp)
+	fmt.Fprintf(&b, "Step : %d\n", step)
+	fmt.Fprintf(&b, "User : %s\n", cfg.cs2User)
+	fmt.Fprintf(&b, "Servers: %d (base ports: game %d, GOTV %d)\n", cfg.numServers, cfg.basePort, cfg.tvPort)
+	fmt.Fprintln(&b, "---- Output ----")
+	fmt.Fprintln(&b, content)
+	fmt.Fprintln(&b, "===============================\n")
 
-	fmt.Fprintf(f, "==== CSM install wizard step ====\n")
-	fmt.Fprintf(f, "Time : %s\n", timestamp)
-	fmt.Fprintf(f, "Step : %d\n", step)
-	fmt.Fprintf(f, "User : %s\n", cfg.cs2User)
-	fmt.Fprintf(f, "Servers: %d (base ports: game %d, GOTV %d)\n", cfg.numServers, cfg.basePort, cfg.tvPort)
-	fmt.Fprintln(f, "---- Output ----")
-	fmt.Fprintln(f, content)
-	fmt.Fprintln(f, "===============================\n")
+	if override != "" {
+		// Backwards-compatible explicit path override.
+		_ = os.MkdirAll(filepath.Dir(override), 0o755)
+		_ = os.WriteFile(override, []byte(b.String()), 0o644)
+		return
+	}
+
+	csm.AppendLog("install.log", b.String())
 }

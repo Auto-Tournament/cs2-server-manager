@@ -43,7 +43,9 @@ func UpdateGame() (string, error) {
 	if mgr.NumServers <= 0 {
 		log("No CS2 servers found for user %s (no /home/%s/server-* directories).", cs2User, cs2User)
 		log("Nothing to update. Run the install wizard from the TUI first.")
-		return buf.String(), nil
+		logOut := buf.String()
+		AppendLog("update-game.log", logOut)
+		return logOut, nil
 	}
 
 	log("Stopping all servers...")
@@ -113,7 +115,9 @@ func UpdateGame() (string, error) {
 	}
 	log("[OK] All servers started after game update.")
 
-	return buf.String(), nil
+	logOut := buf.String()
+	AppendLog("update-game.log", logOut)
+	return logOut, nil
 }
 
 // DeployPluginsToServers stops all servers, rsyncs plugin content from the
@@ -146,7 +150,9 @@ func DeployPluginsToServers() (string, error) {
 	if mgr.NumServers <= 0 {
 		log("No CS2 servers found for user %s (no /home/%s/server-* directories).", mgr.CS2User, mgr.CS2User)
 		log("Nothing to update. Run the install wizard from the TUI first.")
-		return buf.String(), nil
+		out := buf.String()
+		AppendLog("deploy-plugins.log", out)
+		return out, nil
 	}
 
 	if err := mgr.StopAll(); err != nil {
@@ -182,7 +188,9 @@ func DeployPluginsToServers() (string, error) {
 	}
 	log("[OK] All servers restarted after plugin update.")
 
-	return buf.String(), nil
+	out := buf.String()
+	AppendLog("deploy-plugins.log", out)
+	return out, nil
 }
 
 // UpdateAndDeployPlugins downloads the latest plugin bundle into game_files/
@@ -205,7 +213,9 @@ func UpdateAndDeployPlugins() (string, error) {
 	}
 	if err != nil {
 		log("[ERROR] Plugin download failed: %v", err)
-		return buf.String(), err
+		all := buf.String()
+		AppendLog("update-and-deploy-plugins.log", all)
+		return all, err
 	}
 
 	log("")
@@ -214,12 +224,15 @@ func UpdateAndDeployPlugins() (string, error) {
 	if out2 != "" {
 		log("%s", out2)
 	}
+	all := buf.String()
 	if err != nil {
 		log("[ERROR] Deploying plugins to servers failed: %v", err)
-		return buf.String(), err
+		AppendLog("update-and-deploy-plugins.log", all)
+		return all, err
 	}
 
-	return buf.String(), nil
+	AppendLog("update-and-deploy-plugins.log", all)
+	return all, nil
 }
 
 
