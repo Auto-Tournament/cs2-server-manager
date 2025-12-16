@@ -236,7 +236,14 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		if _, err := os.Stat(masterDir); err == nil {
 			fmt.Fprintln(w, "  [*] FRESH_INSTALL=1: Deleting existing master install")
 			if err := os.RemoveAll(masterDir); err != nil {
-				return err
+				// On some filesystems RemoveAll can fail with "directory not
+				// empty" for deep trees. Fall back to a best-effort rm -rf
+				// using the system tools so we don't leave a half-deleted
+				// master install behind.
+				fmt.Fprintf(w, "  [i] os.RemoveAll failed (%v), retrying with rm -rf\n", err)
+				if err2 := runCmdLogged(w, "rm", "-rf", masterDir); err2 != nil {
+					return fmt.Errorf("failed to delete master install %s: %w (rm -rf fallback also failed: %v)", masterDir, err, err2)
+				}
 			}
 		}
 	}

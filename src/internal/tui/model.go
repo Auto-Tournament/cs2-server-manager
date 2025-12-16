@@ -915,7 +915,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.confirmQuit = false
 			CancelInstall()
 			m.running = false
-			m.status = fmt.Sprintf("Install failed during step: %v", msg.err)
+
+			// Show a dedicated error page with the full log output from the
+			// failing step so users can scroll back through what happened.
+			title := "Install wizard failed"
+			lines := []string{
+				fmt.Sprintf("The install wizard failed during step: %v", msg.err),
+				"",
+				"Step log output:",
+				"",
+				strings.TrimSpace(msg.out),
+			}
+
+			m.detailTitle = title
+			m.detailContent = strings.Join(lines, "\n")
+			m.view = viewActionResult
+			m.status = ""
+			m.lastOutput = ""
+
 			return m, tea.Batch(cmds...)
 		}
 
