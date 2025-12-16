@@ -20,7 +20,7 @@ Designed to work hand-in-hand with:
 - **Tournament-ready stack**: Installs Metamod, CounterStrikeSharp, MatchZy (enhanced), and AutoUpdater.
 - **Safe updates**: Handles game and plugin updates automatically while preserving your configs.
 - **Persistent overrides**: Everything in `overrides/` survives updates.
-- **Observability & control**: Handy management script and tmux integration for logs and debugging.
+- **Observability & control**: Go-based CLI/TUI and tmux integration for logs and debugging.
 
 ## Quick Start
 
@@ -44,7 +44,6 @@ Read the **Getting Started** section for a full walkthrough.
 
 ## Project layout
 
-- `scripts/` – dev/ops helper scripts (TUI launcher, release tooling, optional webhooks).
 - `overrides/` – your persistent game and plugin configuration.
 
 See:
