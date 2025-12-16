@@ -355,13 +355,13 @@ func buildItemsForTab(t tab) []menuItem {
 	case tabMaintenance:
 		return []menuItem{
 			{
-				title:       "Update CS2 game files",
-				description: "",
+				title:       "Update CS2 after Valve update",
+				description: "Run SteamCMD on the master install and sync updated game files to all servers.",
 				kind:        itemUpdateGameGo,
 			},
 			{
-				title:       "Deploy plugins to all servers",
-				description: "",
+				title:       "Update plugins on all servers",
+				description: "Sync plugins from game_files/ and overrides/ to every server instance.",
 				kind:        itemDeployPluginsGo,
 			},
 			{
@@ -545,6 +545,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m, cmd = m.updateLogsPromptKey(msg)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
+		}
+
+		// While in a scrollable viewport (servers dashboard, logs, MatchZy DB,
+		// etc.), delegate navigation keys to the viewport component and use
+		// q/Esc to return to the main menu.
+		if m.view == viewViewport {
+			switch msg.String() {
+			case "q", "esc":
+				m.view = viewMain
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.vp, cmd = m.vp.Update(msg)
+				cmds = append(cmds, cmd)
+				return m, tea.Batch(cmds...)
+			}
 		}
 
 		// Dedicated handling for the dangerous cleanup confirmation screen.
@@ -1248,35 +1264,35 @@ func (m model) View() string {
 		var desc string
 		switch selected.kind {
 		case itemInstallDepsGo:
-			desc = "Install system dependencies: tmux, steamcmd, rsync, jq, and other required packages (requires sudo)."
+			desc = "Install system dependencies (tmux, steamcmd, rsync, jq, and others; requires sudo)."
 		case itemInstallWizard:
-			desc = "Install / redeploy servers: configure server count, ports, and options, then run a full install."
+			desc = "Configure server count, ports, and options, then run a full install."
 		case itemInstallMonitorGo:
-			desc = "Auto-update monitor: install or redeploy the cron-based CS2 auto-update monitor (requires sudo)."
+			desc = "Install or redeploy the cron-based CS2 auto-update monitor (requires sudo)."
 		case itemServersStatusViewport:
-			desc = "Servers dashboard: view running CS2 tmux sessions and server status in a scrollable view."
+			desc = "View running CS2 tmux sessions and server status in a scrollable view."
 		case itemLogsViewport:
-			desc = "Server logs: pick a server number and view its logs in a scrollable viewport."
+			desc = "Pick a server number and view its logs in a scrollable viewport."
 		case itemStartAllGo:
-			desc = "Start all servers: start every configured CS2 server via tmux."
+			desc = "Start every configured CS2 server via tmux."
 		case itemStopAllGo:
-			desc = "Stop all servers: stop every running CS2 server via tmux."
+			desc = "Stop every running CS2 server via tmux."
 		case itemRestartAllGo:
-			desc = "Restart all servers: restart all CS2 servers via tmux."
+			desc = "Restart all CS2 servers via tmux."
 		case itemUpdateGameGo:
-			desc = "Update CS2 game files: run SteamCMD to update the master CS2 install and redeploy servers as needed."
+			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:
-			desc = "Deploy plugins: sync plugin files from game_files/ and overrides/ to all servers."
+			desc = "Download the latest plugin bundle, then sync plugins/configs to all servers."
 		case itemMatchzyDBViewport:
-			desc = "MatchZy DB: verify and (if needed) repair the MatchZy MySQL database in a scrollable view."
+			desc = "Verify and (if needed) repair the MatchZy MySQL database in a scrollable view."
 		case itemPublicIPGo:
-			desc = "Show public IP: resolve and show the server's public IP on a dedicated screen."
+			desc = "Resolve and show the server's public IP on a dedicated screen."
 		case itemForceUpdateNow:
-			desc = "Force update CSM: bypass the cache and check GitHub for a newer CSM version (requires sudo)."
+			desc = "Bypass the cache and check GitHub for a newer CSM version (requires sudo)."
 		case itemExtractThumbnailsGo:
-			desc = "Extract map thumbnails: run the VPK/thumbnails pipeline and write PNGs into map_thumbnails/."
+			desc = "Run the VPK/thumbnails pipeline and write PNGs into map_thumbnails/."
 		case itemCleanupAllGo:
-			desc = "Danger zone: wipe all servers and the dedicated CS2 user; use only when you want a full reset."
+			desc = "Wipe all servers and the dedicated CS2 user; use only when you want a full reset."
 		}
 		if strings.TrimSpace(desc) != "" {
 			fmt.Fprintln(&b, subtleStyle.Render(desc))

@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 	tea "github.com/charmbracelet/bubbletea"
+	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 )
 
 // runCommand returns a Bubble Tea command that runs the underlying CLI
@@ -56,10 +56,10 @@ func runUpdateGameGo() tea.Cmd {
 // runDeployPluginsGo runs the Go-based plugin deployment across all servers.
 func runDeployPluginsGo() tea.Cmd {
 	return func() tea.Msg {
-		out, err := csm.DeployPluginsToServers()
+		out, err := csm.UpdateAndDeployPlugins()
 		return commandFinishedMsg{
 			item: menuItem{
-				title: "Deploy plugins to all servers",
+				title: "Update plugins on all servers",
 				kind:  itemDeployPluginsGo,
 			},
 			output: out,
@@ -266,4 +266,3 @@ func runCleanupAllGo() tea.Cmd {
 		}
 	}
 }
-

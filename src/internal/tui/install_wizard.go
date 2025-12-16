@@ -246,29 +246,29 @@ func (m model) viewInstallWizard() string {
 	var desc string
 	switch m.wizard.cursor {
 	case wizardFieldDBMode:
-		desc = "MatchZy DB: choose Docker-managed MySQL (recommended) or an existing external MySQL server."
+		desc = "Choose Docker-managed MySQL (recommended) or an existing external MySQL server."
 	case wizardFieldNumServers:
-		desc = "Number of servers: how many CS2 game servers to create on this machine."
+		desc = "How many CS2 game servers to create on this machine."
 	case wizardFieldBasePort:
-		desc = "Base game port: first game port to use; additional servers use consecutive ports."
+		desc = "First game port to use; additional servers use consecutive ports."
 	case wizardFieldTVPort:
-		desc = "Base GOTV port: first GOTV port to use; additional servers use consecutive ports."
+		desc = "First GOTV port to use; additional servers use consecutive ports."
 	case wizardFieldCS2User:
-		desc = "CS2 user: dedicated account for CS2 Server Manager. Danger zone cleanup deletes this user and its home; don't use it for anything else."
+		desc = "Dedicated account for CS2 Server Manager. Danger zone cleanup deletes this user and its home; don't use it for anything else."
 	case wizardFieldMetamod:
-		desc = "Enable Metamod: install Metamod so you can run SourceMod and other plugins."
+		desc = "Install Metamod so you can run SourceMod and other plugins."
 	case wizardFieldFreshInstall:
-		desc = "Fresh install: delete any existing CS2 server directories before installing."
+		desc = "Delete any existing CS2 server directories before installing."
 	case wizardFieldUpdateMaster:
-		desc = "Update master: run SteamCMD to update the master CS2 install before deploying servers."
+		desc = "Run SteamCMD to update the master CS2 install before deploying servers."
 	case wizardFieldUpdatePlugins:
-		desc = "Update plugins: download the latest plugins before installing or redeploying servers."
+		desc = "Download the latest plugins before installing or redeploying servers."
 	case wizardFieldRCONPassword:
-		desc = "RCON password: password applied to all servers (you can change per-server later)."
+		desc = "Password applied to all servers (you can change per-server later)."
 	case wizardFieldStartInstall:
-		desc = "Start install: run the full install with the settings above."
+		desc = "Run the full install with the settings above."
 	case wizardFieldCancel:
-		desc = "Cancel: return to the main menu without installing."
+		desc = "Return to the main menu without installing."
 	}
 
 	if strings.TrimSpace(desc) != "" {
