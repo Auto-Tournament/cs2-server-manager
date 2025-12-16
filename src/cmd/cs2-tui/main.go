@@ -372,10 +372,15 @@ func main() {
 	// mode or stdout is not a TTY, disable the renderer. Otherwise, use
 	// full-screen TUI and silence log output to avoid mixing logs into the UI.
 	//
-	// When DEBUG is set, Bubble Tea will log to csm-debug.log in the current
-	// working directory so issues can be inspected with e.g. `tail -f`.
-	if os.Getenv("DEBUG") != "" {
-		if f, err := tea.LogToFile("csm-debug.log", "debug"); err != nil {
+	// Always enable Bubble Tea file logging so we can debug TUI behaviour even
+	// when stdout is occupied. Logs go to CSM_LOG_DIR (default: current
+	// directory) as csm-debug.log.
+	logDir := getenvDefault("CSM_LOG_DIR", ".")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		fmt.Fprintln(os.Stderr, "failed to create CSM_LOG_DIR:", err)
+	} else {
+		logPath := filepath.Join(logDir, "csm-debug.log")
+		if f, err := tea.LogToFile(logPath, "debug"); err != nil {
 			fmt.Fprintln(os.Stderr, "failed to enable debug logging:", err)
 		} else {
 			defer f.Close()
