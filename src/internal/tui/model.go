@@ -97,9 +97,10 @@ type installWizard struct {
 	basePortStr   string
 	tvPortStr     string
 
-	// Cursor + editing state for the one-page wizard view.
-	cursor  int
-	editing bool
+	// Cursor + editing/scroll state for the one-page wizard view.
+	cursor      int
+	editing     bool
+	windowStart int
 
 	// Shared text input + error message used for the server logs prompt.
 	input  textinput.Model
@@ -161,6 +162,10 @@ type model struct {
 	// Self-update UI state
 	selfUpdating   bool
 	updateProgress progress.Model
+
+	// Terminal height (rows), captured from Bubble Tea's WindowSizeMsg so we
+	// can size scrollable views (like the install wizard) dynamically.
+	height int
 
 	// When true, the next 'q' while a command is running will confirm quitting
 	// and cancel any active operations (steamcmd, installs, etc.).
@@ -377,9 +382,14 @@ func (m *model) initWizardDefaults() {
 	ti.Focus()
 
 	m.wizard = installWizard{
-		active: false,
-		cfg:    cfg,
-		input:  ti,
+		active:        false,
+		cfg:           cfg,
+		numServersStr: fmt.Sprintf("%d", cfg.numServers),
+		basePortStr:   fmt.Sprintf("%d", cfg.basePort),
+		tvPortStr:     fmt.Sprintf("%d", cfg.tvPort),
+		cursor:        0,
+		windowStart:   0,
+		input:         ti,
 	}
 
 	// Ensure the menu reflects any existing update state.
@@ -407,6 +417,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		// Track terminal height so scrollable views (like the install wizard)
+		// can adapt their visible window dynamically.
+		m.height = msg.Height
+		return m, tea.Batch(cmds...)
+
 	case tea.KeyMsg:
 
 		// Dedicated handling while inside the install wizard:
@@ -636,6 +652,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Reset wizard navigation/editing state; keep existing config
 				// values so users can reopen and adjust.
 				m.wizard.cursor = 0
+				m.wizard.windowStart = 0
 				m.wizard.editing = false
 				m.wizard.errMsg = ""
 				m.status = "Install wizard: configure your servers, then choose Start install."
@@ -954,6 +971,9 @@ func (m model) View() string {
 
 	// Header
 	fmt.Fprintln(&b, headerBorderStyle.Render(titleStyle.Render("CS2 Server Manager")))
+	if strings.TrimSpace(m.version) != "" {
+		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("v%s", m.version)))
+	}
 	fmt.Fprintln(&b)
 
 	// Tab bar. While a long-running command is active, we hide the tabs to
@@ -1052,13 +1072,6 @@ func (m model) View() string {
 		fmt.Fprintln(&b)
 		fmt.Fprintln(&b, outputTitleStyle.Render("Last command output:"))
 		fmt.Fprintln(&b, outputBodyStyle.Render(m.lastOutput))
-	}
-
-	// Footer: always show current version in subtle gray so users can quickly
-	// see which build they're running.
-	if strings.TrimSpace(m.version) != "" {
-		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, footerVersionStyle.Render(fmt.Sprintf("CSM %s", m.version)))
 	}
 
 	return mainStyle.Render("\n" + b.String() + "\n")

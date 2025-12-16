@@ -44,6 +44,33 @@ const (
 	wizardFieldCount
 )
 
+// wizardWindowSize is the default number of wizard rows shown at once when we
+// don't know the terminal height yet. Once we receive a WindowSizeMsg, the
+// install wizard will compute a dynamic window size based on available rows.
+const wizardWindowSize = 10
+
+// wizardWindowSizeFor computes how many wizard rows to show based on the
+// current terminal height. We account for header, spacing and the bottom
+// description so the window only scrolls when it actually needs to.
+func wizardWindowSizeFor(height int) int {
+	if height <= 0 {
+		return wizardWindowSize
+	}
+
+	// Rough layout budget:
+	// - 4–5 lines for header + spacing
+	// - 2–3 lines for description / error at the bottom
+	// - Each wizard row uses ~2 lines (label + blank)
+	rowsForItems := (height - 8) / 2
+	if rowsForItems < 4 {
+		rowsForItems = 4
+	}
+	if rowsForItems > wizardFieldCount {
+		rowsForItems = wizardFieldCount
+	}
+	return rowsForItems
+}
+
 // validateAll validates the wizard fields before starting the install.
 func (w *installWizard) validateAll() error {
 	// Number of servers
@@ -107,8 +134,28 @@ func (m model) viewInstallWizard() string {
 		m.wizard.tvPortStr = fmt.Sprintf("%d", m.wizard.cfg.tvPort)
 	}
 
+	// Compute which rows should be visible in the current window so the wizard
+	// feels scrollable on smaller terminals.
+	start := m.wizard.windowStart
+	if start < 0 {
+		start = 0
+	}
+	// Derive window size dynamically from the terminal height when available.
+	windowSize := wizardWindowSizeFor(m.height)
+	end := start + windowSize
+	if end > wizardFieldCount {
+		end = wizardFieldCount
+	}
+
+	visible := func(index int) bool {
+		return index >= start && index < end
+	}
+
 	// Helper to render a single row with optional selection highlighting.
 	renderRow := func(index int, label, value string) {
+		if !visible(index) {
+			return
+		}
 		selected := index == m.wizard.cursor
 		style := menuItemStyle
 		if selected {
@@ -176,6 +223,40 @@ func (m model) viewInstallWizard() string {
 	renderRow(wizardFieldStartInstall, "", startLabel)
 	renderRow(wizardFieldCancel, "", cancelLabel)
 
+	// Contextual description at the bottom for the currently selected field.
+	var desc string
+	switch m.wizard.cursor {
+	case wizardFieldDBMode:
+		desc = "MatchZy DB: choose Docker-managed MySQL (recommended) or an existing external MySQL server."
+	case wizardFieldNumServers:
+		desc = "Number of servers: how many CS2 game servers to create on this machine."
+	case wizardFieldBasePort:
+		desc = "Base game port: first game port to use; additional servers use consecutive ports."
+	case wizardFieldTVPort:
+		desc = "Base GOTV port: first GOTV port to use; additional servers use consecutive ports."
+	case wizardFieldCS2User:
+		desc = "CS2 user: Linux user account that owns the CS2 files and runs the servers."
+	case wizardFieldMetamod:
+		desc = "Enable Metamod: install Metamod so you can run SourceMod and other plugins."
+	case wizardFieldFreshInstall:
+		desc = "Fresh install: delete any existing CS2 server directories before installing."
+	case wizardFieldUpdateMaster:
+		desc = "Update master: run SteamCMD to update the master CS2 install before deploying servers."
+	case wizardFieldUpdatePlugins:
+		desc = "Update plugins: download the latest plugins before installing or redeploying servers."
+	case wizardFieldRCONPassword:
+		desc = "RCON password: password applied to all servers (you can change per-server later)."
+	case wizardFieldStartInstall:
+		desc = "Start install: run the full install with the settings above."
+	case wizardFieldCancel:
+		desc = "Cancel: return to the main menu without installing."
+	}
+
+	if strings.TrimSpace(desc) != "" {
+		fmt.Fprintln(&b, subtleStyle.Render(desc))
+		fmt.Fprintln(&b)
+	}
+
 	// Optional inline error at the bottom of the wizard.
 	if strings.TrimSpace(m.wizard.errMsg) != "" {
 		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
@@ -197,6 +278,13 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			m.wizard.cursor--
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
+			// Keep cursor within the visible window when scrolling up.
+			windowSize := wizardWindowSizeFor(m.height)
+			if m.wizard.cursor < m.wizard.windowStart {
+				m.wizard.windowStart = m.wizard.cursor
+			} else if m.wizard.cursor >= m.wizard.windowStart+windowSize {
+				m.wizard.windowStart = m.wizard.cursor - windowSize + 1
+			}
 		}
 		return m, nil
 	case "down", "j":
@@ -204,12 +292,25 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			m.wizard.cursor++
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
+			// Keep cursor within the visible window when scrolling down.
+			windowSize := wizardWindowSizeFor(m.height)
+			if m.wizard.cursor < m.wizard.windowStart {
+				m.wizard.windowStart = m.wizard.cursor
+			} else if m.wizard.cursor >= m.wizard.windowStart+windowSize {
+				m.wizard.windowStart = m.wizard.cursor - windowSize + 1
+			}
 		}
 		return m, nil
 	case "tab":
 		m.wizard.cursor = (m.wizard.cursor + 1) % wizardFieldCount
 		m.wizard.editing = false
 		m.wizard.errMsg = ""
+		windowSize := wizardWindowSizeFor(m.height)
+		if m.wizard.cursor < m.wizard.windowStart {
+			m.wizard.windowStart = m.wizard.cursor
+		} else if m.wizard.cursor >= m.wizard.windowStart+windowSize {
+			m.wizard.windowStart = m.wizard.cursor - windowSize + 1
+		}
 		return m, nil
 	case "shift+tab":
 		m.wizard.cursor--
@@ -218,6 +319,12 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		}
 		m.wizard.editing = false
 		m.wizard.errMsg = ""
+		windowSize := wizardWindowSizeFor(m.height)
+		if m.wizard.cursor < m.wizard.windowStart {
+			m.wizard.windowStart = m.wizard.cursor
+		} else if m.wizard.cursor >= m.wizard.windowStart+windowSize {
+			m.wizard.windowStart = m.wizard.cursor - windowSize + 1
+		}
 		return m, nil
 	case "esc":
 		if m.wizard.editing {
@@ -230,6 +337,91 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		m.wizard.active = false
 		m.view = viewMain
 		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "left":
+		// Arrow-left: decrement numeric fields and toggle simple options when not
+		// in edit mode.
+		if !m.wizard.editing {
+			switch m.wizard.cursor {
+			case wizardFieldNumServers:
+				if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil && n > 1 {
+					m.wizard.numServersStr = fmt.Sprintf("%d", n-1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldBasePort:
+				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.basePortStr)); err == nil && p > 1 {
+					m.wizard.basePortStr = fmt.Sprintf("%d", p-1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldTVPort:
+				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.tvPortStr)); err == nil && p > 1 {
+					m.wizard.tvPortStr = fmt.Sprintf("%d", p-1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldDBMode:
+				// Left/right both toggle DB mode between docker and external.
+				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+					m.wizard.cfg.dbMode = "docker"
+				} else {
+					m.wizard.cfg.dbMode = "external"
+				}
+				m.wizard.errMsg = ""
+			case wizardFieldMetamod:
+				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
+				m.wizard.errMsg = ""
+			case wizardFieldFreshInstall:
+				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
+				m.wizard.errMsg = ""
+			case wizardFieldUpdateMaster:
+				m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
+				m.wizard.errMsg = ""
+			case wizardFieldUpdatePlugins:
+				m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
+				m.wizard.errMsg = ""
+			}
+		}
+		return m, nil
+	case "right":
+		// Arrow-right: increment numeric fields and toggle simple options when
+		// not in edit mode.
+		if !m.wizard.editing {
+			switch m.wizard.cursor {
+			case wizardFieldNumServers:
+				if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil {
+					m.wizard.numServersStr = fmt.Sprintf("%d", n+1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldBasePort:
+				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.basePortStr)); err == nil {
+					m.wizard.basePortStr = fmt.Sprintf("%d", p+1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldTVPort:
+				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.tvPortStr)); err == nil {
+					m.wizard.tvPortStr = fmt.Sprintf("%d", p+1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldDBMode:
+				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+					m.wizard.cfg.dbMode = "docker"
+				} else {
+					m.wizard.cfg.dbMode = "external"
+				}
+				m.wizard.errMsg = ""
+			case wizardFieldMetamod:
+				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
+				m.wizard.errMsg = ""
+			case wizardFieldFreshInstall:
+				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
+				m.wizard.errMsg = ""
+			case wizardFieldUpdateMaster:
+				m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
+				m.wizard.errMsg = ""
+			case wizardFieldUpdatePlugins:
+				m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
+				m.wizard.errMsg = ""
+			}
+		}
 		return m, nil
 	}
 
