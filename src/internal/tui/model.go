@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -185,12 +184,6 @@ type model struct {
 	// and cancel any active operations (steamcmd, installs, etc.).
 	confirmQuit bool
 
-	// sudoWarning holds a short, red warning message when the user attempts to
-	// run an action that requires sudo without being root. It is rendered
-	// between the navbar and the options, and cleared whenever the user moves
-	// the cursor or switches tabs/pages.
-	sudoWarning string
-
 	// publicIP holds the last-resolved public IP so we can show it on a
 	// dedicated screen that the user dismisses with Enter.
 	publicIP string
@@ -243,18 +236,17 @@ func initialModel() model {
 func (m *model) rebuildItems() {
 	items := buildItemsForTab(m.tab)
 
-	// Append self-update item at the bottom of the Setup tab when an update is
-	// available. This keeps the main actions visually grouped and the update
-	// affordance easy to discover without dominating the menu.
-	if m.tab == tabSetup && m.updateAvailable && m.latestVersion != "" {
-		sudo := sudoSuffix()
-		updateItem := menuItem{
-			title:       fmt.Sprintf("Update CSM to %s now%s", m.latestVersion, sudo),
-			description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s). May require sudo if installed globally.", m.version, m.latestVersion),
-			kind:        itemUpdateNow,
+		// Append self-update item at the bottom of the Setup tab when an update is
+		// available. This keeps the main actions visually grouped and the update
+		// affordance easy to discover without dominating the menu.
+		if m.tab == tabSetup && m.updateAvailable && m.latestVersion != "" {
+			updateItem := menuItem{
+				title:       fmt.Sprintf("Update CSM to %s now", m.latestVersion),
+				description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s).", m.version, m.latestVersion),
+				kind:        itemUpdateNow,
+			}
+			items = append(items, updateItem)
 		}
-		items = append(items, updateItem)
-	}
 
 	m.items = items
 	// Keep cursor in range.
@@ -275,43 +267,13 @@ func (m *model) rebuildItems() {
 	}
 }
 
-// sudoSuffix returns " (requires sudo)" when running as a non-root user, or an
-// empty string when already root. Used to annotate menu items that require
-// elevated privileges.
-func sudoSuffix() string {
-	if isRoot() {
-		return ""
-	}
-	return " (requires sudo)"
-}
-
-// requiresSudo returns true for menu items that should only be run as root.
-func requiresSudo(kind itemKind) bool {
-	switch kind {
-	case itemInstallDepsGo,
-		itemInstallMonitorGo,
-		itemUpdateGameGo,
-		itemForceUpdateNow,
-		itemUpdateNow,
-		itemCleanupAllGo:
-		return true
-	default:
-		return false
-	}
-}
-
-func isRoot() bool {
-	return os.Geteuid() == 0
-}
-
 // buildItemsForTab returns the menu items for a given top-level tab.
 func buildItemsForTab(t tab) []menuItem {
 	switch t {
 	case tabSetup:
-		sudo := sudoSuffix()
 		return []menuItem{
 			{
-				title:       "Install system dependencies" + sudo,
+				title:       "Install system dependencies",
 				description: "",
 				kind:        itemInstallDepsGo,
 			},
@@ -321,7 +283,7 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemInstallWizard,
 			},
 			{
-				title:       "Install/reinstall auto-update monitor" + sudo,
+				title:       "Install/reinstall auto-update monitor",
 				description: "",
 				kind:        itemInstallMonitorGo,
 			},
@@ -383,7 +345,6 @@ func buildItemsForTab(t tab) []menuItem {
 			},
 		}
 	case tabUtilities:
-		sudo := sudoSuffix()
 		return []menuItem{
 			{
 				title:       "Show public IP",
@@ -391,7 +352,7 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemPublicIPGo,
 			},
 			{
-				title:       "Force update CSM now" + sudo,
+				title:       "Force update CSM now",
 				description: "",
 				kind:        itemForceUpdateNow,
 			},
@@ -402,10 +363,9 @@ func buildItemsForTab(t tab) []menuItem {
 			},
 		}
 	case tabDanger:
-		sudo := sudoSuffix()
 		return []menuItem{
 			{
-				title:       "Wipe all servers and CS2 user" + sudo,
+				title:       "Wipe all servers and CS2 user",
 				description: "",
 				kind:        itemCleanupAllGo,
 			},
@@ -669,7 +629,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// cross-page noise.
 				m.lastOutput = ""
 				m.status = ""
-				m.sudoWarning = ""
 				if m.confirmQuit {
 					m.confirmQuit = false
 				}
@@ -682,7 +641,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.menuWindowStart = 0
 				m.lastOutput = ""
 				m.status = ""
-				m.sudoWarning = ""
 				if m.confirmQuit {
 					m.confirmQuit = false
 				}
@@ -693,7 +651,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Moving the selection hides previous results/errors.
 				m.lastOutput = ""
 				m.status = ""
-				m.sudoWarning = ""
 
 				// Keep cursor within the visible window when scrolling up.
 				windowSize := wizardWindowSizeFor(m.height)
@@ -709,7 +666,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Moving the selection hides previous results/errors.
 				m.lastOutput = ""
 				m.status = ""
-				m.sudoWarning = ""
 
 				// Keep cursor within the visible window when scrolling down.
 				windowSize := wizardWindowSizeFor(m.height)
@@ -725,53 +681,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			selected := m.items[m.cursor]
-			// Any time we actively trigger an action (or try to), clear old
-			// warnings so they don't linger.
-			m.sudoWarning = ""
-
-			// If this action requires sudo and we're not root, show a help page
-			// explaining how to run it from the CLI instead of doing nothing.
-			if !isRoot() && requiresSudo(selected.kind) {
-				switch selected.kind {
-				case itemInstallDepsGo:
-					m.detailTitle = "Install system dependencies (requires sudo)"
-					m.detailContent = "This action installs tmux, steamcmd, rsync, jq and other required packages.\n\n" +
-						"Run it from your shell with sudo:\n\n" +
-						"  sudo ./csm install-deps\n\n" +
-						"Then restart CSM normally."
-				case itemInstallMonitorGo:
-					m.detailTitle = "Install auto-update monitor (requires sudo)"
-					m.detailContent = "The auto-update monitor modifies root's crontab and writes to /var/log.\n\n" +
-						"Run it from your shell with sudo:\n\n" +
-						"  sudo ./csm install-monitor-cron\n\n" +
-						"Then restart CSM normally."
-				case itemUpdateGameGo:
-					m.detailTitle = "Update CS2 after Valve update (requires sudo)"
-					m.detailContent = "This updates the master CS2 installation via SteamCMD and syncs updated game files to all servers.\n\n" +
-						"Run it from your shell with sudo:\n\n" +
-						"  sudo ./csm update-game\n\n" +
-						"Then restart CSM and check the Servers dashboard."
-				case itemForceUpdateNow, itemUpdateNow:
-					m.detailTitle = "Update CSM binary (requires sudo)"
-					m.detailContent = "Updating the CSM binary may require sudo if it's installed globally.\n\n" +
-						"From your shell, run:\n\n" +
-						"  ./csm self-update\n\n" +
-						"Or download the latest release manually from GitHub and replace the binary."
-				case itemCleanupAllGo:
-					m.detailTitle = "Danger zone cleanup (requires sudo)"
-					m.detailContent = "This wipes all servers and deletes the dedicated CS2 user and its home directory.\n\n" +
-						"To run it from your shell:\n\n" +
-						"  sudo ./csm cleanup-all\n\n" +
-						"Only do this if you are sure you want a full reset."
-				default:
-					m.detailTitle = selected.title
-					m.detailContent = "This action must be run with sudo from your shell."
-				}
-				m.view = viewActionResult
-				m.lastOutput = ""
-				m.status = ""
-				return m, tea.Batch(cmds...)
-			}
 
 			switch selected.kind {
 			case itemInstallDepsGo:
@@ -1277,13 +1186,6 @@ func (m model) View() string {
 		fmt.Fprintln(&b)
 	}
 
-	// Optional inline warning (e.g. sudo required) shown between the navbar
-	// and the options list.
-	if strings.TrimSpace(m.sudoWarning) != "" {
-		fmt.Fprintln(&b, warningStyle.Render(m.sudoWarning))
-		fmt.Fprintln(&b)
-	}
-
 	// Menu list. While a command is running we hide the menu entirely so the
 	// user isn't staring at disabled options they can't interact with.
 	if !m.running {
@@ -1312,18 +1214,10 @@ func (m model) View() string {
 			lineStyle := menuItemStyle
 			checkbox := checkboxStyle.Render("[x] ")
 
-			sudoRequired := !isRoot() && requiresSudo(item.kind)
-
 			if selected {
 				// Always use the standard selected style for the focused row so
 				// navigation feels consistent.
 				lineStyle = menuSelectedStyle
-			} else if sudoRequired {
-				// When an action requires sudo and we're not root, keep it
-				// fully visible but show it in a subtle red to indicate it
-				// needs elevation.
-				lineStyle = sudoItemStyle
-				checkbox = subtleStyle.Render("[ ] ")
 			} else {
 				checkbox = subtleStyle.Render("[ ] ")
 			}
@@ -1340,11 +1234,11 @@ func (m model) View() string {
 		var desc string
 		switch selected.kind {
 		case itemInstallDepsGo:
-			desc = "Install system dependencies (tmux, steamcmd, rsync, jq, and others; requires sudo)."
+			desc = "Install system dependencies (tmux, steamcmd, rsync, jq, and others)."
 		case itemInstallWizard:
 			desc = "Configure server count, ports, and options, then run a full install."
 		case itemInstallMonitorGo:
-			desc = "Install or redeploy the cron-based CS2 auto-update monitor (requires sudo)."
+			desc = "Install or redeploy the cron-based CS2 auto-update monitor."
 		case itemServersStatusViewport:
 			desc = "View running CS2 tmux sessions and server status in a scrollable view."
 		case itemLogsViewport:
@@ -1364,7 +1258,7 @@ func (m model) View() string {
 		case itemPublicIPGo:
 			desc = "Resolve and show the server's public IP on a dedicated screen."
 		case itemForceUpdateNow:
-			desc = "Bypass the cache and check GitHub for a newer CSM version (requires sudo)."
+			desc = "Bypass the cache and check GitHub for a newer CSM version."
 		case itemExtractThumbnailsGo:
 			desc = "Run the VPK/thumbnails pipeline and write PNGs into map_thumbnails/."
 		case itemCleanupAllGo:
