@@ -389,7 +389,6 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		// Esc from the wizard view behaves like cancel.
 		m.wizard.active = false
 		m.view = viewMain
-		m.status = "Select an action and press Enter to run it."
 		return m, nil
 	case "left":
 		// Arrow-left: decrement numeric fields and toggle simple options when not
@@ -576,7 +575,6 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		case wizardFieldCancel:
 			m.wizard.active = false
 			m.view = viewMain
-			m.status = "Select an action and press Enter to run it."
 			return m, nil
 		}
 	}

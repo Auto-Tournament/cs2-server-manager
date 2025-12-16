@@ -236,17 +236,17 @@ func initialModel() model {
 func (m *model) rebuildItems() {
 	items := buildItemsForTab(m.tab)
 
-		// Append self-update item at the bottom of the Setup tab when an update is
-		// available. This keeps the main actions visually grouped and the update
-		// affordance easy to discover without dominating the menu.
-		if m.tab == tabSetup && m.updateAvailable && m.latestVersion != "" {
-			updateItem := menuItem{
-				title:       fmt.Sprintf("Update CSM to %s now", m.latestVersion),
-				description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s).", m.version, m.latestVersion),
-				kind:        itemUpdateNow,
-			}
-			items = append(items, updateItem)
+	// Append self-update item at the bottom of the Setup tab when an update is
+	// available. This keeps the main actions visually grouped and the update
+	// affordance easy to discover without dominating the menu.
+	if m.tab == tabSetup && m.updateAvailable && m.latestVersion != "" {
+		updateItem := menuItem{
+			title:       fmt.Sprintf("Update CSM to %s now", m.latestVersion),
+			description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s).", m.version, m.latestVersion),
+			kind:        itemUpdateNow,
 		}
+		items = append(items, updateItem)
+	}
 
 	m.items = items
 	// Keep cursor in range.
@@ -456,7 +456,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "q":
 				m.view = viewMain
 				m.wizard.active = false
-				m.status = "Select an action and press Enter to run it."
+
 				m.confirmQuit = false
 				return m, nil
 			case "ctrl+c":
@@ -549,7 +549,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "n", "esc", "q":
 				// Cancel and return to the main menu without running cleanup.
 				m.view = viewMain
-				m.status = "Select an action and press Enter to run it."
+
 				return m, tea.Batch(cmds...)
 			default:
 				return m, tea.Batch(cmds...)
@@ -563,7 +563,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "enter", "q", "esc":
 				m.view = viewMain
-				m.status = "Select an action and press Enter to run it."
+
 				m.lastOutput = ""
 				return m, nil
 			default:
@@ -578,7 +578,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "enter", "q", "esc":
 				m.view = viewMain
-				m.status = "Select an action and press Enter to run it."
+
 				return m, nil
 			default:
 				return m, tea.Batch(cmds...)

@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 	tea "github.com/charmbracelet/bubbletea"
+	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 )
 
 func (m model) viewViewport() string {
@@ -121,7 +121,7 @@ func (m model) updateLogsPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 	switch key.String() {
 	case "esc":
 		m.view = viewMain
-		m.status = "Select an action and press Enter to run it."
+
 		return m, nil
 	case "ctrl+c", "q":
 		return m, tea.Quit
@@ -210,5 +210,3 @@ func runMatchzyDBViewport() tea.Cmd {
 		}
 	}
 }
-
-

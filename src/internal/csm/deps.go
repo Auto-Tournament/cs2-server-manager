@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // InstallDependencies installs the core system packages needed for CS2 Server
@@ -16,7 +17,11 @@ func InstallDependencies() (string, error) {
 	if err := installDeps(&buf); err != nil {
 		return buf.String(), err
 	}
-	return buf.String(), nil
+	out := buf.String()
+	if strings.TrimSpace(out) == "" {
+		out = "System dependencies installed successfully (or already up to date)."
+	}
+	return out, nil
 }
 
 func installDeps(w io.Writer) error {
