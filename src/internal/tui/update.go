@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -39,8 +41,9 @@ func checkForUpdatesForce() tea.Cmd {
 	}
 }
 
-// isNewerVersion performs a simple semver-ish comparison of two version
-// strings. It returns true if latest represents a newer version than current.
+// isNewerVersion performs a simple semver comparison of two version strings.
+// It returns true if latest represents a newer version than current, and never
+// reports a downgrade as an update (e.g. 1.2.3 -> 1.2.2).
 func isNewerVersion(current, latest string) bool {
 	if current == "" || latest == "" {
 		return false
@@ -48,8 +51,44 @@ func isNewerVersion(current, latest string) bool {
 	if current == latest {
 		return false
 	}
-	// For now, treat any differing string as "newer" to keep behaviour simple.
-	return current != latest
+
+	parse := func(v string) (major, minor, patch int, ok bool) {
+		v = strings.TrimSpace(v)
+		v = strings.TrimPrefix(v, "v")
+		parts := strings.SplitN(v, ".", 3)
+		if len(parts) < 1 {
+			return 0, 0, 0, false
+		}
+		toInt := func(s string) int {
+			n, _ := strconv.Atoi(s)
+			return n
+		}
+		major = toInt(parts[0])
+		if len(parts) > 1 {
+			minor = toInt(parts[1])
+		}
+		if len(parts) > 2 {
+			patch = toInt(parts[2])
+		}
+		return major, minor, patch, true
+	}
+
+	cMaj, cMin, cPatch, _ := parse(current)
+	lMaj, lMin, lPatch, _ := parse(latest)
+
+	if lMaj > cMaj {
+		return true
+	}
+	if lMaj < cMaj {
+		return false
+	}
+	if lMin > cMin {
+		return true
+	}
+	if lMin < cMin {
+		return false
+	}
+	return lPatch > cPatch
 }
 
 // fetchLatestVersion calls the GitHub Releases API to discover the latest tag.
