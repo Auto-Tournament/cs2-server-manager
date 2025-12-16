@@ -824,6 +824,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Special-case commands that want minimal UI chrome.
 		switch msg.item.kind {
+		case itemCleanupAllGo, itemInstallDepsGo:
+			// For long-running maintenance actions (cleanup, deps install),
+			// show the full log output in a scrollable viewport instead of the
+			// compact one-page detail view. This makes it easier to review
+			// every step the operation performed.
+			title := msg.item.title
+			if strings.TrimSpace(title) == "" {
+				title = "Action log"
+			}
+
+			content := strings.TrimSpace(msg.output)
+			if content == "" && msg.err != nil {
+				content = fmt.Sprintf("Error: %v", msg.err)
+			}
+
+			m.view = viewViewport
+			m.vpTitle = title
+
+			// Initialize/resize the viewport similarly to viewportFinishedMsg.
+			if m.vp.Width == 0 || m.vp.Height == 0 {
+				h := 20
+				if m.height > 0 {
+					h = m.height - 8
+					if h < 8 {
+						h = 8
+					}
+				}
+				m.vp = viewport.New(80, h)
+			} else if m.height > 0 {
+				h := m.height - 8
+				if h < 8 {
+					h = 8
+				}
+				m.vp.Height = h
+			}
+			m.vp.SetContent(content)
+
+			m.status = ""
+			m.lastOutput = ""
+			return m, tea.Batch(cmds...)
+
 		case itemPublicIPGo:
 			if msg.err != nil {
 				m.publicIP = fmt.Sprintf("Public IP lookup failed:\n\n%v", msg.err)
