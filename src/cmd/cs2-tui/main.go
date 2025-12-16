@@ -371,6 +371,17 @@ func main() {
 	// No subcommand matched and we are root: run the TUI. If we're in daemon
 	// mode or stdout is not a TTY, disable the renderer. Otherwise, use
 	// full-screen TUI and silence log output to avoid mixing logs into the UI.
+	//
+	// When DEBUG is set, Bubble Tea will log to csm-debug.log in the current
+	// working directory so issues can be inspected with e.g. `tail -f`.
+	if os.Getenv("DEBUG") != "" {
+		if f, err := tea.LogToFile("csm-debug.log", "debug"); err != nil {
+			fmt.Fprintln(os.Stderr, "failed to enable debug logging:", err)
+		} else {
+			defer f.Close()
+		}
+	}
+
 	var opts []tea.ProgramOption
 	if daemonMode || !isatty.IsTerminal(os.Stdout.Fd()) {
 		opts = append(opts, tea.WithoutRenderer())

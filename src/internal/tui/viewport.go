@@ -28,7 +28,7 @@ func (m model) viewViewport() string {
 
 	header := headerBorderStyle.Render(titleStyle.Render(m.vpTitle)) +
 		"\n" +
-		headerBorderStyle.Render("Scroll with ↑/↓, PgUp/PgDn • q or Esc to return")
+		headerBorderStyle.Render("Scroll with ↑/↓, PgUp/PgDn • Enter/q/Esc to return")
 
 	fmt.Fprintln(&b, header)
 	fmt.Fprintln(&b)

@@ -547,10 +547,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// While in a scrollable viewport (servers dashboard, logs, MatchZy DB,
 		// etc.), delegate navigation keys to the viewport component and use
-		// q/Esc to return to the main menu.
+		// Enter/q/Esc to return to the main menu.
 		if m.view == viewViewport {
 			switch msg.String() {
-			case "q", "esc":
+			case "enter", "q", "esc":
 				m.view = viewMain
 				return m, nil
 			default:

@@ -16,35 +16,87 @@ type TmuxManager struct {
 	NumServers int
 }
 
-// NewTmuxManager discovers the CS2 service user and number of servers by
-// inspecting /home/<user>/server-* directories.
+// NewTmuxManager discovers the CS2 service user and number of servers.
+// It prefers the CS2_USER environment variable when set, then falls back to
+// scanning /home for any user that has server-* directories. This makes it
+// resilient to older installs that might have used a different CS2 user.
 func NewTmuxManager() (*TmuxManager, error) {
-	user := os.Getenv("CS2_USER")
-	if user == "" {
-		user = "cs2servermanager"
+	// Helper to count server-* directories for a given user.
+	countServers := func(user string) (int, error) {
+		home := filepath.Join("/home", user)
+		entries, err := os.ReadDir(home)
+		if err != nil {
+			return 0, err
+		}
+		maxServer := 0
+		for _, e := range entries {
+			name := e.Name()
+			if !e.IsDir() || !strings.HasPrefix(name, "server-") {
+				continue
+			}
+			nStr := strings.TrimPrefix(name, "server-")
+			if n, err := strconv.Atoi(nStr); err == nil && n > maxServer {
+				maxServer = n
+			}
+		}
+		return maxServer, nil
 	}
 
-	home := filepath.Join("/home", user)
-	entries, err := os.ReadDir(home)
+	// 1) If CS2_USER is explicitly set, trust it.
+	if envUser := os.Getenv("CS2_USER"); envUser != "" {
+		if n, err := countServers(envUser); err == nil {
+			return &TmuxManager{
+				CS2User:    envUser,
+				NumServers: n,
+			}, nil
+		}
+	}
+
+	// 2) Prefer the modern default user if it exists.
+	if n, err := countServers("cs2servermanager"); err == nil && n > 0 {
+		return &TmuxManager{
+			CS2User:    "cs2servermanager",
+			NumServers: n,
+		}, nil
+	}
+
+	// 3) Fall back to scanning all users under /home to support older setups
+	// that may have used a different CS2 user name.
+	homeRoot := "/home"
+	homeEntries, err := os.ReadDir(homeRoot)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", home, err)
+		return nil, fmt.Errorf("failed to read %s: %w", homeRoot, err)
 	}
 
-	maxServer := 0
-	for _, e := range entries {
-		name := e.Name()
-		if !e.IsDir() || !strings.HasPrefix(name, "server-") {
+	bestUser := ""
+	bestCount := 0
+	for _, e := range homeEntries {
+		if !e.IsDir() {
 			continue
 		}
-		nStr := strings.TrimPrefix(name, "server-")
-		if n, err := strconv.Atoi(nStr); err == nil && n > maxServer {
-			maxServer = n
+		user := e.Name()
+		n, err := countServers(user)
+		if err != nil || n == 0 {
+			continue
 		}
+		if n > bestCount {
+			bestCount = n
+			bestUser = user
+		}
+	}
+
+	if bestUser == "" {
+		// No server-* directories found anywhere under /home; treat as a
+		// "no servers installed yet" situation.
+		return &TmuxManager{
+			CS2User:    "cs2servermanager",
+			NumServers: 0,
+		}, nil
 	}
 
 	return &TmuxManager{
-		CS2User:    user,
-		NumServers: maxServer,
+		CS2User:    bestUser,
+		NumServers: bestCount,
 	}, nil
 }
 
@@ -97,6 +149,9 @@ func (m *TmuxManager) Status() (string, error) {
 
 // StartAll starts all servers (creating tmux sessions if needed).
 func (m *TmuxManager) StartAll() error {
+	if m.NumServers <= 0 {
+		return fmt.Errorf("no CS2 servers found; run the install wizard first")
+	}
 	for i := 1; i <= m.NumServers; i++ {
 		if err := m.Start(i); err != nil {
 			return err
@@ -124,6 +179,9 @@ func (m *TmuxManager) Start(server int) error {
 
 // StopAll stops all servers by killing their tmux sessions.
 func (m *TmuxManager) StopAll() error {
+	if m.NumServers <= 0 {
+		return fmt.Errorf("no CS2 servers found; run the install wizard first")
+	}
 	for i := 1; i <= m.NumServers; i++ {
 		if err := m.Stop(i); err != nil {
 			return err
@@ -145,6 +203,9 @@ func (m *TmuxManager) Stop(server int) error {
 
 // RestartAll restarts all servers.
 func (m *TmuxManager) RestartAll() error {
+	if m.NumServers <= 0 {
+		return fmt.Errorf("no CS2 servers found; run the install wizard first")
+	}
 	if err := m.StopAll(); err != nil {
 		return err
 	}

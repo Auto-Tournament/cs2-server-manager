@@ -112,15 +112,19 @@ func runStartAllServers() tea.Cmd {
 		mgr, err := csm.NewTmuxManager()
 		if err != nil {
 			return commandFinishedMsg{
-				item:   menuItem{title: "Start all servers"},
+				item:   menuItem{title: "Start all servers", kind: itemStartAllGo},
 				output: "",
 				err:    err,
 			}
 		}
 		err = mgr.StartAll()
+		out := ""
+		if err == nil {
+			out = fmt.Sprintf("Started %d server(s) via tmux.\n\nUse the Servers dashboard or `csm attach <n>` to inspect them.", mgr.NumServers)
+		}
 		return commandFinishedMsg{
-			item:   menuItem{title: "Start all servers"},
-			output: "",
+			item:   menuItem{title: "Start all servers", kind: itemStartAllGo},
+			output: out,
 			err:    err,
 		}
 	}
@@ -132,15 +136,19 @@ func runStopAllServers() tea.Cmd {
 		mgr, err := csm.NewTmuxManager()
 		if err != nil {
 			return commandFinishedMsg{
-				item:   menuItem{title: "Stop all servers"},
+				item:   menuItem{title: "Stop all servers", kind: itemStopAllGo},
 				output: "",
 				err:    err,
 			}
 		}
 		err = mgr.StopAll()
+		out := ""
+		if err == nil {
+			out = fmt.Sprintf("Stopped %d server(s) via tmux.", mgr.NumServers)
+		}
 		return commandFinishedMsg{
-			item:   menuItem{title: "Stop all servers"},
-			output: "",
+			item:   menuItem{title: "Stop all servers", kind: itemStopAllGo},
+			output: out,
 			err:    err,
 		}
 	}
@@ -152,15 +160,19 @@ func runRestartAllServers() tea.Cmd {
 		mgr, err := csm.NewTmuxManager()
 		if err != nil {
 			return commandFinishedMsg{
-				item:   menuItem{title: "Restart all servers"},
+				item:   menuItem{title: "Restart all servers", kind: itemRestartAllGo},
 				output: "",
 				err:    err,
 			}
 		}
 		err = mgr.RestartAll()
+		out := ""
+		if err == nil {
+			out = fmt.Sprintf("Restarted %d server(s) via tmux.", mgr.NumServers)
+		}
 		return commandFinishedMsg{
-			item:   menuItem{title: "Restart all servers"},
-			output: "",
+			item:   menuItem{title: "Restart all servers", kind: itemRestartAllGo},
+			output: out,
 			err:    err,
 		}
 	}
