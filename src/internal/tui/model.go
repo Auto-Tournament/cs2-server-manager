@@ -45,6 +45,8 @@ const (
 	itemPublicIPGo
 	itemExtractThumbnailsGo
 	itemCleanupAllGo
+	itemAttachHelp
+	itemDebugHelp
 )
 
 // top-level tabs for grouping actions
@@ -350,6 +352,16 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "Restart all servers",
 				description: "",
 				kind:        itemRestartAllGo,
+			},
+			{
+				title:       "Attach to server (CLI)",
+				description: "",
+				kind:        itemAttachHelp,
+			},
+			{
+				title:       "Debug server (CLI)",
+				description: "",
+				kind:        itemDebugHelp,
 			},
 		}
 	case tabMaintenance:
@@ -717,11 +729,47 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// warnings so they don't linger.
 			m.sudoWarning = ""
 
-			// If this action requires sudo and we're not root, keep it visible
-			// and selectable but make Enter a no-op. Show a short inline
-			// warning between the navbar and the options.
+			// If this action requires sudo and we're not root, show a help page
+			// explaining how to run it from the CLI instead of doing nothing.
 			if !isRoot() && requiresSudo(selected.kind) {
-				m.sudoWarning = "This action requires sudo to run (start with 'sudo csm')."
+				switch selected.kind {
+				case itemInstallDepsGo:
+					m.detailTitle = "Install system dependencies (requires sudo)"
+					m.detailContent = "This action installs tmux, steamcmd, rsync, jq and other required packages.\n\n" +
+						"Run it from your shell with sudo:\n\n" +
+						"  sudo ./csm install-deps\n\n" +
+						"Then restart CSM normally."
+				case itemInstallMonitorGo:
+					m.detailTitle = "Install auto-update monitor (requires sudo)"
+					m.detailContent = "The auto-update monitor modifies root's crontab and writes to /var/log.\n\n" +
+						"Run it from your shell with sudo:\n\n" +
+						"  sudo ./csm install-monitor-cron\n\n" +
+						"Then restart CSM normally."
+				case itemUpdateGameGo:
+					m.detailTitle = "Update CS2 after Valve update (requires sudo)"
+					m.detailContent = "This updates the master CS2 installation via SteamCMD and syncs updated game files to all servers.\n\n" +
+						"Run it from your shell with sudo:\n\n" +
+						"  sudo ./csm update-game\n\n" +
+						"Then restart CSM and check the Servers dashboard."
+				case itemForceUpdateNow, itemUpdateNow:
+					m.detailTitle = "Update CSM binary (requires sudo)"
+					m.detailContent = "Updating the CSM binary may require sudo if it's installed globally.\n\n" +
+						"From your shell, run:\n\n" +
+						"  ./csm self-update\n\n" +
+						"Or download the latest release manually from GitHub and replace the binary."
+				case itemCleanupAllGo:
+					m.detailTitle = "Danger zone cleanup (requires sudo)"
+					m.detailContent = "This wipes all servers and deletes the dedicated CS2 user and its home directory.\n\n" +
+						"To run it from your shell:\n\n" +
+						"  sudo ./csm cleanup-all\n\n" +
+						"Only do this if you are sure you want a full reset."
+				default:
+					m.detailTitle = selected.title
+					m.detailContent = "This action must be run with sudo from your shell."
+				}
+				m.view = viewActionResult
+				m.lastOutput = ""
+				m.status = ""
 				return m, tea.Batch(cmds...)
 			}
 
@@ -818,6 +866,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Extracting and converting map thumbnails..."
 				m.lastOutput = ""
 				cmds = append(cmds, runExtractThumbnailsGo(), m.spin.Tick)
+			case itemAttachHelp:
+				// Help-only page for CLI-based attach.
+				m.detailTitle = "Attach to server (CLI)"
+				m.detailContent = "Attach your terminal directly to a server's tmux session.\n\n" +
+					"1. Note the server number from the Servers dashboard.\n" +
+					"2. Exit CSM.\n" +
+					"3. From your shell, run:\n\n" +
+					"   csm attach <server>\n\n" +
+					"Example for server 1:\n\n" +
+					"   csm attach 1\n\n" +
+					"Press Enter to return to the main menu."
+				m.view = viewActionResult
+				m.lastOutput = ""
+				m.status = ""
+			case itemDebugHelp:
+				// Help-only page for CLI-based debug.
+				m.detailTitle = "Debug server (CLI)"
+				m.detailContent = "Run a CS2 server in foreground debug mode (no tmux) to see all output.\n\n" +
+					"1. Note the server number from the Servers dashboard.\n" +
+					"2. Exit CSM.\n" +
+					"3. From your shell, run:\n\n" +
+					"   csm debug <server>\n\n" +
+					"Example for server 1:\n\n" +
+					"   csm debug 1\n\n" +
+					"Press Enter to return to the main menu."
+				m.view = viewActionResult
+				m.lastOutput = ""
+				m.status = ""
 			case itemCleanupAllGo:
 				// Enter a dedicated confirmation view before running the
 				// irreversible cleanup operation.
@@ -1293,6 +1369,10 @@ func (m model) View() string {
 			desc = "Run the VPK/thumbnails pipeline and write PNGs into map_thumbnails/."
 		case itemCleanupAllGo:
 			desc = "Wipe all servers and the dedicated CS2 user; use only when you want a full reset."
+		case itemAttachHelp:
+			desc = "Attach your terminal to a server's tmux session via the CLI:  csm attach <server>."
+		case itemDebugHelp:
+			desc = "Run a server in foreground debug mode via the CLI:  csm debug <server>."
 		}
 		if strings.TrimSpace(desc) != "" {
 			fmt.Fprintln(&b, subtleStyle.Render(desc))

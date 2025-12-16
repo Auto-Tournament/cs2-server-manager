@@ -4,35 +4,39 @@ CS2 Server Manager is designed so your custom configs survive updates. This page
 
 ## Installation methods
 
-You can install with one of three common flows:
+You can install with one of two common flows:
 
-### 1. Quick install (recommended)
+### 1. Global install from prebuilt binary (recommended)
 
-```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
-```
-
-This uses the default `overrides/` folder from the repository.
-
-### 2. Quick install with custom overrides
+Install `csm` into `/usr/local/bin` and run the TUI:
 
 ```bash
-bash install.sh --auto --overrides /path/to/your-overrides
+arch=$(uname -m); \
+case "$arch" in \
+  x86_64)  asset="csm-linux-amd64" ;; \
+  aarch64|arm64) asset="csm-linux-arm64" ;; \
+  *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+esac; \
+tmp=$(mktemp); \
+curl -L "https://github.com/sivert-io/cs2-server-manager/releases/latest/download/$asset" -o "$tmp" && \
+sudo install -m 0755 "$tmp" /usr/local/bin/csm && \
+rm "$tmp" && \
+sudo csm            # launches the interactive TUI installer
 ```
 
-Provide your own overrides directory (must match the structure of `overrides/game/`).
+This uses the default `overrides/` folder that ships with the release, if present.
 
-### 3. Git clone & customize
+### 2. Git clone & customize
 
 ```bash
 git clone https://github.com/sivert-io/cs2-server-manager.git
 cd cs2-server-manager
 # Edit overrides/ folder as needed
-./manage.sh install
+go build -o csm ./src/cmd/cs2-tui
+sudo ./csm                  # local/dev build, not needed for normal installs
 ```
 
-Best if you want full control and to keep your own fork.
+Best if you want full control and to keep your own fork. For most hosts, the global install in option 1 is simpler.
 
 ## Overrides directory
 
@@ -43,7 +47,7 @@ The `overrides/` folder contains configuration that is applied to all servers:
 - Structure mirrors the game folder:
 
 ```text
-overrides/game/csgo/
+overwrites/game/csgo/
 ├── cfg/MatchZy/
 └── addons/
 ```
@@ -67,5 +71,5 @@ Default ports (incrementing by 10):
 
 - Keep all long-term customizations inside `overrides/`.
 - Use a git repo for your overrides directory so you can version changes.
-- Avoid editing files directly under `/home/cs2/server-*` unless testing something temporarily.
-- After changing configs, restart the relevant server(s) via `manage.sh` or `cs2_tmux.sh`.
+- Avoid editing files directly under `/home/cs2servermanager/server-*` unless testing something temporarily.
+- After changing configs, restart the relevant server(s) via `csm restart`.

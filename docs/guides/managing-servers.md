@@ -60,9 +60,9 @@ When attached to a tmux session:
 By default, server directories are under the CS2 user’s home, for example:
 
 ```text
-/home/cs2/server-1
-/home/cs2/server-2
-/home/cs2/server-3
+/home/cs2servermanager/server-1
+/home/cs2servermanager/server-2
+/home/cs2servermanager/server-3
 ```
 
 Each server has its own `game` folder with CS2 binaries and configs. Shared configuration is managed via the repo’s `overrides/` directory (see **Guides → Configuration & Overrides**).
