@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -52,6 +53,7 @@ func main() {
 			return
 		case "install-deps":
 			out, err := csm.InstallDependencies()
+			csm.LogAction("cli", "install-deps", out, err)
 			if out != "" {
 				fmt.Print(out)
 			}
@@ -75,6 +77,7 @@ func main() {
 				OverridesDir:      getenvDefault("OVERRIDES_DIR", ""),
 			}
 			out, err := csm.Bootstrap(cfg)
+			csm.LogAction("cli", "bootstrap", out, err)
 			if out != "" {
 				fmt.Print(out)
 			}
@@ -90,6 +93,7 @@ func main() {
 				MatchzyVolume:    getenvDefault("MATCHZY_DB_VOLUME", "matchzy-mysql-data"),
 			}
 			out, err := csm.CleanupAll(cfg)
+			csm.LogAction("cli", "cleanup-all", out, err)
 			if out != "" {
 				fmt.Print(out)
 			}
@@ -100,6 +104,7 @@ func main() {
 			return
 		case "extract-map-data":
 			out, err := csm.ExtractMapThumbnails()
+			csm.LogAction("cli", "extract-map-data", out, err)
 			if out != "" {
 				fmt.Print(out)
 			}
@@ -110,6 +115,9 @@ func main() {
 			return
 		case "public-ip":
 			ip, err := csm.PublicIP()
+			if ip != "" || err != nil {
+				csm.LogAction("cli", "public-ip", ip, err)
+			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to resolve public IP: %v\n", err)
 				os.Exit(1)
@@ -123,6 +131,7 @@ func main() {
 				os.Exit(1)
 			}
 			out, err := mgr.Status()
+			csm.LogAction("cli", "status", out, err)
 			if out != "" {
 				fmt.Print(out)
 			}
@@ -137,6 +146,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux start failed: %v\n", err)
 				os.Exit(1)
 			}
+			target := "all"
 			if len(args) > 1 {
 				server, serr := strconv.Atoi(args[1])
 				if serr != nil {
@@ -144,9 +154,11 @@ func main() {
 					os.Exit(1)
 				}
 				err = mgr.Start(server)
+				target = fmt.Sprintf("server-%d", server)
 			} else {
 				err = mgr.StartAll()
 			}
+			csm.LogAction("cli", "start "+target, "", err)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "tmux start failed: %v\n", err)
 				os.Exit(1)
@@ -158,6 +170,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux stop failed: %v\n", err)
 				os.Exit(1)
 			}
+			target := "all"
 			if len(args) > 1 {
 				server, serr := strconv.Atoi(args[1])
 				if serr != nil {
@@ -165,9 +178,11 @@ func main() {
 					os.Exit(1)
 				}
 				err = mgr.Stop(server)
+				target = fmt.Sprintf("server-%d", server)
 			} else {
 				err = mgr.StopAll()
 			}
+			csm.LogAction("cli", "stop "+target, "", err)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "tmux stop failed: %v\n", err)
 				os.Exit(1)
@@ -179,6 +194,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux restart failed: %v\n", err)
 				os.Exit(1)
 			}
+			target := "all"
 			if len(args) > 1 {
 				server, serr := strconv.Atoi(args[1])
 				if serr != nil {
@@ -186,9 +202,11 @@ func main() {
 					os.Exit(1)
 				}
 				err = mgr.Restart(server)
+				target = fmt.Sprintf("server-%d", server)
 			} else {
 				err = mgr.RestartAll()
 			}
+			csm.LogAction("cli", "restart "+target, "", err)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "tmux restart failed: %v\n", err)
 				os.Exit(1)
@@ -219,6 +237,7 @@ func main() {
 				os.Exit(1)
 			}
 			out, err := mgr.Logs(server, lines)
+			csm.LogAction("cli", fmt.Sprintf("logs server-%d", server), out, err)
 			if out != "" {
 				fmt.Print(out)
 				if !strings.HasSuffix(out, "\n") {
@@ -229,6 +248,25 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux logs failed: %v\n", err)
 				os.Exit(1)
 			}
+			return
+		case "logs-file":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "usage: csm logs-file <server>")
+				os.Exit(1)
+			}
+			server, serr := strconv.Atoi(args[1])
+			if serr != nil || server <= 0 {
+				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				os.Exit(1)
+			}
+			mgr, err := csm.NewTmuxManager()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "tmux logs-file failed: %v\n", err)
+				os.Exit(1)
+			}
+			path := mgr.ServerLogPath(server)
+			csm.LogAction("cli", fmt.Sprintf("logs-file server-%d", server), path, nil)
+			fmt.Println(path)
 			return
 		case "attach":
 			if len(args) < 2 {
@@ -245,8 +283,10 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux attach failed: %v\n", err)
 				os.Exit(1)
 			}
-			if err := mgr.Attach(server); err != nil {
-				fmt.Fprintf(os.Stderr, "tmux attach failed: %v\n", err)
+			attachErr := mgr.Attach(server)
+			csm.LogAction("cli", fmt.Sprintf("attach server-%d", server), "", attachErr)
+			if attachErr != nil {
+				fmt.Fprintf(os.Stderr, "tmux attach failed: %v\n", attachErr)
 				os.Exit(1)
 			}
 			return
@@ -257,6 +297,7 @@ func main() {
 				os.Exit(1)
 			}
 			out, err := mgr.ListSessions()
+			csm.LogAction("cli", "list-sessions", out, err)
 			if out != "" {
 				fmt.Print(out)
 				if !strings.HasSuffix(out, "\n") {
@@ -283,13 +324,16 @@ func main() {
 				fmt.Fprintf(os.Stderr, "debug failed: %v\n", err)
 				os.Exit(1)
 			}
-			if err := mgr.Debug(server); err != nil {
-				fmt.Fprintf(os.Stderr, "debug failed: %v\n", err)
+			debugErr := mgr.Debug(server)
+			csm.LogAction("cli", fmt.Sprintf("debug server-%d", server), "", debugErr)
+			if debugErr != nil {
+				fmt.Fprintf(os.Stderr, "debug failed: %v\n", debugErr)
 				os.Exit(1)
 			}
 			return
 		case "update-game":
 			out, err := csm.UpdateGame()
+			csm.LogAction("cli", "update-game", out, err)
 			if out != "" {
 				fmt.Print(out)
 			}
@@ -301,6 +345,7 @@ func main() {
 		case "update-plugins":
 			// For CLI convenience, perform both the download and deploy steps.
 			if out, err := csm.UpdatePlugins(); out != "" || err != nil {
+				csm.LogAction("cli", "update-plugins-download", out, err)
 				if out != "" {
 					fmt.Print(out)
 				}
@@ -310,6 +355,7 @@ func main() {
 				}
 			}
 			if out, err := csm.DeployPluginsToServers(); out != "" || err != nil {
+				csm.LogAction("cli", "update-plugins-deploy", out, err)
 				if out != "" {
 					fmt.Print(out)
 				}
@@ -320,7 +366,9 @@ func main() {
 			}
 			return
 		case "monitor":
-			if err := csm.RunAutoUpdateMonitor(); err != nil {
+			err := csm.RunAutoUpdateMonitor()
+			csm.LogAction("cli", "monitor", "", err)
+			if err != nil {
 				fmt.Fprintf(os.Stderr, "auto-update monitor failed: %v\n", err)
 				os.Exit(1)
 			}
@@ -331,6 +379,7 @@ func main() {
 				interval = args[1]
 			}
 			out, err := csm.InstallAutoUpdateCron(interval)
+			csm.LogAction("cli", "install-monitor-cron", out, err)
 			if out != "" {
 				fmt.Print(out)
 			}
@@ -372,15 +421,16 @@ func main() {
 	//
 	// Always enable Bubble Tea file logging so we can debug TUI behaviour even
 	// when stdout is occupied. Logs go to CSM_LOG_DIR (default: current
-	// directory) as csm-debug.log.
+	// directory) as csm.log, shared with other CSM log helpers.
 	logDir := getenvDefault("CSM_LOG_DIR", ".")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "failed to create CSM_LOG_DIR:", err)
 	} else {
-		logPath := filepath.Join(logDir, "csm-debug.log")
+		logPath := filepath.Join(logDir, "csm.log")
 		if f, err := tea.LogToFile(logPath, "debug"); err != nil {
 			fmt.Fprintln(os.Stderr, "failed to enable debug logging:", err)
 		} else {
+			log.Printf("CSM TUI starting, log file: %s", logPath)
 			defer f.Close()
 		}
 	}
@@ -432,7 +482,8 @@ func printUsage() {
 	fmt.Println("  public-ip              Print public IP address")
 	fmt.Println("  status                 Show tmux server status")
 	fmt.Println("  start|stop|restart     Control servers via tmux")
-	fmt.Println("  logs                   Tail server logs")
+	fmt.Println("  logs                   Tail server logs (scrolling)")
+	fmt.Println("  logs-file              Show the raw log file path for a server")
 	fmt.Println("  attach                 Attach to a server tmux session")
 	fmt.Println("  list-sessions          List tmux sessions")
 	fmt.Println("  debug                  Run a server in foreground debug mode")

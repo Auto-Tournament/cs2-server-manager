@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+
+	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 )
 
 type viewMode int
@@ -837,6 +839,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commandFinishedMsg:
 		m.running = false
 		m.confirmQuit = false
+
+		// Persist a structured log entry for every completed TUI action so we
+		// can inspect behaviour after the fact, even when the UI truncates
+		// output for readability.
+		actionName := msg.item.title
+		if strings.TrimSpace(actionName) == "" {
+			actionName = fmt.Sprintf("itemKind=%d", msg.item.kind)
+		}
+		csm.LogAction("tui", actionName, msg.output, msg.err)
 
 		// Special-case commands that want minimal UI chrome.
 		switch msg.item.kind {

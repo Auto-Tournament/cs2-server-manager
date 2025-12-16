@@ -304,6 +304,11 @@ func runTmuxLogsViewport(server string, lines int) tea.Cmd {
 		}
 
 		out, err := manager.Logs(n, lines)
+		logPath := manager.ServerLogPath(n)
+		if strings.TrimSpace(logPath) != "" {
+			header := fmt.Sprintf("Underlying log file: %s\n\n", logPath)
+			out = header + out
+		}
 		return viewportFinishedMsg{
 			title:   fmt.Sprintf("Server %d logs", n),
 			content: out,

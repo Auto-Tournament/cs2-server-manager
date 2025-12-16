@@ -110,6 +110,19 @@ func (m *TmuxManager) serverDir(server int) string {
 	return filepath.Join("/home", m.CS2User, fmt.Sprintf("server-%d", server))
 }
 
+// serverLogFile returns a persistent log file path for a given server.
+// We keep these under the CS2 user's home so they are writable by that user
+// and survive tmux session restarts.
+func (m *TmuxManager) serverLogFile(server int) string {
+	return filepath.Join("/home", m.CS2User, "logs", fmt.Sprintf("server-%d.log", server))
+}
+
+// ServerLogPath exposes the underlying log file path for a given server.
+// This is used by CLI/TUI helpers so users can discover or tail logs directly.
+func (m *TmuxManager) ServerLogPath(server int) string {
+	return m.serverLogFile(server)
+}
+
 // sessionName returns the tmux session name for a given server.
 func (m *TmuxManager) sessionName(server int) string {
 	return fmt.Sprintf("cs2-%d", server)
@@ -172,12 +185,20 @@ func (m *TmuxManager) Start(server int) error {
 	session := m.sessionName(server)
 	serverDir := m.serverDir(server)
 	gameDir := filepath.Join(serverDir, "game")
+	logFile := m.serverLogFile(server)
 
 	// Kill any existing session first to ensure a clean log/console.
 	_ = m.runAsCS2User("tmux kill-session -t " + session).Run()
 
-	// Use the Valve cs2.sh script from the game directory.
-	cmdline := fmt.Sprintf("cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon'", gameDir, session)
+	// Use the Valve cs2.sh script from the game directory and tee output into
+	// a persistent per-server log file so logs survive tmux restarts.
+	cmdline := fmt.Sprintf(
+		"mkdir -p %[1]s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon 2>&1 | tee -a %[2]s'",
+		filepath.Dir(logFile),
+		gameDir,
+		session,
+		logFile,
+	)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
 	if err := m.runAsCS2User(cmdline).Run(); err != nil {
 		log.Printf("[tmux] Start: failed to start server %d: %v", server, err)
@@ -201,6 +222,14 @@ func (m *TmuxManager) StopAll() error {
 
 // Stop stops a single server by killing its tmux session.
 func (m *TmuxManager) Stop(server int) error {
+	// Before stopping the session, capture and persist logs so they survive
+	// server shutdown and can be inspected later.
+	if out, err := m.Logs(server, 0); err != nil {
+		LogAction("tmux", fmt.Sprintf("logs server-%d (before stop)", server), "", err)
+	} else if strings.TrimSpace(out) != "" {
+		LogAction("tmux", fmt.Sprintf("logs server-%d (before stop)", server), out, nil)
+	}
+
 	session := m.sessionName(server)
 	cmd := m.runAsCS2User("tmux kill-session -t " + session)
 	if err := cmd.Run(); err != nil {
@@ -230,8 +259,28 @@ func (m *TmuxManager) Restart(server int) error {
 }
 
 // Logs returns the last N lines from the tmux pane for a given server.
-// If lines <= 0, the full pane history is returned.
+// If lines <= 0, the full history is returned. Prefer the persistent per-
+// server log file when available so logs survive tmux restarts; fall back
+// to tmux capture-pane otherwise.
 func (m *TmuxManager) Logs(server, lines int) (string, error) {
+	logPath := m.serverLogFile(server)
+	if fi, err := os.Stat(logPath); err == nil && !fi.IsDir() {
+		data, err := os.ReadFile(logPath)
+		if err != nil {
+			return "", fmt.Errorf("failed to read server log file %s: %w", logPath, err)
+		}
+		text := string(data)
+		if lines <= 0 {
+			return text, nil
+		}
+		allLines := strings.Split(text, "\n")
+		if len(allLines) > lines {
+			allLines = allLines[len(allLines)-lines:]
+		}
+		return strings.Join(allLines, "\n"), nil
+	}
+
+	// Fallback: capture from the live tmux pane.
 	session := m.sessionName(server)
 	args := []string{"capture-pane", "-p", "-t", session}
 	if lines > 0 {
