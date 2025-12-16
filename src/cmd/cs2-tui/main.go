@@ -3,8 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -370,7 +368,7 @@ func main() {
 
 	// No subcommand matched and we are root: run the TUI. If we're in daemon
 	// mode or stdout is not a TTY, disable the renderer. Otherwise, use
-	// full-screen TUI and silence log output to avoid mixing logs into the UI.
+	// full-screen TUI.
 	//
 	// Always enable Bubble Tea file logging so we can debug TUI behaviour even
 	// when stdout is occupied. Logs go to CSM_LOG_DIR (default: current
@@ -392,7 +390,6 @@ func main() {
 		opts = append(opts, tea.WithoutRenderer())
 	} else {
 		opts = append(opts, tea.WithAltScreen())
-		log.SetOutput(io.Discard)
 	}
 
 	p := tea.NewProgram(tui.New(), opts...)

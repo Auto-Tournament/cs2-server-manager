@@ -3,6 +3,7 @@ package csm
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,6 +46,7 @@ func NewTmuxManager() (*TmuxManager, error) {
 	// 1) If CS2_USER is explicitly set, trust it.
 	if envUser := os.Getenv("CS2_USER"); envUser != "" {
 		if n, err := countServers(envUser); err == nil {
+			log.Printf("[tmux] NewTmuxManager: using CS2_USER=%q with %d server(s)", envUser, n)
 			return &TmuxManager{
 				CS2User:    envUser,
 				NumServers: n,
@@ -54,6 +56,7 @@ func NewTmuxManager() (*TmuxManager, error) {
 
 	// 2) Prefer the modern default user if it exists.
 	if n, err := countServers("cs2servermanager"); err == nil && n > 0 {
+		log.Printf("[tmux] NewTmuxManager: discovered cs2servermanager with %d server(s)", n)
 		return &TmuxManager{
 			CS2User:    "cs2servermanager",
 			NumServers: n,
@@ -88,12 +91,14 @@ func NewTmuxManager() (*TmuxManager, error) {
 	if bestUser == "" {
 		// No server-* directories found anywhere under /home; treat as a
 		// "no servers installed yet" situation.
+		log.Printf("[tmux] NewTmuxManager: no server-* directories found under /home; returning NumServers=0")
 		return &TmuxManager{
 			CS2User:    "cs2servermanager",
 			NumServers: 0,
 		}, nil
 	}
 
+	log.Printf("[tmux] NewTmuxManager: selected user=%q with %d server(s)", bestUser, bestCount)
 	return &TmuxManager{
 		CS2User:    bestUser,
 		NumServers: bestCount,
@@ -150,8 +155,10 @@ func (m *TmuxManager) Status() (string, error) {
 // StartAll starts all servers (creating tmux sessions if needed).
 func (m *TmuxManager) StartAll() error {
 	if m.NumServers <= 0 {
+		log.Printf("[tmux] StartAll: no servers to start (NumServers=0, user=%q)", m.CS2User)
 		return fmt.Errorf("no CS2 servers found; run the install wizard first")
 	}
+	log.Printf("[tmux] StartAll: starting %d server(s) for user=%q", m.NumServers, m.CS2User)
 	for i := 1; i <= m.NumServers; i++ {
 		if err := m.Start(i); err != nil {
 			return err
@@ -171,7 +178,9 @@ func (m *TmuxManager) Start(server int) error {
 
 	// Use the Valve cs2.sh script from the game directory.
 	cmdline := fmt.Sprintf("cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon'", gameDir, session)
+	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
 	if err := m.runAsCS2User(cmdline).Run(); err != nil {
+		log.Printf("[tmux] Start: failed to start server %d: %v", server, err)
 		return fmt.Errorf("failed to start server %d in tmux: %w", server, err)
 	}
 	return nil
