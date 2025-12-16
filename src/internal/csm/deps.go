@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 )
 
 // InstallDependencies installs the core system packages needed for CS2 Server
@@ -26,5 +25,3 @@ func installDeps(w io.Writer) error {
 	}
 	return ensureBootstrapDependencies(w)
 }
-
-
