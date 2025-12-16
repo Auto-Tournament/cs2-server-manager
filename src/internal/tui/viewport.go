@@ -52,7 +52,7 @@ func (m model) viewActionResult() string {
 
 	header := headerBorderStyle.Render(titleStyle.Render(title)) +
 		"\n" +
-		headerBorderStyle.Render("Press Enter to return to the main menu.")
+		headerBorderStyle.Render("Press Enter to continue.")
 
 	fmt.Fprintln(&b, header)
 	fmt.Fprintln(&b)
@@ -62,7 +62,7 @@ func (m model) viewActionResult() string {
 		fmt.Fprintln(&b)
 	}
 
-	statusText := "Press Enter to return."
+	statusText := "Press Enter to continue."
 	fmt.Fprintln(&b, statusBarStyle.Render(statusText))
 
 	return b.String()
@@ -87,7 +87,7 @@ func (m model) viewPublicIP() string {
 	}
 	fmt.Fprintln(&b)
 
-	statusText := "Press Enter to return."
+	statusText := "Press Enter to continue."
 	fmt.Fprintln(&b, statusBarStyle.Render(statusText))
 
 	return b.String()
