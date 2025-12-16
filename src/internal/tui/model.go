@@ -20,6 +20,7 @@ const (
 	viewViewport
 	viewActionResult
 	viewPublicIP
+	viewCleanupConfirm
 	viewLogsPrompt
 )
 
@@ -42,6 +43,7 @@ const (
 	itemRestartAllGo
 	itemPublicIPGo
 	itemExtractThumbnailsGo
+	itemCleanupAllGo
 )
 
 // top-level tabs for grouping actions
@@ -259,7 +261,8 @@ func requiresSudo(kind itemKind) bool {
 		itemInstallMonitorGo,
 		itemUpdateGameGo,
 		itemForceUpdateNow,
-		itemUpdateNow:
+		itemUpdateNow,
+		itemCleanupAllGo:
 		return true
 	default:
 		return false
@@ -321,6 +324,7 @@ func buildItemsForTab(t tab) []menuItem {
 			},
 		}
 	case tabMaintenance:
+		sudo := sudoSuffix()
 		return []menuItem{
 			{
 				title:       "Update CS2 game files",
@@ -336,6 +340,11 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "MatchZy DB: verify/repair",
 				description: "Verify MatchZy database setup and repair in a scrollable view.",
 				kind:        itemMatchzyDBViewport,
+			},
+			{
+				title:       "Danger zone: wipe all servers and CS2 user" + sudo,
+				description: "",
+				kind:        itemCleanupAllGo,
 			},
 		}
 	case tabUtilities:
@@ -495,6 +504,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m, cmd = m.updateLogsPromptKey(msg)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
+		}
+
+		// Dedicated handling for the dangerous cleanup confirmation screen.
+		if m.view == viewCleanupConfirm {
+			switch msg.String() {
+			case "enter", "y":
+				// Start the irreversible cleanup operation.
+				m.view = viewMain
+				m.running = true
+				m.status = "Danger zone: wiping all servers and CS2 user..."
+				m.lastOutput = ""
+				cmds = append(cmds, runCleanupAllGo(), m.spin.Tick)
+				return m, tea.Batch(cmds...)
+			case "n", "esc", "q":
+				// Cancel and return to the main menu without running cleanup.
+				m.view = viewMain
+				m.status = "Select an action and press Enter to run it."
+				return m, tea.Batch(cmds...)
+			default:
+				return m, tea.Batch(cmds...)
+			}
 		}
 
 		// Simple, generic "action result" view: show the result of the last
@@ -713,6 +743,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Extracting and converting map thumbnails..."
 				m.lastOutput = ""
 				cmds = append(cmds, runExtractThumbnailsGo(), m.spin.Tick)
+			case itemCleanupAllGo:
+				// Enter a dedicated confirmation view before running the
+				// irreversible cleanup operation.
+				m.view = viewCleanupConfirm
+				m.status = ""
+				m.lastOutput = ""
 			case itemRunCommand:
 				m.running = true
 				m.status = fmt.Sprintf("Running: %s ...", selected.title)
@@ -963,6 +999,8 @@ func (m model) View() string {
 		return m.viewActionResult()
 	case viewPublicIP:
 		return m.viewPublicIP()
+	case viewCleanupConfirm:
+		return m.viewCleanupConfirm()
 	case viewLogsPrompt:
 		return m.viewLogsPrompt()
 	}
