@@ -22,6 +22,8 @@ const (
 	viewPublicIP
 	viewCleanupConfirm
 	viewLogsPrompt
+	viewAttachPrompt
+	viewDebugPrompt
 )
 
 type itemKind int
@@ -77,6 +79,16 @@ type viewportFinishedMsg struct {
 	title   string
 	content string
 	err     error
+}
+
+type attachFinishedMsg struct {
+	server int
+	err    error
+}
+
+type debugFinishedMsg struct {
+	server int
+	err    error
 }
 
 type installConfig struct {
@@ -316,12 +328,12 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemRestartAllGo,
 			},
 			{
-				title:       "Attach to server (CLI)",
+				title:       "Attach to server",
 				description: "",
 				kind:        itemAttachHelp,
 			},
 			{
-				title:       "Debug server (CLI)",
+				title:       "Debug server",
 				description: "",
 				kind:        itemDebugHelp,
 			},
@@ -515,6 +527,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewLogsPrompt {
 			var cmd tea.Cmd
 			m, cmd = m.updateLogsPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		if m.view == viewAttachPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateAttachPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		if m.view == viewDebugPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateDebugPromptKey(msg)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -777,33 +803,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastOutput = ""
 				cmds = append(cmds, runExtractThumbnailsGo(), m.spin.Tick)
 			case itemAttachHelp:
-				// Help-only page for CLI-based attach.
-				m.detailTitle = "Attach to server (CLI)"
-				m.detailContent = "Attach your terminal directly to a server's tmux session.\n\n" +
-					"1. Note the server number from the Servers dashboard.\n" +
-					"2. Exit CSM.\n" +
-					"3. From your shell, run:\n\n" +
-					"   csm attach <server>\n\n" +
-					"Example for server 1:\n\n" +
-					"   csm attach 1\n\n" +
-					"Press Enter to return to the main menu."
-				m.view = viewActionResult
-				m.lastOutput = ""
-				m.status = ""
+				// Prompt for server number, then run an interactive csm attach
+				// session using ExecProcess.
+				m.view = viewAttachPrompt
+				m.status = "Attach: enter server number."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
 			case itemDebugHelp:
-				// Help-only page for CLI-based debug.
-				m.detailTitle = "Debug server (CLI)"
-				m.detailContent = "Run a CS2 server in foreground debug mode (no tmux) to see all output.\n\n" +
-					"1. Note the server number from the Servers dashboard.\n" +
-					"2. Exit CSM.\n" +
-					"3. From your shell, run:\n\n" +
-					"   csm debug <server>\n\n" +
-					"Example for server 1:\n\n" +
-					"   csm debug 1\n\n" +
-					"Press Enter to return to the main menu."
-				m.view = viewActionResult
-				m.lastOutput = ""
-				m.status = ""
+				// Prompt for server number, then run an interactive csm debug
+				// session using ExecProcess.
+				m.view = viewDebugPrompt
+				m.status = "Debug: enter server number."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
 			case itemCleanupAllGo:
 				// Enter a dedicated confirmation view before running the
 				// irreversible cleanup operation.
@@ -1005,6 +1021,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+	case attachFinishedMsg:
+		// After an interactive attach session ends, show a small receipt so the
+		// user knows they're back in CSM and whether anything went wrong.
+		if msg.err != nil {
+			m.detailTitle = fmt.Sprintf("Attach to server %d (failed)", msg.server)
+			m.detailContent = fmt.Sprintf("Attach failed: %v", msg.err)
+		} else {
+			m.detailTitle = fmt.Sprintf("Attach to server %d", msg.server)
+			m.detailContent = "Tmux attach session ended.\n\n" +
+				"Your server continues running in the background.\n\n" +
+				"Use the Servers dashboard or logs to inspect status."
+		}
+		m.view = viewActionResult
+		m.status = ""
+		m.lastOutput = ""
+		return m, tea.Batch(cmds...)
+
+	case debugFinishedMsg:
+		// After a debug run finishes, let the user know they're back in CSM.
+		if msg.err != nil {
+			m.detailTitle = fmt.Sprintf("Debug server %d (failed)", msg.server)
+			m.detailContent = fmt.Sprintf("Debug session failed: %v", msg.err)
+		} else {
+			m.detailTitle = fmt.Sprintf("Debug server %d", msg.server)
+			m.detailContent = "Debug session ended.\n\n" +
+				"If you exited the server process, it is now stopped.\n\n" +
+				"Use the install wizard or start actions to bring it back up."
+		}
+		m.view = viewActionResult
+		m.status = ""
+		m.lastOutput = ""
+		return m, tea.Batch(cmds...)
+
 	case installLogTickMsg:
 		// Live tail of the bootstrap log while steamcmd and other long-running
 		// operations are in progress. We keep this very small so it feels like a
@@ -1182,6 +1231,10 @@ func (m model) View() string {
 		return m.viewCleanupConfirm()
 	case viewLogsPrompt:
 		return m.viewLogsPrompt()
+	case viewAttachPrompt:
+		return m.viewAttachPrompt()
+	case viewDebugPrompt:
+		return m.viewDebugPrompt()
 	}
 
 	var b strings.Builder

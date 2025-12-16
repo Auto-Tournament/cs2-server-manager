@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -150,6 +152,118 @@ func (m model) updateLogsPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) viewAttachPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("Attach to server")) +
+		"\n" +
+		headerBorderStyle.Render("Enter server number to attach (tmux)")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Server number:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, "Press Enter to attach, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateAttachPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter a server number."
+			return m, nil
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n <= 0 {
+			m.wizard.errMsg = "Server number must be a positive integer."
+			return m, nil
+		}
+
+		m.view = viewMain
+		m.status = fmt.Sprintf("Attaching to server %d via tmux (detach with Ctrl+B, then D)...", n)
+		m.lastOutput = ""
+
+		return m, runAttachExec(n)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
+func (m model) viewDebugPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("Debug server")) +
+		"\n" +
+		headerBorderStyle.Render("Enter server number to run in debug mode")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Server number:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, "Press Enter to start debug session, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateDebugPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter a server number."
+			return m, nil
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n <= 0 {
+			m.wizard.errMsg = "Server number must be a positive integer."
+			return m, nil
+		}
+
+		m.view = viewMain
+		m.status = fmt.Sprintf("Starting debug session for server %d...", n)
+		m.lastOutput = ""
+
+		return m, runDebugExec(n)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
 func runTmuxStatusViewport() tea.Cmd {
 	return func() tea.Msg {
 		manager, err := csm.NewTmuxManager()
@@ -209,5 +323,34 @@ func runMatchzyDBViewport() tea.Cmd {
 			content: out,
 			err:     err,
 		}
+	}
+}
+
+// runAttachExec runs an interactive "csm attach <server>" process, handing the
+// terminal over to tmux until the user detaches or the session ends.
+func runAttachExec(server int) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("csm", "attach", strconv.Itoa(server))
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return attachFinishedMsg{server: server, err: err}
+		})
+	}
+}
+
+// runDebugExec runs an interactive "csm debug <server>" process, which starts
+// a CS2 server in the foreground. When the process exits, control returns to
+// the TUI.
+func runDebugExec(server int) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("csm", "debug", strconv.Itoa(server))
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return debugFinishedMsg{server: server, err: err}
+		})
 	}
 }
