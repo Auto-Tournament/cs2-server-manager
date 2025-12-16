@@ -49,29 +49,29 @@ func main() {
 
 	if len(args) > 0 {
 		switch args[0] {
-            		case "install-deps":
-            			out, err := csm.InstallDependencies()
-            			if out != "" {
-            				fmt.Print(out)
-            			}
-            			if err != nil {
-            				fmt.Fprintf(os.Stderr, "dependency installation failed: %v\n", err)
-            				os.Exit(1)
-            			}
-            			return
+		case "install-deps":
+			out, err := csm.InstallDependencies()
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "dependency installation failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "bootstrap":
 			cfg := csm.BootstrapConfig{
-				CS2User:          getenvDefault("CS2_USER", "cs2"),
-				NumServers:       intFromEnv("NUM_SERVERS", 3),
-				BaseGamePort:     intFromEnv("BASE_GAME_PORT", 27015),
-				BaseTVPort:       intFromEnv("BASE_TV_PORT", 27020),
-				EnableMetamod:    intFromEnv("ENABLE_METAMOD", 1) != 0,
-				FreshInstall:     intFromEnv("FRESH_INSTALL", 0) != 0,
-				UpdateMaster:     intFromEnv("UPDATE_MASTER", 1) != 0,
-				RCONPassword:     getenvDefault("RCON_PASSWORD", "ntlan2025"),
+				CS2User:           getenvDefault("CS2_USER", "cs2"),
+				NumServers:        intFromEnv("NUM_SERVERS", 3),
+				BaseGamePort:      intFromEnv("BASE_GAME_PORT", 27015),
+				BaseTVPort:        intFromEnv("BASE_TV_PORT", 27020),
+				EnableMetamod:     intFromEnv("ENABLE_METAMOD", 1) != 0,
+				FreshInstall:      intFromEnv("FRESH_INSTALL", 0) != 0,
+				UpdateMaster:      intFromEnv("UPDATE_MASTER", 1) != 0,
+				RCONPassword:      getenvDefault("RCON_PASSWORD", "ntlan2025"),
 				MatchzySkipDocker: intFromEnv("MATCHZY_SKIP_DOCKER", 0) != 0,
-				GameFilesDir:     getenvDefault("GAME_FILES_DIR", ""),
-				OverridesDir:     getenvDefault("OVERRIDES_DIR", ""),
+				GameFilesDir:      getenvDefault("GAME_FILES_DIR", ""),
+				OverridesDir:      getenvDefault("OVERRIDES_DIR", ""),
 			}
 			out, err := csm.Bootstrap(cfg)
 			if out != "" {
@@ -341,9 +341,26 @@ func main() {
 		}
 	}
 
-	// No subcommand matched: run the TUI. If we're in daemon mode or stdout is
-	// not a TTY, disable the renderer. Otherwise, use full-screen TUI and
-	// silence log output to avoid mixing logs into the UI.
+	// No subcommand matched: run the TUI. For safety and to simplify behaviour,
+	// the interactive TUI requires sudo so that all install/update/cleanup
+	// flows can run without surprising permission errors.
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(os.Stderr, "CSM TUI must be run with sudo so it can manage users, tmux, game files and cron jobs.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Please restart CSM with:")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "  sudo csm")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "You can still run non-TUI commands without sudo where appropriate, e.g.:")
+		fmt.Fprintln(os.Stderr, "  csm status")
+		fmt.Fprintln(os.Stderr, "  csm logs <server>")
+		fmt.Fprintln(os.Stderr, "  csm attach <server>")
+		os.Exit(1)
+	}
+
+	// No subcommand matched and we are root: run the TUI. If we're in daemon
+	// mode or stdout is not a TTY, disable the renderer. Otherwise, use
+	// full-screen TUI and silence log output to avoid mixing logs into the UI.
 	var opts []tea.ProgramOption
 	if daemonMode || !isatty.IsTerminal(os.Stdout.Fd()) {
 		opts = append(opts, tea.WithoutRenderer())
@@ -388,23 +405,24 @@ func printUsage() {
 	fmt.Println("  -d           run without TUI renderer (daemon mode)")
 	fmt.Println("  -h, --help   show this help message")
 	fmt.Println()
-	fmt.Println("Commands:")
-	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
-	fmt.Println("  cleanup-all            Remove all servers and related resources")
-	fmt.Println("  extract-map-data       Extract map thumbnails from VPKs")
+	fmt.Println("Commands (no sudo required):")
 	fmt.Println("  public-ip              Print public IP address")
 	fmt.Println("  status                 Show tmux server status")
 	fmt.Println("  start|stop|restart     Control servers via tmux")
 	fmt.Println("  logs                   Tail server logs")
 	fmt.Println("  attach                 Attach to a server tmux session")
 	fmt.Println("  list-sessions          List tmux sessions")
-	fmt.Println("  debug                  Attach in debug mode")
-	fmt.Println("  update-game            Update CS2 game files")
+	fmt.Println("  debug                  Run a server in foreground debug mode")
+	fmt.Println("  extract-map-data       Extract map thumbnails from VPKs")
+	fmt.Println()
+	fmt.Println("Commands (require sudo for typical setups):")
+	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
+	fmt.Println("  cleanup-all            Remove all servers and related resources")
+	fmt.Println("  update-game            Update CS2 game files after a Valve update")
 	fmt.Println("  update-plugins         Update plugins and deploy to servers")
-	fmt.Println("  monitor                Run auto-update monitor")
+	fmt.Println("  monitor                Run auto-update monitor loop")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
-	fmt.Println("  install-deps           Install system dependencies (sudo)")
+	fmt.Println("  install-deps           Install system dependencies")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")
 }
-
