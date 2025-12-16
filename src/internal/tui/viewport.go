@@ -50,9 +50,10 @@ func (m model) viewActionResult() string {
 		title = "Action result"
 	}
 
-	header := headerBorderStyle.Render(titleStyle.Render(title)) +
-		"\n" +
-		headerBorderStyle.Render("Press Enter to continue.")
+	// For generic action results, keep the header simple (title only) and show
+	// the "Press Enter to continue." hint in the status bar to avoid
+	// duplicating the message on screen.
+	header := headerBorderStyle.Render(titleStyle.Render(title))
 
 	fmt.Fprintln(&b, header)
 	fmt.Fprintln(&b)
