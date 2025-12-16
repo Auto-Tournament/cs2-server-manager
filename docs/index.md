@@ -24,26 +24,27 @@ Designed to work hand-in-hand with:
 
 ## Quick Start
 
-For most users, this is all you need:
+For most users, installing `csm` globally and running the TUI is all you need:
 
 ```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
-```
-
-For automated installs (no prompts):
-
-```bash
-bash install.sh --auto --servers 5
+arch=$(uname -m); \
+case "$arch" in \
+  x86_64)  asset="csm-linux-amd64" ;; \
+  aarch64|arm64) asset="csm-linux-arm64" ;; \
+  *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+esac; \
+tmp=$(mktemp); \
+curl -L "https://github.com/sivert-io/cs2-server-manager/releases/latest/download/$asset" -o "$tmp" && \
+sudo install -m 0755 "$tmp" /usr/local/bin/csm && \
+rm "$tmp" && \
+sudo csm            # launches the interactive TUI installer
 ```
 
 Read the **Getting Started** section for a full walkthrough.
 
 ## Project layout
 
-- `install.sh` – one-shot installer for CS2 servers and required dependencies.
-- `manage.sh` – main CLI for installing, starting, stopping, and repairing servers.
-- `scripts/` – supporting utilities (`cs2_tmux.sh`, update helpers, etc.).
+- `scripts/` – dev/ops helper scripts (TUI launcher, release tooling, optional webhooks).
 - `overrides/` – your persistent game and plugin configuration.
 
 See:
