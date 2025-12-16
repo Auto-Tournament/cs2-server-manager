@@ -49,6 +49,9 @@ func main() {
 
 	if len(args) > 0 {
 		switch args[0] {
+		case "help":
+			printUsage()
+			return
 		case "install-deps":
 			out, err := csm.InstallDependencies()
 			if out != "" {
@@ -338,6 +341,10 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		default:
+			fmt.Fprintf(os.Stderr, "Unrecognized command: %q\n\n", args[0])
+			printUsage()
+			os.Exit(1)
 		}
 	}
 
@@ -355,6 +362,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "  csm status")
 		fmt.Fprintln(os.Stderr, "  csm logs <server>")
 		fmt.Fprintln(os.Stderr, "  csm attach <server>")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "For a full list of commands and which require sudo, run:")
+		fmt.Fprintln(os.Stderr, "  csm -h")
 		os.Exit(1)
 	}
 
