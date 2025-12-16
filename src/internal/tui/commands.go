@@ -80,9 +80,9 @@ func runInstallMonitorGo() tea.Cmd {
 		if os.Geteuid() != 0 {
 			out := "The auto-update monitor must be installed as root.\n\n" +
 				"Please restart CSM with sudo and run this action again:\n\n" +
-				"  sudo ./csm\n\n" +
+				"  sudo csm\n\n" +
 				"Or run the CLI command directly from your shell:\n\n" +
-				"  sudo ./csm install-monitor-cron\n"
+				"  sudo csm install-monitor-cron\n"
 
 			return commandFinishedMsg{
 				item: menuItem{
@@ -190,9 +190,9 @@ func runInstallDepsGo() tea.Cmd {
 		if os.Geteuid() != 0 {
 			out := "System dependency installation must be run as root.\n\n" +
 				"Please restart CSM with sudo and run this action again:\n\n" +
-				"  sudo ./csm\n\n" +
+				"  sudo csm\n\n" +
 				"Or run the CLI command directly from your shell:\n\n" +
-				"  sudo ./csm install-deps\n"
+				"  sudo csm install-deps\n"
 
 			return commandFinishedMsg{
 				item: menuItem{

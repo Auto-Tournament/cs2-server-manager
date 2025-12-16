@@ -107,7 +107,7 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 
 	log("")
 	log("[✓] Cleanup complete!")
-	log("You can now run ./csm to install or repair servers via the TUI.")
+	log("You can now run csm to install or repair servers via the TUI.")
 
 	return buf.String(), nil
 }
@@ -125,5 +125,3 @@ func hasDockerName(name string) bool {
 	}
 	return false
 }
-
-
