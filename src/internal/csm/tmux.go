@@ -193,7 +193,7 @@ func (m *TmuxManager) Start(server int) error {
 	// Use the Valve cs2.sh script from the game directory and tee output into
 	// a persistent per-server log file so logs survive tmux restarts.
 	cmdline := fmt.Sprintf(
-		"mkdir -p %[1]s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon 2>&1 | tee -a %[2]s'",
+		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon 2>&1 | tee -a %s'",
 		filepath.Dir(logFile),
 		gameDir,
 		session,

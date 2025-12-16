@@ -781,8 +781,12 @@ func tailInstallLog(path string, done <-chan struct{}) {
 				continue
 			}
 			lines := strings.Split(text, "\n")
-			if len(lines) > 4 {
-				lines = lines[len(lines)-4:]
+			// Show a more generous slice of the log so long-running steamcmd
+			// output and rsync progress are visible during the wizard. We
+			// choose a fixed tail of 20 lines here; the final step summary
+			// view already adapts to the full terminal height.
+			if len(lines) > 20 {
+				lines = lines[len(lines)-20:]
 			}
 			send(installLogTickMsg{lines: strings.Join(lines, "\n")})
 		}
