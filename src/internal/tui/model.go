@@ -94,17 +94,22 @@ type debugFinishedMsg struct {
 }
 
 type installConfig struct {
-	dbMode            string // "docker" or "external"
-	numServers        int
-	basePort          int
-	tvPort            int
-	cs2User           string
-	enableMetamod     bool
-	freshInstall      bool
-	updateMaster      bool
-	rconPassword      string
-	updatePlugins     bool
-	matchzySkipDocker bool
+	dbMode             string // "docker" or "external"
+	numServers         int
+	basePort           int
+	tvPort             int
+	cs2User            string
+	enableMetamod      bool
+	freshInstall       bool
+	updateMaster       bool
+	rconPassword       string
+	updatePlugins      bool
+	matchzySkipDocker  bool
+	externalDBHost     string
+	externalDBPort     int
+	externalDBName     string
+	externalDBUser     string
+	externalDBPassword string
 }
 
 type installWizard struct {
@@ -115,6 +120,7 @@ type installWizard struct {
 	numServersStr string
 	basePortStr   string
 	tvPortStr     string
+	dbPortStr     string
 
 	// Cursor + editing/scroll state for the one-page wizard view.
 	cursor      int
@@ -391,17 +397,22 @@ func buildItemsForTab(t tab) []menuItem {
 
 func (m *model) initWizardDefaults() {
 	cfg := installConfig{
-		dbMode:            "docker",
-		numServers:        3,
-		basePort:          27015,
-		tvPort:            27020,
-		cs2User:           "cs2servermanager",
-		enableMetamod:     true,
-		freshInstall:      false,
-		updateMaster:      true,
-		rconPassword:      "ntlan2025",
-		updatePlugins:     true,
-		matchzySkipDocker: false,
+		dbMode:             "docker",
+		numServers:         3,
+		basePort:           27015,
+		tvPort:             27020,
+		cs2User:            "cs2servermanager",
+		enableMetamod:      true,
+		freshInstall:       false,
+		updateMaster:       true,
+		rconPassword:       "ntlan2025",
+		updatePlugins:      true,
+		matchzySkipDocker:  false,
+		externalDBHost:     "127.0.0.1",
+		externalDBPort:     3306,
+		externalDBName:     "matchzy",
+		externalDBUser:     "matchzy",
+		externalDBPassword: "matchzy",
 	}
 
 	ti := textinput.New()
@@ -414,6 +425,7 @@ func (m *model) initWizardDefaults() {
 		numServersStr: fmt.Sprintf("%d", cfg.numServers),
 		basePortStr:   fmt.Sprintf("%d", cfg.basePort),
 		tvPortStr:     fmt.Sprintf("%d", cfg.tvPort),
+		dbPortStr:     fmt.Sprintf("%d", cfg.externalDBPort),
 		cursor:        0,
 		windowStart:   0,
 		input:         ti,

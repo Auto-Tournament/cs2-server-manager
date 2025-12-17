@@ -29,6 +29,18 @@ type BootstrapConfig struct {
 	MatchzySkipDocker bool
 	GameFilesDir      string // typically <root>/game_files
 	OverridesDir      string // typically <root>/overrides
+
+	// Optional MatchZy DB wiring from the install wizard. When DBMode is set
+	// to "docker" or "external", setupMatchZyDatabaseGo will treat
+	// database.json as wizard-managed and overwrite it using these values
+	// before proceeding. When DBMode is empty, the legacy behaviour of reading
+	// overrides/database.json as-is is preserved for CLI and VerifyMatchzyDB.
+	DBMode             string
+	ExternalDBHost     string
+	ExternalDBPort     int
+	ExternalDBName     string
+	ExternalDBUser     string
+	ExternalDBPassword string
 }
 
 // Bootstrap installs or redeploys the CS2 servers, performing roughly the
@@ -703,6 +715,90 @@ type matchzyDBConfig struct {
 func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	matchzyCfgPath := filepath.Join(cfg.OverridesDir, "game", "csgo", "cfg", "MatchZy", "database.json")
 
+	// When the install wizard provides an explicit DB mode, treat
+	// database.json as wizard-managed and overwrite it from the wizard
+	// settings on every run. This keeps the config in sync even if the source
+	// defaults or old overrides drift over time.
+	if strings.TrimSpace(cfg.DBMode) != "" {
+		mode := strings.ToLower(strings.TrimSpace(cfg.DBMode))
+
+		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
+			return err
+		}
+
+		dbCfg := matchzyDBConfig{
+			DatabaseType: "MySQL",
+		}
+
+		if mode == "external" || cfg.MatchzySkipDocker {
+			host := strings.TrimSpace(cfg.ExternalDBHost)
+			if host == "" {
+				host = "127.0.0.1"
+			}
+			port := cfg.ExternalDBPort
+			if port <= 0 {
+				port = 3306
+			}
+			name := strings.TrimSpace(cfg.ExternalDBName)
+			if name == "" {
+				name = "matchzy"
+			}
+			user := strings.TrimSpace(cfg.ExternalDBUser)
+			if user == "" {
+				user = "matchzy"
+			}
+			pass := cfg.ExternalDBPassword
+			if strings.TrimSpace(pass) == "" {
+				pass = "matchzy"
+			}
+
+			dbCfg.MySQLHost = host
+			dbCfg.MySQLPort = port
+			dbCfg.MySQLDatabase = name
+			dbCfg.MySQLUsername = user
+			dbCfg.MySQLPassword = pass
+
+			onDisk := struct {
+				matchzyDBConfig
+				CSMNote string `json:"__CSM_NOTE,omitempty"`
+			}{
+				matchzyDBConfig: dbCfg,
+				CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+			}
+
+			data, _ := json.MarshalIndent(onDisk, "", "  ")
+			if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(w, "  [i] Using external MatchZy database at %s:%d (db=%s, user=%s)\n", host, port, name, user)
+			// External DB mode: skip Docker provisioning entirely.
+			return nil
+		}
+
+		// Docker-managed DB: start from sensible defaults; we'll still detect
+		// the primary host IP below and rewrite database.json with that IP as
+		// part of the legacy provisioning flow.
+		dbCfg.MySQLHost = "127.0.0.1"
+		dbCfg.MySQLPort = 3306
+		dbCfg.MySQLDatabase = "matchzy"
+		dbCfg.MySQLUsername = "matchzy"
+		dbCfg.MySQLPassword = "matchzy"
+
+		onDisk := struct {
+			matchzyDBConfig
+			CSMNote string `json:"__CSM_NOTE,omitempty"`
+		}{
+			matchzyDBConfig: dbCfg,
+			CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+		}
+
+		data, _ := json.MarshalIndent(onDisk, "", "  ")
+		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
+			return err
+		}
+	}
+
 	// Create default config if missing.
 	if _, err := os.Stat(matchzyCfgPath); err != nil {
 		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
@@ -716,7 +812,16 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 			MySQLUsername: "matchzy",
 			MySQLPassword: "matchzy",
 		}
-		data, _ := json.MarshalIndent(def, "", "  ")
+
+		onDisk := struct {
+			matchzyDBConfig
+			CSMNote string `json:"__CSM_NOTE,omitempty"`
+		}{
+			matchzyDBConfig: def,
+			CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+		}
+
+		data, _ := json.MarshalIndent(onDisk, "", "  ")
 		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
 			return err
 		}

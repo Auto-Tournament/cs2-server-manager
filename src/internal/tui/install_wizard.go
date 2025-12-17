@@ -26,6 +26,9 @@ func (w *installWizard) applyWizardNumericFields() {
 	if p, err := strconv.Atoi(strings.TrimSpace(w.tvPortStr)); err == nil && p > 0 {
 		w.cfg.tvPort = p
 	}
+	if p, err := strconv.Atoi(strings.TrimSpace(w.dbPortStr)); err == nil && p > 0 {
+		w.cfg.externalDBPort = p
+	}
 }
 
 // Wizard field indices for the one-page install wizard view.
@@ -40,6 +43,11 @@ const (
 	wizardFieldUpdateMaster
 	wizardFieldUpdatePlugins
 	wizardFieldRCONPassword
+	wizardFieldDBExternalHost
+	wizardFieldDBExternalPort
+	wizardFieldDBExternalName
+	wizardFieldDBExternalUser
+	wizardFieldDBExternalPassword
 	wizardFieldStartInstall
 	wizardFieldCancel
 	wizardFieldCount
@@ -236,6 +244,40 @@ func (m model) viewInstallWizard() string {
 	}
 	renderRow(wizardFieldRCONPassword, "RCON password:", rconVal)
 
+	// External DB configuration (used when MatchZy DB is set to external).
+	dbHostVal := m.wizard.cfg.externalDBHost
+	if m.wizard.cursor == wizardFieldDBExternalHost && m.wizard.editing {
+		dbHostVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldDBExternalHost, "DB host (external):", dbHostVal)
+
+	dbPortVal := m.wizard.dbPortStr
+	if strings.TrimSpace(dbPortVal) == "" && m.wizard.cfg.externalDBPort > 0 {
+		dbPortVal = fmt.Sprintf("%d", m.wizard.cfg.externalDBPort)
+	}
+	if m.wizard.cursor == wizardFieldDBExternalPort && m.wizard.editing {
+		dbPortVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldDBExternalPort, "DB port (external):", dbPortVal)
+
+	dbNameVal := m.wizard.cfg.externalDBName
+	if m.wizard.cursor == wizardFieldDBExternalName && m.wizard.editing {
+		dbNameVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldDBExternalName, "DB name (external):", dbNameVal)
+
+	dbUserVal := m.wizard.cfg.externalDBUser
+	if m.wizard.cursor == wizardFieldDBExternalUser && m.wizard.editing {
+		dbUserVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldDBExternalUser, "DB user (external):", dbUserVal)
+
+	dbPassVal := m.wizard.cfg.externalDBPassword
+	if m.wizard.cursor == wizardFieldDBExternalPassword && m.wizard.editing {
+		dbPassVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldDBExternalPassword, "DB password (external):", dbPassVal)
+
 	// Action rows: Start install / Cancel.
 	startLabel := "Start install"
 	cancelLabel := "Cancel"
@@ -269,6 +311,16 @@ func (m model) viewInstallWizard() string {
 		desc = "Download the latest plugins before installing or redeploying servers."
 	case wizardFieldRCONPassword:
 		desc = "Password applied to all servers (you can change per-server later)."
+	case wizardFieldDBExternalHost:
+		desc = "External MySQL host for MatchZy (used when MatchZy DB is set to external)."
+	case wizardFieldDBExternalPort:
+		desc = "External MySQL port for MatchZy (typically 3306)."
+	case wizardFieldDBExternalName:
+		desc = "External MySQL database name for MatchZy (e.g. \"matchzy\")."
+	case wizardFieldDBExternalUser:
+		desc = "External MySQL username for MatchZy."
+	case wizardFieldDBExternalPassword:
+		desc = "External MySQL password for MatchZy."
 	case wizardFieldStartInstall:
 		desc = "Run the full install with the settings above."
 	case wizardFieldCancel:
@@ -414,6 +466,11 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.tvPortStr = fmt.Sprintf("%d", p-1)
 					m.wizard.errMsg = ""
 				}
+			case wizardFieldDBExternalPort:
+				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.dbPortStr)); err == nil && p > 1 {
+					m.wizard.dbPortStr = fmt.Sprintf("%d", p-1)
+					m.wizard.errMsg = ""
+				}
 			case wizardFieldDBMode:
 				// Left/right both toggle DB mode between docker and external.
 				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
@@ -457,6 +514,11 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.tvPortStr = fmt.Sprintf("%d", p+1)
 					m.wizard.errMsg = ""
 				}
+			case wizardFieldDBExternalPort:
+				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.dbPortStr)); err == nil {
+					m.wizard.dbPortStr = fmt.Sprintf("%d", p+1)
+					m.wizard.errMsg = ""
+				}
 			case wizardFieldDBMode:
 				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
 					m.wizard.cfg.dbMode = "docker"
@@ -496,6 +558,16 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.tvPortStr = val
 			case wizardFieldRCONPassword:
 				m.wizard.cfg.rconPassword = val
+			case wizardFieldDBExternalHost:
+				m.wizard.cfg.externalDBHost = val
+			case wizardFieldDBExternalPort:
+				m.wizard.dbPortStr = val
+			case wizardFieldDBExternalName:
+				m.wizard.cfg.externalDBName = val
+			case wizardFieldDBExternalUser:
+				m.wizard.cfg.externalDBUser = val
+			case wizardFieldDBExternalPassword:
+				m.wizard.cfg.externalDBPassword = val
 			}
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
@@ -533,7 +605,9 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		case wizardFieldUpdatePlugins:
 			m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
 			return m, nil
-		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldRCONPassword:
+		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldRCONPassword,
+			wizardFieldDBExternalHost, wizardFieldDBExternalPort, wizardFieldDBExternalName,
+			wizardFieldDBExternalUser, wizardFieldDBExternalPassword:
 			// Begin editing the selected text/numeric field.
 			m.wizard.editing = true
 			m.wizard.errMsg = ""
@@ -547,6 +621,16 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				initial = m.wizard.tvPortStr
 			case wizardFieldRCONPassword:
 				initial = m.wizard.cfg.rconPassword
+			case wizardFieldDBExternalHost:
+				initial = m.wizard.cfg.externalDBHost
+			case wizardFieldDBExternalPort:
+				initial = m.wizard.dbPortStr
+			case wizardFieldDBExternalName:
+				initial = m.wizard.cfg.externalDBName
+			case wizardFieldDBExternalUser:
+				initial = m.wizard.cfg.externalDBUser
+			case wizardFieldDBExternalPassword:
+				initial = m.wizard.cfg.externalDBPassword
 			}
 			m.wizard.input.SetValue(initial)
 			m.wizard.input.CursorEnd()
@@ -687,6 +771,12 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				UpdateMaster:      cfg.updateMaster,
 				RCONPassword:      cfg.rconPassword,
 				MatchzySkipDocker: cfg.matchzySkipDocker,
+				DBMode:            cfg.dbMode,
+				ExternalDBHost:    cfg.externalDBHost,
+				ExternalDBPort:    cfg.externalDBPort,
+				ExternalDBName:    cfg.externalDBName,
+				ExternalDBUser:    cfg.externalDBUser,
+				ExternalDBPassword: cfg.externalDBPassword,
 			}
 
 			// Stream bootstrap progress by mirroring logs into a temp file that
