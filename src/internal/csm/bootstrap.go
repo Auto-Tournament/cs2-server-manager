@@ -385,6 +385,27 @@ func ensureBootstrapDependencies(w io.Writer) error {
 		return err
 	}
 
+	// Ensure Python 3 and the vpk + Pillow modules are available so that the
+	// map thumbnail extraction pipeline can run without additional manual
+	// steps. We prefer system packages where available, then fall back to
+	// pip3.
+	fmt.Fprintln(w, "[deps] Ensuring python3 and pip are installed")
+	_ = runCmdLogged(w, "apt-get", "install", "-y", "python3", "python3-pip")
+
+	fmt.Fprintln(w, "[deps] Ensuring Python modules: vpk, Pillow")
+	// Try system packages first (where available); ignore errors and fall back
+	// to pip-based installation.
+	_ = runCmdLogged(w, "apt-get", "install", "-y", "python3-pil")
+
+	// Install via pip3 with a best-effort approach; if the environment is
+	// externally managed (e.g. Debian/Ubuntu with PEP 668), users may still
+	// choose to follow the manual instructions from the ExtractMapThumbnails
+	// logs, but in most cases this will Just Work.
+	if _, err := exec.LookPath("pip3"); err == nil {
+		_ = runCmdLogged(w, "pip3", "install", "--upgrade", "pip")
+		_ = runCmdLogged(w, "pip3", "install", "vpk", "Pillow")
+	}
+
 	// Ensure /usr/bin/steamcmd wrapper exists (linking to /usr/games/steamcmd).
 	const wrapper = "/usr/bin/steamcmd"
 	if fi, err := os.Stat(wrapper); err != nil || fi.Mode()&0o111 == 0 {
