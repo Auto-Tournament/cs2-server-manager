@@ -48,6 +48,8 @@ const (
 	itemPublicIPGo
 	itemExtractThumbnailsGo
 	itemCleanupAllGo
+	itemAddServerGo
+	itemRemoveServerGo
 	itemAttachHelp
 	itemDebugHelp
 )
@@ -128,8 +130,9 @@ type installWizard struct {
 	windowStart int
 
 	// Shared text input + error message used for the server logs prompt.
-	input  textinput.Model
-	errMsg string
+	input            textinput.Model
+	errMsg           string
+	lowDiskConfirmed bool
 }
 
 // installStep represents the high-level phases of the install wizard so we can
@@ -345,6 +348,16 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "Restart all servers",
 				description: "",
 				kind:        itemRestartAllGo,
+			},
+			{
+				title:       "Add one server",
+				description: "",
+				kind:        itemAddServerGo,
+			},
+			{
+				title:       "Remove last server",
+				description: "",
+				kind:        itemRemoveServerGo,
 			},
 			{
 				title:       "Attach to server",
@@ -817,6 +830,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Restarting all servers..."
 				m.lastOutput = ""
 				cmds = append(cmds, runRestartAllServers(), m.spin.Tick)
+			case itemAddServerGo:
+				m.running = true
+				m.status = "Adding one CS2 server (scaling up)..."
+				m.lastOutput = ""
+				cmds = append(cmds, runAddServerGo(), m.spin.Tick)
+			case itemRemoveServerGo:
+				m.running = true
+				m.status = "Removing last CS2 server (scaling down)..."
+				m.lastOutput = ""
+				cmds = append(cmds, runRemoveServerGo(), m.spin.Tick)
 			case itemPublicIPGo:
 				m.running = true
 				m.status = "Resolving public IP..."
@@ -1418,6 +1441,10 @@ func (m model) View() string {
 			desc = "Stop every running CS2 server via tmux."
 		case itemRestartAllGo:
 			desc = "Restart all CS2 servers via tmux."
+		case itemAddServerGo:
+			desc = "Create one additional CS2 server instance based on the existing setup."
+		case itemRemoveServerGo:
+			desc = "Stop and delete the highest-numbered server (server-N) to scale down."
 		case itemUpdateGameGo:
 			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:

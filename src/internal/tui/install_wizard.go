@@ -641,6 +641,33 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.errMsg = err.Error()
 				return m, nil
 			}
+
+			// Low disk space confirmation: reuse the same rough estimate used in
+			// the wizard view. If we estimate that the install will exceed the
+			// available space, show a warning and require the user to press
+			// Start install again to continue anyway.
+			const masterGB = 60.0
+			const perServerGB = 60.0
+
+			numServers := m.wizard.cfg.numServers
+			if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil && n > 0 {
+				numServers = n
+			}
+			if numServers <= 0 {
+				numServers = 1
+			}
+			requiredGB := masterGB + perServerGB*float64(numServers)
+
+			_, freeGB, ok := estimateDiskSpace(m.wizard.cfg.cs2User)
+			if ok && freeGB < requiredGB && !m.wizard.lowDiskConfirmed {
+				m.wizard.errMsg = fmt.Sprintf(
+					"Estimated space required is ~%.1f GB but only ~%.1f GB is free.\nPress Start install again if you are sure you want to continue anyway.",
+					requiredGB, freeGB,
+				)
+				m.wizard.lowDiskConfirmed = true
+				return m, nil
+			}
+
 			// Parse numeric fields into cfg.
 			m.wizard.applyWizardNumericFields()
 

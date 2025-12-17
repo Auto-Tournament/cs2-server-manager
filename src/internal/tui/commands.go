@@ -178,6 +178,39 @@ func runRestartAllServers() tea.Cmd {
 	}
 }
 
+// runAddServerGo scales up by creating one additional server instance based on
+// the existing layout for the detected CS2 user.
+func runAddServerGo() tea.Cmd {
+	return func() tea.Msg {
+		out, err := csm.AddServerInstance()
+		return commandFinishedMsg{
+			item: menuItem{
+				title: "Add one server",
+				kind:  itemAddServerGo,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
+// runRemoveServerGo scales down by stopping and deleting the highest-numbered
+// server-N directory so NewTmuxManager will subsequently report one fewer
+// server.
+func runRemoveServerGo() tea.Cmd {
+	return func() tea.Msg {
+		out, err := csm.RemoveLastServerInstance()
+		return commandFinishedMsg{
+			item: menuItem{
+				title: "Remove last server",
+				kind:  itemRemoveServerGo,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
 // runPublicIP resolves and prints the public IP using the Go implementation.
 func runPublicIP() tea.Cmd {
 	return func() tea.Msg {
