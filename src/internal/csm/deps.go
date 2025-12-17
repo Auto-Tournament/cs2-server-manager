@@ -38,7 +38,11 @@ func installDeps(w io.Writer) error {
 	if logPath, ok := os.LookupEnv("CSM_DEPS_LOG"); ok && logPath != "" {
 		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err == nil {
-			defer f.Close()
+			defer func() {
+				if cerr := f.Close(); cerr != nil {
+					fmt.Fprintf(os.Stderr, "CSM_DEPS_LOG close failed: %v\n", cerr)
+				}
+			}()
 			// installDeps is only ever called with a *bytes.Buffer today, so
 			// we can safely assert and reuse the existing teeWriter helper
 			// used by the bootstrap/steamcmd path.

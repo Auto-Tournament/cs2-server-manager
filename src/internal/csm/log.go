@@ -33,14 +33,17 @@ func AppendLog(filename, content string) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
-
 	if _, err := f.WriteString(content); err != nil {
+		_ = f.Close()
 		return
 	}
 	if !strings.HasSuffix(content, "\n") {
-		_, _ = f.WriteString("\n")
+		if _, err := f.WriteString("\n"); err != nil {
+			_ = f.Close()
+			return
+		}
 	}
+	_ = f.Close()
 }
 
 // LogAction writes a structured log entry for a high-level action (TUI or CLI).

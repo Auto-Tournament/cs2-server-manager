@@ -110,16 +110,19 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 		}
 
 		if _, err := io.Copy(pw, resp.Body); err != nil {
-			f.Close()
+			_ = f.Close()
 			_ = os.Remove(tmpPath)
 			return selfUpdateFinishedMsg{newVersion: "", err: err}
 		}
 		if err := f.Chmod(0755); err != nil {
-			f.Close()
+			_ = f.Close()
 			_ = os.Remove(tmpPath)
 			return selfUpdateFinishedMsg{newVersion: "", err: err}
 		}
-		f.Close()
+		if err := f.Close(); err != nil {
+			_ = os.Remove(tmpPath)
+			return selfUpdateFinishedMsg{newVersion: "", err: err}
+		}
 
 		if err := os.Rename(tmpPath, exePath); err != nil {
 			_ = os.Remove(tmpPath)

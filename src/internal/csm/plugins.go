@@ -435,18 +435,19 @@ func (up *PluginUpdater) unzipTo(zipPath, dest string) error {
 		if err != nil {
 			return err
 		}
+		defer func() {
+			_ = rc.Close()
+		}()
 		out, err := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode())
 		if err != nil {
-			rc.Close()
 			return err
 		}
+		defer func() {
+			_ = out.Close()
+		}()
 		if _, err := io.Copy(out, rc); err != nil {
-			rc.Close()
-			out.Close()
 			return err
 		}
-		rc.Close()
-		out.Close()
 	}
 	return nil
 }

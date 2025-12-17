@@ -63,7 +63,11 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if logPath := strings.TrimSpace(os.Getenv("CSM_BOOTSTRAP_LOG")); logPath != "" {
 		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			logFile = f
-			defer logFile.Close()
+			defer func() {
+				if err := logFile.Close(); err != nil {
+					fmt.Fprintf(os.Stderr, "CSM_BOOTSTRAP_LOG close failed: %v\n", err)
+				}
+			}()
 		}
 	}
 
@@ -352,7 +356,11 @@ steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 	if logPath, ok := os.LookupEnv("CSM_BOOTSTRAP_LOG"); ok && logPath != "" {
 		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err == nil {
-			defer f.Close()
+			defer func() {
+				if cerr := f.Close(); cerr != nil {
+					fmt.Fprintf(os.Stderr, "CSM_BOOTSTRAP_LOG close failed: %v\n", cerr)
+				}
+			}()
 			tw := &teeWriter{buf: w, file: f}
 			cmd.Stdout = tw
 			cmd.Stderr = tw

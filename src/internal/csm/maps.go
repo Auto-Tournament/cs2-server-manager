@@ -31,7 +31,11 @@ func ExtractMapThumbnails() (string, error) {
 	if logPath := strings.TrimSpace(os.Getenv("CSM_THUMBS_LOG")); logPath != "" {
 		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			fileLog = f
-			defer fileLog.Close()
+			defer func() {
+				if cerr := fileLog.Close(); cerr != nil {
+					fmt.Fprintf(os.Stderr, "CSM_THUMBS_LOG close failed: %v\n", cerr)
+				}
+			}()
 		}
 	}
 	log := func(format string, args ...any) {
@@ -599,13 +603,17 @@ func syncIfDifferent(src, dst string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer in.Close()
+	defer func() {
+		_ = in.Close()
+	}()
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return false, err
 	}
-	defer out.Close()
+	defer func() {
+		_ = out.Close()
+	}()
 
 	if _, err := io.Copy(out, in); err != nil {
 		return false, err
@@ -636,13 +644,17 @@ func filesEqual(a, b string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer f1.Close()
+	defer func() {
+		_ = f1.Close()
+	}()
 
 	f2, err := os.Open(b)
 	if err != nil {
 		return false, err
 	}
-	defer f2.Close()
+	defer func() {
+		_ = f2.Close()
+	}()
 
 	buf1 := make([]byte, 32*1024)
 	buf2 := make([]byte, 32*1024)
