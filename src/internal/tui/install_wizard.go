@@ -258,7 +258,11 @@ func (m model) viewInstallWizard() string {
 	case wizardFieldMetamod:
 		desc = "Install Metamod so you can run SourceMod and other plugins."
 	case wizardFieldFreshInstall:
-		desc = "Delete any existing CS2 server directories before installing."
+		if m.wizard.cfg.freshInstall {
+			desc = "Perform a full fresh install: delete existing master install, MatchZy DB container/volume, and all server-* directories before recreating everything."
+		} else {
+			desc = "Reuse the existing master install, MatchZy DB, and servers; only update what is needed."
+		}
 	case wizardFieldUpdateMaster:
 		desc = "Run SteamCMD to update the master CS2 install before deploying servers."
 	case wizardFieldUpdatePlugins:
@@ -635,7 +639,41 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			}
 
 		case installStepBootstrap:
-			logs = append(logs, "[2/4] Setting up CS2 servers (this may take several minutes)...")
+			if cfg.freshInstall {
+				logs = append(logs,
+					"[2/4] Performing fresh CS2 install (this may take several minutes)...",
+					"  • Run full cleanup (same as Danger zone: remove CS2 user, home, MatchZy DB container/volume)",
+					"  • Recreate CS2 user",
+					"  • Reinstall master via SteamCMD",
+					"  • Provision a clean MatchZy database (Docker mode)",
+					"  • Recreate all servers from the new master",
+				)
+
+				// Run the same cleanup flow as the Danger Zone action so a
+				// fresh install truly wipes the CS2 user, home directory, and
+				// MatchZy resources before we reinstall.
+				cleanupCfg := csm.CleanupConfig{
+					CS2User: cfg.cs2User,
+					// MatchzyContainer/Volume default inside CleanupAll when empty.
+				}
+				if out, err := csm.CleanupAll(cleanupCfg); err != nil {
+					if out != "" {
+						logs = append(logs, out)
+					}
+					logs = append(logs, fmt.Sprintf("Cleanup failed before fresh install: %v", err))
+					return installStepMsg{
+						step: installStepBootstrap,
+						out:  strings.Join(logs, "\n"),
+						err:  err,
+					}
+				}
+
+				// After a full cleanup we no longer need Bootstrap's internal
+				// FRESH_INSTALL semantics; it's effectively a clean install.
+				cfg.freshInstall = false
+			} else {
+				logs = append(logs, "[2/4] Setting up CS2 servers (this may take several minutes)...")
+			}
 
 			// Derive MatchZy Docker behaviour from dbMode.
 			cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
