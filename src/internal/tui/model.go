@@ -220,6 +220,7 @@ type model struct {
 	currentInstallStep installStep
 	installStatusBase  string
 	installExpected    string
+	installElapsedLine string
 }
 
 // New constructs the initial Bubble Tea model for the CS2 TUI.
@@ -985,11 +986,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentInstallStep = installStepBootstrap
 			m.installStepStart = time.Now()
 			if m.wizard.cfg.freshInstall {
-				m.installStatusBase = "Step 2/4: Performing fresh CS2 install (cleanup + steamcmd + bootstrap)..."
-				m.installExpected = "~10–30 minutes (cleanup + steamcmd + bootstrap)"
+				m.installStatusBase = "Step 2/4: Performing fresh CS2 install..."
+				m.installExpected = "~10–30 minutes"
 			} else {
-				m.installStatusBase = "Step 2/4: Setting up CS2 servers (steamcmd)..."
-				m.installExpected = "~10–30 minutes (steamcmd + bootstrap)"
+				m.installStatusBase = "Step 2/4: Setting up CS2 servers..."
+				m.installExpected = "~10–30 minutes"
 			}
 			m.status = m.installStatusBase
 			return m, tea.Batch(append(cmds,
@@ -1122,8 +1123,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		elapsed := time.Since(m.installStepStart).Round(time.Second)
-		if m.installStatusBase != "" && m.installExpected != "" {
-			m.status = fmt.Sprintf("%s\n(elapsed: %s, expected: %s)", m.installStatusBase, elapsed, m.installExpected)
+		if m.installExpected != "" {
+			m.installElapsedLine = fmt.Sprintf("(elapsed: %s, expected: %s)", elapsed, m.installExpected)
+		} else {
+			m.installElapsedLine = ""
 		}
 		return m, tea.Batch(append(cmds, tea.Tick(time.Second, func(time.Time) tea.Msg {
 			return installElapsedMsg{}
@@ -1419,6 +1422,13 @@ func (m model) View() string {
 	}
 	if strings.TrimSpace(statusText) != "" {
 		fmt.Fprintln(&b, statusBarStyle.Render(statusText))
+	}
+
+	// Plain elapsed/expected timing line for the install wizard; rendered
+	// without additional highlighting so it doesn't visually compete with the
+	// main status text.
+	if strings.TrimSpace(m.installElapsedLine) != "" {
+		fmt.Fprintln(&b, m.installElapsedLine)
 	}
 
 	// Output section.
