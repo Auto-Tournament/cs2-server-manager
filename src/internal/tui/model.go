@@ -968,8 +968,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case installStepPlugins:
 			m.currentInstallStep = installStepBootstrap
 			m.installStepStart = time.Now()
-			m.installStatusBase = "Step 2/4: Setting up CS2 servers (steamcmd)..."
-			m.installExpected = "~10–30 minutes (steamcmd + bootstrap)"
+			if m.wizard.cfg.freshInstall {
+				m.installStatusBase = "Step 2/4: Performing fresh CS2 install (cleanup + steamcmd + bootstrap)..."
+				m.installExpected = "~10–30 minutes (cleanup + steamcmd + bootstrap)"
+			} else {
+				m.installStatusBase = "Step 2/4: Setting up CS2 servers (steamcmd)..."
+				m.installExpected = "~10–30 minutes (steamcmd + bootstrap)"
+			}
 			m.status = m.installStatusBase
 			return m, tea.Batch(append(cmds,
 				runInstallStep(m.wizard.cfg, installStepBootstrap),
