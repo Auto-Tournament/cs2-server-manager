@@ -70,16 +70,27 @@ func ExtractMapThumbnails() (string, error) {
 	log("════════════════════════════════════════════════════════")
 	log("")
 
-	// Ensure Python + vpk + Pillow are available.
+	// Ensure Python + vpk + Pillow are available up front so users get a single
+	// actionable install command instead of one failure per missing module.
+	var missing []string
 	if err := ensurePythonModule("vpk"); err != nil {
 		log("Python vpk module check failed: %v", err)
-		log("Install with: pip3 install vpk --break-system-packages")
-		return buf.String(), err
+		missing = append(missing, "vpk")
 	}
 	if err := ensurePythonModule("PIL.Image"); err != nil {
 		log("Python Pillow (PIL) check failed: %v", err)
-		log("Install with: pip3 install Pillow --break-system-packages")
-		return buf.String(), err
+		missing = append(missing, "Pillow")
+	}
+	if len(missing) > 0 {
+		log("")
+		log("One or more required Python modules are missing for map thumbnail extraction:")
+		for _, mname := range missing {
+			log("  - %s", mname)
+		}
+		log("")
+		log("Install them with (Debian/Ubuntu with PEP 668):")
+		log("  sudo pip3 install --break-system-packages vpk Pillow")
+		return buf.String(), fmt.Errorf("missing Python modules: %s", strings.Join(missing, ", "))
 	}
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
