@@ -1107,7 +1107,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		elapsed := time.Since(m.installStepStart).Round(time.Second)
 		if m.installStatusBase != "" && m.installExpected != "" {
-			m.status = fmt.Sprintf("%s (elapsed: %s, expected: %s)", m.installStatusBase, elapsed, m.installExpected)
+			m.status = fmt.Sprintf("%s\n(elapsed: %s, expected: %s)", m.installStatusBase, elapsed, m.installExpected)
 		}
 		return m, tea.Batch(append(cmds, tea.Tick(time.Second, func(time.Time) tea.Msg {
 			return installElapsedMsg{}
