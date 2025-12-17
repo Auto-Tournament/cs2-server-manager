@@ -54,10 +54,29 @@ func Bootstrap(cfg BootstrapConfig) (string, error) {
 // steamcmd. The plain Bootstrap function uses a background context.
 func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, error) {
 	var buf bytes.Buffer
+	var logFile *os.File
+
+	// When invoked from the TUI install wizard, CSM_BOOTSTRAP_LOG is set to a
+	// temp path that the UI tails in real time. Mirror all bootstrap log lines
+	// into that file so the user can see progress across the entire step, not
+	// just steamcmd output.
+	if logPath := strings.TrimSpace(os.Getenv("CSM_BOOTSTRAP_LOG")); logPath != "" {
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			logFile = f
+			defer logFile.Close()
+		}
+	}
+
 	log := func(format string, args ...any) {
 		fmt.Fprintf(&buf, format, args...)
 		if !strings.HasSuffix(format, "\n") {
 			buf.WriteByte('\n')
+		}
+		if logFile != nil {
+			fmt.Fprintf(logFile, format, args...)
+			if !strings.HasSuffix(format, "\n") {
+				_, _ = logFile.Write([]byte{'\n'})
+			}
 		}
 	}
 

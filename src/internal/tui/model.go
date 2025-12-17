@@ -221,6 +221,12 @@ type model struct {
 	installStatusBase  string
 	installExpected    string
 	installElapsedLine string
+
+	// Per-step durations captured for the final install summary.
+	installDurPlugins       time.Duration
+	installDurBootstrap     time.Duration
+	installDurMonitor       time.Duration
+	installDurStartServers  time.Duration
 }
 
 // New constructs the initial Bubble Tea model for the CS2 TUI.
@@ -983,6 +989,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Chain to the next step with an updated status line and reset timing.
 		switch msg.step {
 		case installStepPlugins:
+			// Capture how long the plugin step took for the final summary.
+			if !m.installStepStart.IsZero() {
+				m.installDurPlugins = time.Since(m.installStepStart).Round(time.Second)
+			}
+
 			m.currentInstallStep = installStepBootstrap
 			m.installStepStart = time.Now()
 			if m.wizard.cfg.freshInstall {
@@ -999,6 +1010,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				tea.Tick(time.Second, func(time.Time) tea.Msg { return installElapsedMsg{} }),
 			)...)
 		case installStepBootstrap:
+			if !m.installStepStart.IsZero() {
+				m.installDurBootstrap = time.Since(m.installStepStart).Round(time.Second)
+			}
 			m.currentInstallStep = installStepMonitor
 			m.installStepStart = time.Now()
 			m.installStatusBase = "Step 3/4: Configuring auto-update monitor (cron)..."
@@ -1010,6 +1024,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				tea.Tick(time.Second, func(time.Time) tea.Msg { return installElapsedMsg{} }),
 			)...)
 		case installStepMonitor:
+			if !m.installStepStart.IsZero() {
+				m.installDurMonitor = time.Since(m.installStepStart).Round(time.Second)
+			}
 			m.currentInstallStep = installStepStartServers
 			m.installStepStart = time.Now()
 			m.installStatusBase = "Step 4/4: Starting all servers..."
@@ -1021,6 +1038,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				tea.Tick(time.Second, func(time.Time) tea.Msg { return installElapsedMsg{} }),
 			)...)
 		case installStepStartServers:
+			if !m.installStepStart.IsZero() {
+				m.installDurStartServers = time.Since(m.installStepStart).Round(time.Second)
+			}
 			CancelInstall()
 			m.running = false
 			m.confirmQuit = false
@@ -1031,13 +1051,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			lines := []string{
 				"Install wizard finished successfully.",
 				"",
-				fmt.Sprintf("CS2 user       : %s", m.wizard.cfg.cs2User),
-				fmt.Sprintf("Servers        : %d", m.wizard.cfg.numServers),
-				fmt.Sprintf("Base ports     : game %d, GOTV %d", m.wizard.cfg.basePort, m.wizard.cfg.tvPort),
-				fmt.Sprintf("Metamod        : %v", m.wizard.cfg.enableMetamod),
-				fmt.Sprintf("Fresh install  : %v", m.wizard.cfg.freshInstall),
-				fmt.Sprintf("Update master  : %v", m.wizard.cfg.updateMaster),
-				fmt.Sprintf("Update plugins : %v", m.wizard.cfg.updatePlugins),
+				"Step durations:",
+				fmt.Sprintf("  1/4 Plugins          : %s", m.installDurPlugins),
+				fmt.Sprintf("  2/4 Install / setup  : %s", m.installDurBootstrap),
+				fmt.Sprintf("  3/4 Auto-update cron : %s", m.installDurMonitor),
+				fmt.Sprintf("  4/4 Start servers    : %s", m.installDurStartServers),
+				"",
+				"Configuration:",
+				fmt.Sprintf("  CS2 user       : %s", m.wizard.cfg.cs2User),
+				fmt.Sprintf("  Servers        : %d", m.wizard.cfg.numServers),
+				fmt.Sprintf("  Base ports     : game %d, GOTV %d", m.wizard.cfg.basePort, m.wizard.cfg.tvPort),
+				fmt.Sprintf("  Metamod        : %v", m.wizard.cfg.enableMetamod),
+				fmt.Sprintf("  Fresh install  : %v", m.wizard.cfg.freshInstall),
+				fmt.Sprintf("  Update master  : %v", m.wizard.cfg.updateMaster),
+				fmt.Sprintf("  Update plugins : %v", m.wizard.cfg.updatePlugins),
 				"",
 				"Per-server summary:",
 			}
