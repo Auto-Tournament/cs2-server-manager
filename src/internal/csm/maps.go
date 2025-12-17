@@ -430,10 +430,14 @@ def extract_vtex_image(vtex_file, output_file):
         end_idx = png_data.find(b"IEND")
         if end_idx != -1:
             png_data = png_data[: end_idx + 8]
-            img = Image.open(io.BytesIO(png_data))
-            img.save(output_file, "PNG")
-            save_webp_variants(img, output_file)
-            return True
+            try:
+                img = Image.open(io.BytesIO(png_data))
+                img.save(output_file, "PNG")
+                save_webp_variants(img, output_file)
+                return True
+            except Exception as e:
+                print(f"ERROR: embedded PNG could not be decoded for {vtex_file}: {e}")
+                return False
 
     # Fallback: try to read the whole blob as an image (TGA/other).
     if len(data) > 18:
@@ -442,9 +446,10 @@ def extract_vtex_image(vtex_file, output_file):
             img.save(output_file, "PNG")
             save_webp_variants(img, output_file)
             return True
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"ERROR: VTEX payload is not a supported image format for {vtex_file}: {e}")
 
+    print(f"ERROR: no embedded PNG or decodable image found in {vtex_file}")
     return False
 
 
