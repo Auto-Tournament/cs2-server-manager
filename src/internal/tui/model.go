@@ -1383,7 +1383,7 @@ func (m model) View() string {
 		case itemForceUpdateNow:
 			desc = "Bypass the cache and check GitHub for a newer CSM version."
 		case itemExtractThumbnailsGo:
-			desc = "Run the VPK/thumbnails pipeline and write PNGs into map_thumbnails/."
+			desc = "Run the VPK/thumbnails pipeline and write PNG + WEBP (full + 1280px) into map_thumbnails/."
 		case itemCleanupAllGo:
 			desc = "Wipe all servers and the dedicated CS2 user; use only when you want a full reset."
 		case itemAttachHelp:

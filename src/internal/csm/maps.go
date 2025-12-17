@@ -15,9 +15,16 @@ import (
 
 // ExtractMapThumbnails locates CS2 VPKs that contain the 1080p map
 // screenshot assets, extracts them into the repo-local "extracted_csgo/"
-// directory and converts the *.vtex_c thumbnails into PNGs in
-// "map_thumbnails/". It mirrors the behaviour of the previous
-// extract_map_data.sh + convert_map_thumbnails.sh pipeline.
+// directory and converts the *.vtex_c thumbnails into a small image set in
+// "map_thumbnails/":
+//
+//   - original PNG (source-resolution)
+//   - full-size WEBP
+//   - 1280px-wide WEBP thumbnail (height is scaled to preserve aspect ratio)
+//
+// It mirrors the behaviour of the previous extract_map_data.sh +
+// convert_map_thumbnails.sh pipeline, with WEBP variants added for web
+// consumption.
 func ExtractMapThumbnails() (string, error) {
 	var buf bytes.Buffer
 	log := func(format string, args ...any) {
@@ -69,10 +76,10 @@ func ExtractMapThumbnails() (string, error) {
 		return "", err
 	}
 
-	log("Master install:   %s", masterDir)
-	log("CSGO directory:   %s", csgoDir)
-	log("Extracted output: %s", outputDir)
-	log("PNG thumbnails:   %s", thumbsDir)
+	log("Master install:          %s", masterDir)
+	log("CSGO directory:          %s", csgoDir)
+	log("Extracted VPK contents:  %s", outputDir)
+	log("Thumbnail output (PNG + WEBP): %s", thumbsDir)
 	log("")
 
 	// For now we only target pak01_dir.vpk which contains the working thumbnails.
@@ -129,14 +136,20 @@ func ExtractMapThumbnails() (string, error) {
 		}
 
 		outName := strings.ReplaceAll(base, "_png", "") + ".png"
-		outPath := filepath.Join(thumbsDir, outName)
-		if _, err := os.Stat(outPath); err == nil {
-			log("[SKIP] %s (already converted)", base)
+		pngPath := filepath.Join(thumbsDir, outName)
+		webpPath := strings.TrimSuffix(pngPath, ".png") + ".webp"
+		thumbWebpPath := strings.TrimSuffix(pngPath, ".png") + "_thumb.webp"
+
+		// If all expected outputs already exist, skip this thumbnail
+		// entirely; otherwise re-run the conversion so that any missing
+		// WEBP variants are (re)generated alongside the PNG.
+		if fileExists(pngPath) && fileExists(webpPath) && fileExists(thumbWebpPath) {
+			log("[SKIP] %s (PNG + WEBP variants already present)", base)
 			continue
 		}
 
-		log("[CONVERT] %s ...", base)
-		if err := convertVtexWithPython(vtex, outPath, &buf); err != nil {
+		log("[CONVERT] %s -> %s (and WEBP variants)...", base, filepath.Base(pngPath))
+		if err := convertVtexWithPython(vtex, pngPath, &buf); err != nil {
 			log("[FAIL] %s: %v", base, err)
 			convertFail++
 		} else {
@@ -146,8 +159,8 @@ func ExtractMapThumbnails() (string, error) {
 	}
 
 	log("")
-	log("Converted: %d, Failed: %d", convertSuccess, convertFail)
-	log("Thumbnails saved to: %s", thumbsDir)
+	log("Converted thumbnails: %d, Failed: %d", convertSuccess, convertFail)
+	log("Thumbnails (PNG + WEBP + 1280px WEBP) saved to: %s", thumbsDir)
 
 	// Clean up numbered variant PNGs (e.g. de_dust2_1.png).
 	removed := 0
@@ -321,41 +334,74 @@ func convertVtexWithPython(vtexFile, outPath string, w *bytes.Buffer) error {
 	}
 
 	script := `
+import io
+import os
 import sys
 from PIL import Image
-import io
+
+
+def save_webp_variants(img, png_output_file, thumb_width=1280):
+    """
+    Save a full-size WEBP next to the PNG plus a 1280px-wide WEBP thumbnail.
+    Failures here are logged but do not cause the overall conversion to fail
+    as long as the PNG was written successfully.
+    """
+    try:
+        base, _ = os.path.splitext(png_output_file)
+        webp_path = base + ".webp"
+        thumb_path = base + "_thumb.webp"
+
+        # Work in RGB to avoid palette/alpha edge cases when saving as WEBP.
+        full = img.convert("RGB")
+        full.save(webp_path, "WEBP")
+
+        # Build a 1280px-wide thumbnail while preserving aspect ratio.
+        w, h = full.size
+        if w > 0 and h > 0:
+            if w <= thumb_width:
+                thumb = full
+            else:
+                new_h = int(h * (thumb_width / float(w)))
+                thumb = full.resize((thumb_width, new_h), Image.LANCZOS)
+            thumb.save(thumb_path, "WEBP")
+    except Exception as e:
+        print(f"Warning: WEBP conversion failed for {png_output_file}: {e}")
+
 
 def extract_vtex_image(vtex_file, output_file):
-    with open(vtex_file, 'rb') as f:
+    with open(vtex_file, "rb") as f:
         data = f.read()
 
     # Try to find embedded PNG.
-    png_start = data.find(b'\x89PNG')
+    png_start = data.find(b"\x89PNG")
     if png_start != -1:
         png_data = data[png_start:]
-        end_idx = png_data.find(b'IEND')
+        end_idx = png_data.find(b"IEND")
         if end_idx != -1:
-            png_data = png_data[:end_idx + 8]
+            png_data = png_data[: end_idx + 8]
             img = Image.open(io.BytesIO(png_data))
-            img.save(output_file, 'PNG')
+            img.save(output_file, "PNG")
+            save_webp_variants(img, output_file)
             return True
 
     # Fallback: try to read the whole blob as an image (TGA/other).
     if len(data) > 18:
         try:
             img = Image.open(io.BytesIO(data))
-            img.save(output_file, 'PNG')
+            img.save(output_file, "PNG")
+            save_webp_variants(img, output_file)
             return True
         except Exception:
             pass
 
     return False
 
+
 vtex_file = sys.argv[1]
 output_file = sys.argv[2]
 
 if extract_vtex_image(vtex_file, output_file):
-    print(f"Converted: {vtex_file} -> {output_file}")
+    print(f"Converted: {vtex_file} -> {output_file} (+ WEBP variants)")
     sys.exit(0)
 else:
     sys.exit(1)
@@ -408,4 +454,13 @@ func isNumberedSuffix(name string) bool {
 		return true
 	}
 	return false
+}
+
+// fileExists returns true if the given path exists and is not a directory.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
 }

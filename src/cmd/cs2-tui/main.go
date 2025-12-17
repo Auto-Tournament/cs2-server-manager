@@ -492,7 +492,7 @@ func printUsage() {
 	fmt.Println("  attach                 Attach to a server tmux session")
 	fmt.Println("  list-sessions          List tmux sessions")
 	fmt.Println("  debug                  Run a server in foreground debug mode")
-	fmt.Println("  extract-map-data       Extract map thumbnails from VPKs")
+	fmt.Println("  extract-map-data       Extract map thumbnails from VPKs (PNG + WEBP, plus 1280px WEBP thumbnails)")
 	fmt.Println()
 	fmt.Println("Commands (require sudo for typical setups):")
 	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
