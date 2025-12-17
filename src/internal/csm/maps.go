@@ -113,8 +113,10 @@ func ExtractMapThumbnails() (string, error) {
 	}
 
 	extractPath := filepath.Join(outputDir, "pak01_dir")
+	reusedExtraction := false
 	if _, err := os.Stat(extractPath); err == nil {
 		log("[i] Extraction directory already exists at %s (will reuse)", extractPath)
+		reusedExtraction = true
 	} else {
 		log("[EXTRACT] pak01_dir.vpk ...")
 		if err := extractVPKWithPython(targetVPK, extractPath, &buf); err != nil {
@@ -125,21 +127,50 @@ func ExtractMapThumbnails() (string, error) {
 	}
 
 	// Find all vtex_c files in the 1080p screenshot folders.
-	var vtexFiles []string
-	err = filepath.WalkDir(extractPath, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
+	findVtex := func() ([]string, error) {
+		var files []string
+		err := filepath.WalkDir(extractPath, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if filepath.Ext(path) == ".vtex_c" && strings.Contains(path, targetFolder) {
+				files = append(files, path)
+			}
 			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if filepath.Ext(path) == ".vtex_c" && strings.Contains(path, targetFolder) {
-			vtexFiles = append(vtexFiles, path)
-		}
-		return nil
-	})
+		})
+		return files, err
+	}
+
+	vtexFiles, err := findVtex()
 	if err != nil {
 		return buf.String(), err
+	}
+
+	// If we reused a previous extraction but found no thumbnails, it's very
+	// likely that a previous run failed partway through (for example, due to
+	// disk space) and left a partial tree behind. In that case, re-extract
+	// pak01_dir.vpk from scratch once before giving up.
+	if reusedExtraction && len(vtexFiles) == 0 {
+		log("[i] No vtex_c thumbnail files found under %s in existing extraction.", targetFolder)
+		log("[i] Re-extracting pak01_dir.vpk from scratch in case a previous run was incomplete...")
+		if err := os.RemoveAll(extractPath); err != nil {
+			log("[!] Failed to remove existing extraction directory: %v", err)
+			return buf.String(), err
+		}
+		log("[EXTRACT] pak01_dir.vpk ...")
+		if err := extractVPKWithPython(targetVPK, extractPath, &buf); err != nil {
+			log("[!] VPK extraction failed: %v", err)
+			return buf.String(), err
+		}
+		log("[OK] Extracted pak01_dir.vpk")
+
+		vtexFiles, err = findVtex()
+		if err != nil {
+			return buf.String(), err
+		}
 	}
 
 	if len(vtexFiles) == 0 {

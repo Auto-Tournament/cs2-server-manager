@@ -8,10 +8,35 @@ import (
 	"strings"
 )
 
-// AddServerInstance creates one additional CS2 server instance based on the
+// AddServers creates one or more additional CS2 server instances based on the
 // existing layout. It reuses the master install, shared config and MatchZy
 // setup from previous installs so users can scale up without rerunning the
 // full wizard.
+func AddServers(count int) (string, error) {
+	if count <= 0 {
+		return "", fmt.Errorf("server count must be a positive integer")
+	}
+
+	var buf bytes.Buffer
+	for i := 0; i < count; i++ {
+		out, err := AddServerInstance()
+		if strings.TrimSpace(out) != "" {
+			buf.WriteString(out)
+			if !strings.HasSuffix(out, "\n") {
+				buf.WriteByte('\n')
+			}
+			buf.WriteByte('\n')
+		}
+		if err != nil {
+			return buf.String(), err
+		}
+	}
+	return buf.String(), nil
+}
+
+// AddServerInstance creates one additional CS2 server instance based on the
+// existing layout. It is used by AddServers but can also be called directly by
+// CLI/TUI helpers that want to add a single server.
 func AddServerInstance() (string, error) {
 	mgr, err := NewTmuxManager()
 	if err != nil {
@@ -71,9 +96,45 @@ func AddServerInstance() (string, error) {
 	return buf.String(), nil
 }
 
+// RemoveServers stops and deletes the N highest-numbered server-* directories
+// (server-M, server-M-1, ...) so users can scale down without a full
+// reinstall. It mirrors the naming convention used by the installer.
+func RemoveServers(count int) (string, error) {
+	if count <= 0 {
+		return "", fmt.Errorf("server count must be a positive integer")
+	}
+
+	mgr, err := NewTmuxManager()
+	if err != nil {
+		return "", err
+	}
+	if mgr.NumServers <= 0 {
+		return "", fmt.Errorf("no servers found to remove")
+	}
+	if count > mgr.NumServers {
+		return "", fmt.Errorf("cannot remove %d servers; only %d server(s) found", count, mgr.NumServers)
+	}
+
+	var buf bytes.Buffer
+	for i := 0; i < count; i++ {
+		out, err := RemoveLastServerInstance()
+		if strings.TrimSpace(out) != "" {
+			buf.WriteString(out)
+			if !strings.HasSuffix(out, "\n") {
+				buf.WriteByte('\n')
+			}
+			buf.WriteByte('\n')
+		}
+		if err != nil {
+			return buf.String(), err
+		}
+	}
+	return buf.String(), nil
+}
+
 // RemoveLastServerInstance stops and deletes the highest-numbered server-N
 // directory so users can scale down their server count without a full
-// reinstall. It mirrors the naming convention used by the installer.
+// reinstall. It is used by RemoveServers but can also be called directly.
 func RemoveLastServerInstance() (string, error) {
 	mgr, err := NewTmuxManager()
 	if err != nil {

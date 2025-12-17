@@ -178,14 +178,14 @@ func runRestartAllServers() tea.Cmd {
 	}
 }
 
-// runAddServerGo scales up by creating one additional server instance based on
+// runAddServersGo scales up by creating N additional server instances based on
 // the existing layout for the detected CS2 user.
-func runAddServerGo() tea.Cmd {
+func runAddServersGo(n int) tea.Cmd {
 	return func() tea.Msg {
-		out, err := csm.AddServerInstance()
+		out, err := csm.AddServers(n)
 		return commandFinishedMsg{
 			item: menuItem{
-				title: "Add one server",
+				title: "Add servers",
 				kind:  itemAddServerGo,
 			},
 			output: out,
@@ -194,15 +194,15 @@ func runAddServerGo() tea.Cmd {
 	}
 }
 
-// runRemoveServerGo scales down by stopping and deleting the highest-numbered
-// server-N directory so NewTmuxManager will subsequently report one fewer
-// server.
-func runRemoveServerGo() tea.Cmd {
+// runRemoveServersGo scales down by stopping and deleting the highest-numbered
+// N server-* directories so NewTmuxManager will subsequently report fewer
+// servers.
+func runRemoveServersGo(n int) tea.Cmd {
 	return func() tea.Msg {
-		out, err := csm.RemoveLastServerInstance()
+		out, err := csm.RemoveServers(n)
 		return commandFinishedMsg{
 			item: menuItem{
-				title: "Remove last server",
+				title: "Remove servers",
 				kind:  itemRemoveServerGo,
 			},
 			output: out,

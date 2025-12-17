@@ -264,6 +264,120 @@ func (m model) updateDebugPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) viewAddServersPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("Add servers")) +
+		"\n" +
+		headerBorderStyle.Render("Enter how many servers to add")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Number of servers to add:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, "Press Enter to add servers, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateAddServersPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter how many servers to add."
+			return m, nil
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n <= 0 {
+			m.wizard.errMsg = "Server count must be a positive integer."
+			return m, nil
+		}
+
+		m.view = viewMain
+		m.running = true
+		m.status = fmt.Sprintf("Adding %d server(s)...", n)
+		m.lastOutput = ""
+
+		return m, tea.Batch(runAddServersGo(n), m.spin.Tick)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
+func (m model) viewRemoveServersPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("Remove servers")) +
+		"\n" +
+		headerBorderStyle.Render("Enter how many servers to remove (from the end)")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Number of servers to remove:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, "Press Enter to remove servers, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateRemoveServersPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter how many servers to remove."
+			return m, nil
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n <= 0 {
+			m.wizard.errMsg = "Server count must be a positive integer."
+			return m, nil
+		}
+
+		m.view = viewMain
+		m.running = true
+		m.status = fmt.Sprintf("Removing %d server(s)...", n)
+		m.lastOutput = ""
+
+		return m, tea.Batch(runRemoveServersGo(n), m.spin.Tick)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
 func runTmuxStatusViewport() tea.Cmd {
 	return func() tea.Msg {
 		manager, err := csm.NewTmuxManager()
