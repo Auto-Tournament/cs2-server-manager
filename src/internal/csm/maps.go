@@ -27,10 +27,23 @@ import (
 // consumption.
 func ExtractMapThumbnails() (string, error) {
 	var buf bytes.Buffer
+	var fileLog *os.File
+	if logPath := strings.TrimSpace(os.Getenv("CSM_THUMBS_LOG")); logPath != "" {
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			fileLog = f
+			defer fileLog.Close()
+		}
+	}
 	log := func(format string, args ...any) {
 		fmt.Fprintf(&buf, format, args...)
 		if !strings.HasSuffix(format, "\n") {
 			buf.WriteByte('\n')
+		}
+		if fileLog != nil {
+			fmt.Fprintf(fileLog, format, args...)
+			if !strings.HasSuffix(format, "\n") {
+				_, _ = fileLog.Write([]byte{'\n'})
+			}
 		}
 	}
 

@@ -242,9 +242,23 @@ func runInstallDepsGo() tea.Cmd {
 
 // runExtractThumbnailsGo runs the Go-based map thumbnail extraction pipeline.
 // It mirrors the old VPK + thumbnail scripts and writes PNGs into
-// map_thumbnails/ under the current working directory.
+// map_thumbnails/ under the current working directory. While running, it
+// streams progress into a temp log that the TUI tails so users can see live
+// steps (found files, conversions, etc.).
 func runExtractThumbnailsGo() tea.Cmd {
 	return func() tea.Msg {
+		// Stream thumbnail extraction progress by mirroring logs into a temp
+		// file that a background goroutine tails.
+		logPath := filepath.Join(os.TempDir(), "csm-thumbnails.log")
+		_ = os.Remove(logPath)
+
+		done := make(chan struct{})
+		go tailInstallLog(logPath, done)
+		defer close(done)
+
+		_ = os.Setenv("CSM_THUMBS_LOG", logPath)
+		defer os.Unsetenv("CSM_THUMBS_LOG")
+
 		out, err := csm.ExtractMapThumbnails()
 		return commandFinishedMsg{
 			item: menuItem{
