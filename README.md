@@ -10,26 +10,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Required-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/engine/install/)
 
-**🔗 [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)** • **[Enhanced MatchZy](https://github.com/sivert-io/MatchZy)**
+**🔗 [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)** • **[MatchZy Enhanced](https://github.com/sivert-io/MatchZy-Enhanced)**
 
 </div>
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (global install, recommended)
+
+On a Linux server, you can **install `csm` globally** and launch the latest release with a single command:
 
 ```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
+arch=$(uname -m); \
+case "$arch" in \
+  x86_64)  asset="csm-linux-amd64" ;; \
+  aarch64|arm64) asset="csm-linux-arm64" ;; \
+  *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+esac; \
+tmp=$(mktemp); \
+curl -L "https://github.com/sivert-io/cs2-server-manager/releases/latest/download/$asset" -o "$tmp" && \
+sudo install -m 0755 "$tmp" /usr/local/bin/csm && \
+rm "$tmp" && \
+sudo csm          # launches the interactive TUI installer
 ```
-
-**Automated install:**
-
-```bash
-bash install.sh --auto --servers 5
-```
-
-**That's it!** Servers will be installed, configured, and started automatically.
 
 ---
 
@@ -47,172 +50,46 @@ bash install.sh --auto --servers 5
 
 ## 🎮 Usage
 
-### Interactive Menu
+Once installed globally you can:
 
 ```bash
-./manage.sh
+sudo csm    # launch the TUI for installs, updates, status, etc. (requires sudo)
+csm help    # show CLI help without sudo
 ```
 
-### Quick Commands
+Common CLI commands:
 
 ```bash
-./manage.sh install          # Install servers
-./manage.sh start            # Start all
-./manage.sh stop             # Stop all
-./manage.sh status           # Check status
-./manage.sh update-game      # Update CS2
-./manage.sh update-plugins   # Update plugins
-./manage.sh repair           # Fix issues
+sudo csm status                 # Tmux status overview
+sudo csm update-game            # Update CS2 game files
+sudo csm update-plugins         # Update plugins (download + deploy)
+sudo csm monitor                # Run one iteration of the auto-update monitor
+sudo csm install-deps           # Install core system dependencies
+sudo csm bootstrap              # Install/redeploy servers
+sudo csm install-monitor-cron   # Install cron-based auto-update monitor
+sudo csm cleanup-all            # Danger: remove all CS2 data and user
 ```
 
-### Debug & Logs
+For logs and debugging:
 
 ```bash
-sudo ./scripts/cs2_tmux.sh attach 1    # Attach to console
-sudo ./scripts/cs2_tmux.sh debug 1     # Debug mode
-sudo ./scripts/cs2_tmux.sh logs 1 100  # View logs
+sudo csm attach 1        # Attach to server 1 console (tmux)
+sudo csm debug 1         # Run server 1 in foreground (debug mode)
+sudo csm logs 1 100      # View last 100 lines of server 1 logs
 ```
 
 ---
 
-## 🔌 Plugins
+## 📚 Documentation & Links
 
-All installed automatically:
-
-- **Metamod:Source** — Plugin framework
-- **CounterStrikeSharp** — C# plugin loader
-- **MatchZy Enhanced** — Tournament automation with extra events
-- **CS2-AutoUpdater** — Auto-shutdown on game updates
-
----
-
-## 🤖 Auto-Update Monitoring
-
-Automatically installed! Monitors every 5 minutes:
-
-✅ Detects AutoUpdater shutdowns  
-✅ Runs SteamCMD updates  
-✅ Restarts servers  
-✅ 1-hour cooldown protection
-
-**View logs:**
-
-```bash
-sudo tail -f /var/log/cs2_auto_update_monitor.log
-```
-
----
-
-## ⚙️ Configuration
-
-### Installation Methods
-
-**Option 1: Quick Install (Recommended for most users)**
-
-```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
-```
-
-Uses the default `overrides/` folder from the repository.
-
-**Option 2: Quick Install with Custom Overrides**
-
-```bash
-bash install.sh --auto --overrides /path/to/your-overrides
-```
-
-Use your own overrides directory (must have same structure as `overrides/game/`).
-
-**Option 3: Git Clone & Customize (Recommended for advanced users)**
-
-```bash
-git clone https://github.com/sivert-io/cs2-server-manager.git
-cd cs2-server-manager
-# Edit overrides/ folder as needed
-./manage.sh install
-```
-
-Best for users who want to customize configs before installation or maintain their own fork.
-
-### Overrides Directory
-
-The `overrides/` folder contains custom configurations that are applied to all servers:
-
-- Files in `overrides/` are **never deleted** during updates
-- They overlay on top of default plugin configs
-- Structure: `overrides/game/csgo/cfg/...` and `overrides/game/csgo/addons/...`
-
-**Server Ports** (increment by 10):
-
-| Server | Game  | GOTV  |
-| ------ | ----- | ----- |
-| 1      | 27015 | 27020 |
-| 2      | 27025 | 27030 |
-| 3      | 27035 | 27040 |
-
-**Default RCON:** `ntlan2025`
-
-**Custom Configs** — Place in `overrides/game/csgo/`:
-
-```
-overrides/game/csgo/
-├── cfg/MatchZy/
-└── addons/
-```
-
-These persist through all updates.
-
----
-
-## 🐛 Troubleshooting
-
-**Server won't start:**
-
-```bash
-sudo ./scripts/cs2_tmux.sh debug 1
-```
-
-**Plugin errors:**
-
-```bash
-./manage.sh repair
-```
-
-**Check logs:**
-
-```bash
-sudo ./scripts/cs2_tmux.sh logs 1 100
-```
-
----
-
-## 📋 Manual Install
-
-If you prefer manual setup:
-
-```bash
-# Install dependencies
-sudo apt-get update
-sudo apt-get install -y lib32gcc-s1 lib32stdc++6 steamcmd tmux curl jq unzip tar rsync git
-
-# Install Docker: https://docs.docker.com/engine/install/
-
-# Clone repo
-git clone https://github.com/sivert-io/cs2-server-manager.git
-cd cs2-server-manager
-
-# Run installer
-./manage.sh
-```
-
----
-
-## 🔗 Links
-
-- [MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy)
+- [Full documentation site](https://sivert-io.github.io/cs2-server-manager/) – hosted docs and guides.
+- [Getting Started](docs/getting-started/quick-start.md) – installation and first run.
+- [Managing Servers](docs/guides/managing-servers.md) – day-to-day operations.
+- [Configuration & Overrides](docs/guides/configuration.md) – customizing configs.
+- [Auto Updates](docs/guides/auto-updates.md) – how the monitor and updates work.
+- [Troubleshooting](docs/guides/troubleshooting.md) – common issues and fixes.
+- [MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy-Enhanced)
 - [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)
-- [CounterStrikeSharp Docs](https://docs.cssharp.dev/)
 
 ---
 

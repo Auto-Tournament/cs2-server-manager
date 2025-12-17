@@ -1,9 +1,9 @@
 ---
 name: Playwright E2E Tests
 about: Add end-to-end testing with Playwright
-title: '[FEATURE] Add Playwright E2E Tests'
-labels: ['enhancement', 'testing', 'playwright']
-assignees: ''
+title: "[FEATURE] Add Playwright E2E Tests"
+labels: ["enhancement", "testing", "playwright"]
+assignees: ""
 ---
 
 ## Overview
@@ -21,6 +21,7 @@ Add comprehensive end-to-end testing using Playwright to ensure the application 
 ## Test Coverage
 
 ### Authentication Tests (`@auth`, `@login`, `@logout`)
+
 - [x] Display login page when not authenticated
 - [x] Redirect to login when accessing protected route
 - [x] Login with valid API token
@@ -29,6 +30,7 @@ Add comprehensive end-to-end testing using Playwright to ensure the application 
 - [x] Persist login after page reload
 
 ### Teams Page Tests (`@teams`, `@crud`)
+
 - [x] Navigate to teams page
 - [x] Display teams page content
 - [x] Open create team modal
@@ -37,6 +39,7 @@ Add comprehensive end-to-end testing using Playwright to ensure the application 
 - [x] Edit an existing team
 
 ### Servers Page Tests (`@servers`, `@crud`)
+
 - [x] Navigate to servers page
 - [x] Display servers page content
 - [x] Open create server modal
@@ -44,6 +47,7 @@ Add comprehensive end-to-end testing using Playwright to ensure the application 
 - [x] Display empty state when no servers exist
 
 ### Future Tests
+
 - [ ] Tournament creation and management (`@tournament`)
 - [ ] Bracket generation (`@bracket`)
 - [ ] Match management (`@matches`)
@@ -53,12 +57,14 @@ Add comprehensive end-to-end testing using Playwright to ensure the application 
 ## Technical Details
 
 ### Playwright Configuration
+
 - **Reporter**: HTML report (full, not basic)
 - **Browsers**: Chromium, Firefox, WebKit
 - **Tags**: Used for filtering tests (`@auth`, `@teams`, `@servers`, `@crud`, etc.)
 - **Base URL**: Configurable via `PLAYWRIGHT_BASE_URL` environment variable (default: `http://localhost:3069`)
 
 ### Test Structure
+
 ```
 tests/
 ├── auth.spec.ts      # Authentication tests
@@ -104,4 +110,3 @@ yarn test:e2e:report
 
 - Part of PostgreSQL support feature branch
 - Will be merged into `postgresql-support` branch after merging with `main`
-
