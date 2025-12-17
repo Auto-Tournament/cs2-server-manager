@@ -26,6 +26,8 @@ const (
 	viewLogsPrompt
 	viewAttachPrompt
 	viewDebugPrompt
+	viewAddServersPrompt
+	viewRemoveServersPrompt
 )
 
 type itemKind int
@@ -583,6 +585,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		if m.view == viewAddServersPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateAddServersPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		if m.view == viewRemoveServersPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateRemoveServersPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 		// While in a scrollable viewport (servers dashboard, logs, MatchZy DB,
 		// etc.), delegate navigation keys to the viewport component and use
 		// Enter/q/Esc to return to the main menu.
@@ -831,15 +847,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastOutput = ""
 				cmds = append(cmds, runRestartAllServers(), m.spin.Tick)
 			case itemAddServerGo:
-				m.running = true
-				m.status = "Adding one CS2 server (scaling up)..."
-				m.lastOutput = ""
-				cmds = append(cmds, runAddServerGo(), m.spin.Tick)
+				// Prompt for how many servers to add, then run the scale-up
+				// helper in the background.
+				m.view = viewAddServersPrompt
+				m.status = "Add servers: enter how many to add."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
 			case itemRemoveServerGo:
-				m.running = true
-				m.status = "Removing last CS2 server (scaling down)..."
-				m.lastOutput = ""
-				cmds = append(cmds, runRemoveServerGo(), m.spin.Tick)
+				// Prompt for how many servers to remove, then run the
+				// scale-down helper in the background.
+				m.view = viewRemoveServersPrompt
+				m.status = "Remove servers: enter how many to remove."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
 			case itemPublicIPGo:
 				m.running = true
 				m.status = "Resolving public IP..."
@@ -1335,6 +1359,10 @@ func (m model) View() string {
 		return m.viewAttachPrompt()
 	case viewDebugPrompt:
 		return m.viewDebugPrompt()
+	case viewAddServersPrompt:
+		return m.viewAddServersPrompt()
+	case viewRemoveServersPrompt:
+		return m.viewRemoveServersPrompt()
 	}
 
 	var b strings.Builder
@@ -1442,9 +1470,9 @@ func (m model) View() string {
 		case itemRestartAllGo:
 			desc = "Restart all CS2 servers via tmux."
 		case itemAddServerGo:
-			desc = "Create one additional CS2 server instance based on the existing setup."
+			desc = "Add N new CS2 servers based on the existing setup."
 		case itemRemoveServerGo:
-			desc = "Stop and delete the highest-numbered server (server-N) to scale down."
+			desc = "Stop and delete the highest-numbered N servers (server-M downwards) to scale down."
 		case itemUpdateGameGo:
 			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:
