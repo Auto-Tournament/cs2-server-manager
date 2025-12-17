@@ -65,16 +65,22 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 		// binary (e.g. global install in /usr/local/bin), surface a friendly
 		// message so users know they should rerun with sudo or update manually.
 		if f, err := os.CreateTemp(dir, ".csm-perm-check-*"); err != nil {
+			// Keep the detailed guidance in the log output but make the actual
+			// error string concise to satisfy linter guidance about punctuation
+			// and avoid embedding multi-line help text in error values.
+			detail := fmt.Sprintf(
+				"CSM cannot write to %s to perform a self-update.\n\n"+
+					"If CSM is installed globally (for example in /usr/local/bin), "+
+					"please restart it with sudo and run the update again:\n\n"+
+					"  sudo csm\n\n"+
+					"Alternatively, download the new binary from GitHub Releases and replace it manually.\n",
+				dir,
+			)
+			_ = os.WriteFile(filepath.Join(dir, "csm-self-update-permissions.txt"), []byte(detail), 0o644)
+
 			return selfUpdateFinishedMsg{
 				newVersion: "",
-				err: fmt.Errorf(
-					"CSM cannot write to %s to perform a self-update.\n\n"+
-						"If CSM is installed globally (for example in /usr/local/bin), "+
-						"please restart it with sudo and run the update again:\n\n"+
-						"  sudo csm\n\n"+
-						"Alternatively, download the new binary from GitHub Releases and replace it manually.",
-					dir,
-				),
+				err:        fmt.Errorf("cannot write to %s to perform a self-update", dir),
 			}
 		} else {
 			f.Close()

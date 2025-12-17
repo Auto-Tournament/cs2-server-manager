@@ -16,9 +16,6 @@ var (
 	logWarnStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("220")).
 			Bold(true)
-	logErrStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("196")).
-			Bold(true)
 )
 
 // colorizeLog applies simple severity-based coloring to log-like text used in
@@ -52,5 +49,3 @@ func colorizeLog(text string) string {
 	}
 	return strings.Join(lines, "\n")
 }
-
-
