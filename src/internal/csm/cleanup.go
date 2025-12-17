@@ -88,6 +88,8 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 				log("  [*] Stopping and removing Docker container: %s", cfg.MatchzyContainer)
 				_ = exec.Command("docker", "stop", cfg.MatchzyContainer).Run()
 				_ = exec.Command("docker", "rm", cfg.MatchzyContainer).Run()
+				log("  [*] Removing Docker volume: %s", cfg.MatchzyVolume)
+				_ = exec.Command("docker", "volume", "rm", cfg.MatchzyVolume).Run()
 			} else {
 				log("  [i] MatchZy MySQL container not found")
 			}

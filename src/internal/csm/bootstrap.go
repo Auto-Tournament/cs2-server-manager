@@ -766,6 +766,17 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		}
 	}
 
+	// For a full fresh install, drop any existing MatchZy container and volume
+	// so we start from a clean database state.
+	if cfg.FreshInstall {
+		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing MatchZy container %q (if present)\n", containerName)
+		_ = exec.Command("docker", "rm", "-f", containerName).Run()
+		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing MatchZy volume %q (if present)\n", volumeName)
+		_ = exec.Command("docker", "volume", "rm", volumeName).Run()
+		containerExists = false
+		currentPort = ""
+	}
+
 	if containerExists {
 		inspect := exec.Command("docker", "inspect", "-f", "{{range $p, $cfg := .NetworkSettings.Ports}}{{if eq $p \"3306/tcp\"}}{{(index $cfg 0).HostPort}}{{end}}{{end}}", containerName)
 		if out, err := inspect.CombinedOutput(); err == nil {
