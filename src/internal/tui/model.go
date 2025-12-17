@@ -271,7 +271,11 @@ func (m *model) rebuildItems() {
 	m.items = items
 	// Keep cursor in range.
 	if m.cursor >= len(m.items) {
-		m.cursor = max(0, len(m.items)-1)
+		if len(m.items) == 0 {
+			m.cursor = 0
+		} else {
+			m.cursor = len(m.items) - 1
+		}
 	}
 
 	// Ensure the menu window start keeps the cursor visible when the visible
