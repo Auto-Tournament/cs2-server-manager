@@ -272,6 +272,13 @@ func ExtractMapThumbnails() (string, error) {
 		log("Removed %d numbered variant PNGs", removed)
 	}
 
+	// Best-effort cleanup of the extracted VPK contents to free disk space;
+	// we only keep the small derived thumbnails in map_thumbnails/.
+	log("[i] Cleaning up extracted VPK contents at %s", extractPath)
+	if err := os.RemoveAll(extractPath); err != nil {
+		log("[!] Failed to clean up extracted VPK contents: %v", err)
+	}
+
 	return buf.String(), nil
 }
 
@@ -465,7 +472,7 @@ def extract_vtex_image(vtex_file, output_file):
     with open(vtex_file, "rb") as f:
         data = f.read()
 
-    # Try to find embedded PNG.
+    # Try to find embedded PNG and preserve it byte-for-byte.
     png_start = data.find(b"\x89PNG")
     if png_start != -1:
         png_data = data[png_start:]
@@ -473,8 +480,13 @@ def extract_vtex_image(vtex_file, output_file):
         if end_idx != -1:
             png_data = png_data[: end_idx + 8]
             try:
+                # Write the original embedded PNG bytes directly so we keep the
+                # exact asset shipped by the game (no recompression).
+                with open(output_file, "wb") as f:
+                    f.write(png_data)
+
+                # Use the decoded image only for derived WEBP variants.
                 img = Image.open(io.BytesIO(png_data))
-                img.save(output_file, "PNG")
                 save_webp_variants(img, output_file)
                 return True
             except Exception as e:
