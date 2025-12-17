@@ -1072,11 +1072,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case installLogTickMsg:
 		// Live tail of the bootstrap log while steamcmd and other long-running
-		// operations are in progress. We keep this very small so it feels like a
-		// "what's happening right now" view rather than a full log.
+		// operations are in progress. For fresh installs, prepend a static
+		// summary of what the step is doing so users can see the high-level
+		// actions (cleanup, Docker, etc.) alongside the live tail.
 		out := strings.TrimSpace(msg.lines)
 		if out != "" {
-			m.lastOutput = out
+			if m.currentInstallStep == installStepBootstrap && m.wizard.cfg.freshInstall {
+				header := []string{
+					"[2/4] Performing fresh CS2 install (cleanup + steamcmd + bootstrap)...",
+					"  • Run full cleanup (same as Danger zone: remove CS2 user, home, MatchZy DB container/volume)",
+					"  • Recreate CS2 user",
+					"  • Reinstall master via SteamCMD",
+					"  • Provision a clean MatchZy database (Docker mode)",
+					"  • Recreate all servers from the new master",
+					"",
+					out,
+				}
+				m.lastOutput = strings.Join(header, "\n")
+			} else {
+				m.lastOutput = out
+			}
 		}
 		// No new commands scheduled here; the tailer goroutine drives further
 		// updates by sending more installLogTickMsg values.
