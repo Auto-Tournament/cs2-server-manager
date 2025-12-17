@@ -104,4 +104,3 @@ yarn test:e2e:report
 
 - Part of PostgreSQL support feature branch
 - Will be merged into `postgresql-support` branch after merging with `main`
-

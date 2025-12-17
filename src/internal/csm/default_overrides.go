@@ -15,5 +15,3 @@ func ensureDefaultOverrides(overridesDir string) error {
 	}
 	return os.MkdirAll(filepath.Join(overridesDir, "game"), 0o755)
 }
-
-

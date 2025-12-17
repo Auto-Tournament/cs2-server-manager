@@ -19,4 +19,3 @@ go build -o "${BUILD_DIR}/csm" ./src/cmd/cs2-tui
 
 echo "[cs2-server-manager] Launching CSM with DEBUG logging enabled..."
 CSM_ROOT="$PWD" DEBUG=1 exec "${BUILD_DIR}/csm"
-

@@ -64,5 +64,3 @@ func LogAction(source, action, output string, err error) {
 
 	AppendLog("csm.log", b.String())
 }
-
-

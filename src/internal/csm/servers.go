@@ -238,5 +238,3 @@ func detectServerPorts(user string, server int) (gamePort, tvPort int) {
 	baseTV := 27020
 	return baseGame + (server-1)*10, baseTV + (server-1)*10
 }
-
-

@@ -29,5 +29,3 @@ func (m model) viewCleanupConfirm() string {
 
 	return b.String()
 }
-
-

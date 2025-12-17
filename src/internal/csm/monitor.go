@@ -82,5 +82,3 @@ func writeMonitorLog(content string, err error) error {
 	AppendLog("auto_update_monitor.log", content)
 	return err
 }
-
-

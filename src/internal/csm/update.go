@@ -234,5 +234,3 @@ func UpdateAndDeployPlugins() (string, error) {
 	AppendLog("update-and-deploy-plugins.log", all)
 	return all, nil
 }
-
-

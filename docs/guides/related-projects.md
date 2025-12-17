@@ -57,5 +57,3 @@ MatchZy Enhanced is an extended MatchZy plugin that runs inside your CS2 servers
   - Automated in-server flow once players connect.
 
 If you are using CS2 Server Manager in a competitive or tournament context, MatchZy Enhanced is the recommended plugin layer.
-
-

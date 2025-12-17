@@ -95,5 +95,3 @@ var (
 				Foreground(lipgloss.Color("241")).
 				MarginTop(1)
 )
-
-

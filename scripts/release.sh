@@ -202,4 +202,3 @@ if [[ "$CSM_DRY_RUN" != "true" && "${CSM_SKIP_DISCORD:-false}" != "true" ]]; the
     echo "[csm] Skipping Discord webhook: scripts/discord-webhook.sh not found."
   fi
 fi
-
