@@ -139,6 +139,13 @@ func ExtractMapThumbnails() (string, error) {
 	log("[*] Found %d thumbnail files to convert", len(vtexFiles))
 	log("")
 
+	// Temporary workspace for fresh conversions so we can compare against any
+	// existing thumbnails and avoid rewriting files that are byte-identical.
+	tmpDir := filepath.Join(os.TempDir(), "csm-thumbnails-tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return buf.String(), fmt.Errorf("failed to create temp thumbnail dir: %w", err)
+	}
+
 	var convertSuccess, convertFail int
 	for _, vtex := range vtexFiles {
 		base := strings.TrimSuffix(filepath.Base(vtex), ".vtex_c")
@@ -149,26 +156,57 @@ func ExtractMapThumbnails() (string, error) {
 		}
 
 		outName := strings.ReplaceAll(base, "_png", "") + ".png"
-		pngPath := filepath.Join(thumbsDir, outName)
-		webpPath := strings.TrimSuffix(pngPath, ".png") + ".webp"
-		thumbWebpPath := strings.TrimSuffix(pngPath, ".png") + "_thumb.webp"
+		finalPNG := filepath.Join(thumbsDir, outName)
+		finalWEBP := strings.TrimSuffix(finalPNG, ".png") + ".webp"
+		finalThumbWEBP := strings.TrimSuffix(finalPNG, ".png") + "_thumb.webp"
 
-		// If all expected outputs already exist, skip this thumbnail
-		// entirely; otherwise re-run the conversion so that any missing
-		// WEBP variants are (re)generated alongside the PNG.
-		if fileExists(pngPath) && fileExists(webpPath) && fileExists(thumbWebpPath) {
-			log("[SKIP] %s (PNG + WEBP variants already present)", base)
+		tmpPNG := filepath.Join(tmpDir, outName)
+		tmpWEBP := strings.TrimSuffix(tmpPNG, ".png") + ".webp"
+		tmpThumbWEBP := strings.TrimSuffix(tmpPNG, ".png") + "_thumb.webp"
+
+		// Generate fresh PNG + WEBP variants into the temp workspace.
+		log("[CONVERT] %s -> %s (temp workspace)...", base, filepath.Base(tmpPNG))
+		if err := convertVtexWithPython(vtex, tmpPNG, &buf); err != nil {
+			log("[FAIL] %s: %v", base, err)
+			convertFail++
 			continue
 		}
 
-		log("[CONVERT] %s -> %s (and WEBP variants)...", base, filepath.Base(pngPath))
-		if err := convertVtexWithPython(vtex, pngPath, &buf); err != nil {
-			log("[FAIL] %s: %v", base, err)
+		// Sync each derived asset into the final thumbnails directory only
+		// when the bytes differ, so unchanged images don't get rewritten (and
+		// won't show up as noisy changes in downstream tooling).
+		changed := false
+
+		if ch, err := syncIfDifferent(tmpPNG, finalPNG); err != nil {
+			log("[FAIL] %s (sync PNG): %v", base, err)
 			convertFail++
-		} else {
-			log("[OK] %s", base)
-			convertSuccess++
+			continue
+		} else if ch {
+			changed = true
 		}
+
+		if ch, err := syncIfDifferent(tmpWEBP, finalWEBP); err != nil {
+			log("[FAIL] %s (sync WEBP): %v", base, err)
+			convertFail++
+			continue
+		} else if ch {
+			changed = true
+		}
+
+		if ch, err := syncIfDifferent(tmpThumbWEBP, finalThumbWEBP); err != nil {
+			log("[FAIL] %s (sync thumb WEBP): %v", base, err)
+			convertFail++
+			continue
+		} else if ch {
+			changed = true
+		}
+
+		if changed {
+			log("[OK] %s (updated thumbnails written)", base)
+		} else {
+			log("[UNCHANGED] %s (existing thumbnails identical; no updates written)", base)
+		}
+		convertSuccess++
 	}
 
 	log("")
@@ -469,11 +507,103 @@ func isNumberedSuffix(name string) bool {
 	return false
 }
 
-// fileExists returns true if the given path exists and is not a directory.
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
+// syncIfDifferent moves or copies src into dst only if the file contents differ.
+// It returns (true, nil) when dst was updated, (false, nil) when dst was left
+// unchanged (including when src does not exist), or (false, err) on error.
+func syncIfDifferent(src, dst string) (bool, error) {
+	// If the source file doesn't exist (e.g. WEBP variants when conversion
+	// failed), there's nothing to sync.
+	if fi, err := os.Stat(src); err != nil || fi.IsDir() {
+		return false, nil
 	}
-	return !info.IsDir()
+
+	// If the destination exists and is byte-identical, skip updating it to
+	// avoid noisy changes.
+	if equal, err := filesEqual(src, dst); err != nil {
+		return false, err
+	} else if equal {
+		_ = os.Remove(src)
+		return false, nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return false, err
+	}
+
+	// Prefer a simple rename; if that fails due to cross-filesystem issues,
+	// fall back to a copy+remove.
+	if err := os.Rename(src, dst); err == nil {
+		return true, nil
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return false, err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return false, err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return false, err
+	}
+	_ = os.Remove(src)
+	return true, nil
+}
+
+// filesEqual returns true when both files exist, are regular files, and have
+// identical size and contents.
+func filesEqual(a, b string) (bool, error) {
+	ai, err := os.Stat(a)
+	if err != nil || ai.IsDir() {
+		return false, err
+	}
+	bi, err := os.Stat(b)
+	if os.IsNotExist(err) || bi.IsDir() {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if ai.Size() != bi.Size() {
+		return false, nil
+	}
+
+	f1, err := os.Open(a)
+	if err != nil {
+		return false, err
+	}
+	defer f1.Close()
+
+	f2, err := os.Open(b)
+	if err != nil {
+		return false, err
+	}
+	defer f2.Close()
+
+	buf1 := make([]byte, 32*1024)
+	buf2 := make([]byte, 32*1024)
+
+	for {
+		n1, e1 := f1.Read(buf1)
+		n2, e2 := f2.Read(buf2)
+
+		if n1 != n2 || !bytes.Equal(buf1[:n1], buf2[:n2]) {
+			return false, nil
+		}
+		if e1 == io.EOF && e2 == io.EOF {
+			break
+		}
+		if e1 != nil && e1 != io.EOF {
+			return false, e1
+		}
+		if e2 != nil && e2 != io.EOF {
+			return false, e2
+		}
+	}
+	return true, nil
 }
