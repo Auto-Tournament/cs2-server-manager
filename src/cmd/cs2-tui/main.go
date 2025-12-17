@@ -430,7 +430,12 @@ func main() {
 		if f, err := tea.LogToFile(logPath, "debug"); err != nil {
 			fmt.Fprintln(os.Stderr, "failed to enable debug logging:", err)
 		} else {
-			log.Printf("CSM TUI starting, log file: %s", logPath)
+			// Pretty startup banner in the unified log so it's easy to see
+			// when a new CSM session begins.
+			log.Printf("############################################################")
+			log.Printf("# CSM - CS2 Server Manager v%s started", tui.Version())
+			log.Printf("# Log file: %s", logPath)
+			log.Printf("############################################################")
 			defer f.Close()
 		}
 	}

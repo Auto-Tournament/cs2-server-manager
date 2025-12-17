@@ -363,9 +363,13 @@ func ensureBootstrapDependencies(w io.Writer) error {
 		return fmt.Errorf("apt-get not found")
 	}
 
-	// Enable i386 architecture and install dependencies quietly.
+	// Enable i386 architecture and install dependencies with full output so
+	// users can see exactly what apt is doing in the logs.
+	fmt.Fprintln(w, "[deps] Enabling i386 architecture: dpkg --add-architecture i386")
 	_ = exec.Command("dpkg", "--add-architecture", "i386").Run()
-	if err := runCmdLogged(w, "apt-get", "update", "-qq"); err != nil {
+
+	fmt.Fprintln(w, "[deps] Running: apt-get update")
+	if err := runCmdLogged(w, "apt-get", "update"); err != nil {
 		return err
 	}
 
@@ -374,7 +378,9 @@ func ensureBootstrapDependencies(w io.Writer) error {
 		"ca-certificates", "lib32gcc-s1", "lib32stdc++6", "libc6-i386",
 		"net-tools", "tmux", "steamcmd", "rsync", "jq",
 	}
-	args := append([]string{"install", "-y", "-qq"}, pkgs...)
+	args := append([]string{"install", "-y"}, pkgs...)
+
+	fmt.Fprintf(w, "[deps] Running: apt-get %s\n", strings.Join(args, " "))
 	if err := runCmdLogged(w, "apt-get", args...); err != nil {
 		return err
 	}
