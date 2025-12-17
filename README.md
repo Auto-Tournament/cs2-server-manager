@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Required-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/engine/install/)
 
-**🔗 [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)** • **[Enhanced MatchZy](https://github.com/sivert-io/MatchZy)**
+**🔗 [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)** • **[MatchZy Enhanced](https://github.com/sivert-io/MatchZy-Enhanced)**
 
 </div>
 
@@ -88,7 +88,7 @@ sudo csm logs 1 100      # View last 100 lines of server 1 logs
 - [Configuration & Overrides](docs/guides/configuration.md) – customizing configs.
 - [Auto Updates](docs/guides/auto-updates.md) – how the monitor and updates work.
 - [Troubleshooting](docs/guides/troubleshooting.md) – common issues and fixes.
-- [MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy)
+- [MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy-Enhanced)
 - [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)
 
 ---

@@ -12,7 +12,7 @@ Automated multi-server management for Counter-Strike 2. Deploy multiple dedicate
 Designed to work hand-in-hand with:
 
 - **[MatchZy Auto Tournament](https://mat.sivert.io)** – web UI and API for automated CS2 tournaments.
-- **[MatchZy Enhanced](https://me.sivert.io)** – enhanced MatchZy plugin for in-server automation.
+- **[MatchZy Enhanced](https://github.com/sivert-io/MatchZy-Enhanced)** – enhanced MatchZy plugin for in-server automation.
 
 ## What it does
 
@@ -66,7 +66,7 @@ See:
 
 - [CS2 Server Manager](https://sivert-io.github.io/cs2-server-manager/) – multi-server CS2 deployment and management.
 - [MatchZy Auto Tournament](https://mat.sivert.io) – web UI and API for automated CS2 tournaments.
-- [MatchZy Enhanced](https://me.sivert.io) – enhanced MatchZy plugin for in-server automation.
+- [MatchZy Enhanced](https://github.com/sivert-io/MatchZy-Enhanced) – enhanced MatchZy plugin for in-server automation.
 
 ---
 

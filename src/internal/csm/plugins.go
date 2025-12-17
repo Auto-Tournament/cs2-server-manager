@@ -225,7 +225,7 @@ func (up *PluginUpdater) downloadCounterStrikeSharp(w io.Writer) error {
 }
 
 func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
-	fmt.Fprintln(w, "[MatchZy] Fetching latest MatchZy release (Enhanced Fork preferred)...")
+	fmt.Fprintln(w, "[MatchZy] Fetching latest MatchZy Enhanced release...")
 
 	type release struct {
 		TagName string `json:"tag_name"`
@@ -237,17 +237,8 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	}
 
 	var rel release
-	// Try enhanced fork first.
-	if err := up.fetchJSON("https://api.github.com/repos/sivert-io/MatchZy/releases/latest", &rel); err != nil {
-		// Fallback to official.
-		if err2 := up.fetchJSON("https://api.github.com/repos/shobhit-pathak/MatchZy/releases/latest", &rel); err2 != nil {
-			return fmt.Errorf("failed to fetch MatchZy releases: %v / %v", err, err2)
-		}
-	}
-
-	repoName := "(Official)"
-	if strings.Contains(rel.HTMLURL, "sivert-io") {
-		repoName = "(Enhanced Fork)"
+	if err := up.fetchJSON("https://api.github.com/repos/sivert-io/MatchZy-Enhanced/releases/latest", &rel); err != nil {
+		return fmt.Errorf("failed to fetch MatchZy Enhanced releases from sivert-io/MatchZy-Enhanced: %w", err)
 	}
 
 	var downloadURL string
@@ -269,7 +260,7 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 		return fmt.Errorf("no suitable MatchZy asset found")
 	}
 
-	fmt.Fprintf(w, "[MatchZy] Target: MatchZy %s %s\n", rel.TagName, repoName)
+	fmt.Fprintf(w, "[MatchZy] Target: MatchZy %s (Enhanced Fork)\n", rel.TagName)
 	fmt.Fprintln(w, "[MatchZy] Downloading...")
 
 	resp, err := up.httpClient().Get(downloadURL)
@@ -459,4 +450,3 @@ func (up *PluginUpdater) unzipTo(zipPath, dest string) error {
 	}
 	return nil
 }
-
