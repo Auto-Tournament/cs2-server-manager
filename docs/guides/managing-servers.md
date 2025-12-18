@@ -1,53 +1,49 @@
 # Managing Servers
 
-This guide covers everyday operations: starting, stopping, and inspecting your CS2 servers.
+This guide covers everyday operations: starting, stopping, and inspecting your CS2 servers using the `csm` binary.
 
-## Using `manage.sh`
+## Using `csm`
 
-The main entrypoint for managing servers is `manage.sh`:
+The main entrypoint for managing servers is the `csm` CLI/TUI:
 
 ```bash
-./manage.sh
+sudo csm       # Launch interactive TUI (installs, updates, status, logs, cleanup)
 ```
 
-From the interactive menu you can:
+From the TUI you can:
 
-- **Install servers** (initial setup or repair).
-- **Start / stop all servers**.
-- **Check status**.
+- **Install or repair servers** (wizard).
+- **Start / stop / restart all servers**.
+- **Check status and logs**.
 - **Run game or plugin updates**.
+- **Install / manage the auto-update monitor**.
 
-You can also call common actions directly:
+You can also call common actions directly from the CLI:
 
 ```bash
-./manage.sh install          # Install servers
-./manage.sh start            # Start all servers
-./manage.sh stop             # Stop all servers
-./manage.sh status           # Check status
-./manage.sh update-game      # Update CS2
-./manage.sh update-plugins   # Update plugins
-./manage.sh repair           # Fix issues
+sudo csm install-deps           # Install core system dependencies
+sudo csm bootstrap              # Install/redeploy servers
+sudo csm start                  # Start all servers
+sudo csm stop                   # Stop all servers
+sudo csm restart                # Restart all servers
+sudo csm status                 # Show tmux status in the CLI
+sudo csm update-game            # Update CS2 game files
+sudo csm update-plugins         # Update plugins (download + deploy)
+sudo csm monitor                # Run one iteration of the auto-update monitor
+sudo csm install-monitor-cron   # Install cron-based auto-update monitor
+sudo csm cleanup-all            # Danger: remove all CS2 data and user
 ```
 
-## Using `cs2_tmux.sh` for consoles and logs
+## Consoles and logs via `csm`
 
-Servers run inside tmux sessions for easy console access. The helper script lives in `scripts/cs2_tmux.sh`:
-
-```bash
-sudo ./scripts/cs2_tmux.sh status      # See all server sessions
-sudo ./scripts/cs2_tmux.sh attach 1    # Attach to server 1 console
-sudo ./scripts/cs2_tmux.sh logs 1 100  # Show last 100 lines of console output
-```
-
-Other useful commands:
+Servers run inside tmux sessions for easy console access. The `csm` binary provides helpers:
 
 ```bash
-sudo ./scripts/cs2_tmux.sh start          # Start all servers
-sudo ./scripts/cs2_tmux.sh start 1        # Start server 1 only
-sudo ./scripts/cs2_tmux.sh stop 2         # Stop server 2
-sudo ./scripts/cs2_tmux.sh restart 3      # Restart server 3
-sudo ./scripts/cs2_tmux.sh list           # List all tmux sessions
-sudo ./scripts/cs2_tmux.sh debug 1        # Run server 1 in foreground for debugging
+sudo csm status          # See all server sessions
+sudo csm attach 1        # Attach to server 1 console
+sudo csm logs 1 100      # Show last 100 lines of console output
+sudo csm list-sessions   # List all tmux sessions
+sudo csm debug 1         # Run server 1 in foreground for debugging
 ```
 
 When attached to a tmux session:
@@ -60,9 +56,9 @@ When attached to a tmux session:
 By default, server directories are under the CS2 user’s home, for example:
 
 ```text
-/home/cs2/server-1
-/home/cs2/server-2
-/home/cs2/server-3
+/home/cs2servermanager/server-1
+/home/cs2servermanager/server-2
+/home/cs2servermanager/server-3
 ```
 
 Each server has its own `game` folder with CS2 binaries and configs. Shared configuration is managed via the repo’s `overrides/` directory (see **Guides → Configuration & Overrides**).

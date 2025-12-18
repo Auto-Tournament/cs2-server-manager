@@ -11,26 +11,28 @@ The auto-update system:
 - Restarts servers after the update.
 - Enforces a cooldown so you don’t get stuck in an update loop.
 
-All of this is orchestrated by `scripts/auto_update_monitor.sh`.
+All of this is now orchestrated by the Go-native monitor built into `csm` (no separate shell script required).
 
-## How the monitor script works
+## How the monitor works
 
-`auto_update_monitor.sh` is designed to be run periodically (e.g., via cron):
+The auto-update monitor is designed to be run periodically (e.g., via cron) using the `csm` binary:
 
-1. Checks if all servers are stopped.
-2. Scans the latest CounterStrikeSharp logs for the AutoUpdater shutdown message.
-3. Ensures an update hasn’t been processed too recently (1-hour cooldown).
-4. Runs the update script and restarts servers.
+1. For each server:
+   - If its `cs2-N` tmux session is **running**, it is left alone.
+   - If the session is **stopped**, the monitor scans the per-server tmux log (`/home/<CS2_USER>/logs/server-N.log`) for the AutoUpdater shutdown message.
+2. When that shutdown message is detected for a stopped server, the monitor:
+   - Ensures an update hasn’t been processed too recently for that specific server (1-hour per-server cooldown).
+   - Runs a **per-server game update** via `UpdateServerWithContext`, which:
+     - Updates the shared master CS2 install via SteamCMD.
+     - rsyncs the updated master into `server-N`.
+     - Restarts `server-N`.
+3. While a per-server update is in progress, a small status marker file is written next to the tmux log so the TUI and CLI `status` view can show `UPDATING` instead of just `STOPPED` or `RUNNING`.
 
-Logs are written to:
-
-```bash
-sudo tail -f /var/log/cs2_auto_update_monitor.log
-```
+Monitor logs are written into the consolidated `csm.log` file (see the logging guide). Entries from the auto-update monitor are tagged with `[log=auto_update_monitor.log]` so you can filter them easily.
 
 ## Setting up a cron job
 
-Example cron entry to check every 5 minutes:
+Example cron entry to check every 5 minutes (manual setup):
 
 ```bash
 sudo crontab -e
@@ -39,19 +41,30 @@ sudo crontab -e
 Add a line like:
 
 ```cron
-*/5 * * * * /path/to/cs2-server-manager/scripts/auto_update_monitor.sh >/dev/null 2>&1
+*/5 * * * * /path/to/csm monitor >/dev/null 2>&1
 ```
 
-Make sure the path matches where you cloned or installed `cs2-server-manager`.
+Make sure the path matches where you installed the `csm` binary.
+
+You can also let CSM install the cronjob for you (recommended):
+
+```bash
+sudo csm install-monitor-cron          # default */5 interval
+sudo csm install-monitor-cron "*/10"   # custom interval
+```
+
+Or from the TUI:
+
+- Run `sudo csm`
+- In the **Setup** tab, choose **“Install/redeploy auto-update monitor (sudo)”**
 
 ## Manual updates
 
 You can always run updates yourself instead of (or in addition to) the monitor:
 
 ```bash
-./manage.sh update-game      # Update CS2
-./manage.sh update-plugins   # Update plugins
+csm                        # Launch TUI, then choose “Update CS2 game files”
+csm                        # Launch TUI, then choose “Deploy plugins to all servers”
 ```
 
 Use manual updates if you prefer full control or while initially testing your setup.
-

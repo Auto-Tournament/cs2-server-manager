@@ -1,9 +1,9 @@
 ---
 name: Community Request
 about: Request help from the community for testing or feedback
-title: '[COMMUNITY REQUEST] '
-labels: ['help wanted', 'community', 'testing']
-assignees: ''
+title: "[COMMUNITY REQUEST] "
+labels: ["help wanted", "community", "testing"]
+assignees: ""
 ---
 
 ## 🙏 What I Need Help With
@@ -38,7 +38,7 @@ Provide clear steps for how community members can help:
 
 - **Deployment:** Docker / Local
 - **Runtime:** Bun / Node.js (version: )
-- **OS:** 
+- **OS:**
 - **MatchZy Version:**
 - **Other requirements:**
 
@@ -55,6 +55,7 @@ What specific information or feedback would be most helpful?
 ## 🏆 Contributor Recognition
 
 **Thank you for helping!** Contributors who provide valuable testing or feedback will be:
+
 - Recognized in the project's contributors list
 - Given appropriate contribution credits
 - Appreciated by the maintainers and community
@@ -62,4 +63,3 @@ What specific information or feedback would be most helpful?
 ## 📎 Additional Context
 
 Any other relevant details, links, or context that would help community members assist you.
-

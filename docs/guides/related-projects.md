@@ -36,7 +36,7 @@ If you’re running structured tournaments (weekly cups, leagues, LANs), you alm
 
 ## MatchZy Enhanced
 
-**URL:** [https://me.sivert.io](https://me.sivert.io)
+**URL:** [https://github.com/sivert-io/MatchZy-Enhanced](https://github.com/sivert-io/MatchZy-Enhanced)
 
 **What it is:**  
 MatchZy Enhanced is an extended MatchZy plugin that runs inside your CS2 servers to automate in-server workflows.
@@ -57,5 +57,3 @@ MatchZy Enhanced is an extended MatchZy plugin that runs inside your CS2 servers
   - Automated in-server flow once players connect.
 
 If you are using CS2 Server Manager in a competitive or tournament context, MatchZy Enhanced is the recommended plugin layer.
-
-

@@ -1,8 +1,9 @@
 {
   "DatabaseType": "MySQL",
-  "MySqlHost": "192.168.254.232",
+  "MySqlHost": "127.0.0.1",
+  "MySqlPort": 3306,
   "MySqlDatabase": "matchzy",
   "MySqlUsername": "matchzy",
   "MySqlPassword": "matchzy",
-  "MySqlPort": 3306
+  "__CSM_NOTE": "This file is managed by CSM's install wizard. Manual edits may be overwritten."
 }

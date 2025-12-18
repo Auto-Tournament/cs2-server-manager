@@ -12,7 +12,7 @@ Automated multi-server management for Counter-Strike 2. Deploy multiple dedicate
 Designed to work hand-in-hand with:
 
 - **[MatchZy Auto Tournament](https://mat.sivert.io)** – web UI and API for automated CS2 tournaments.
-- **[MatchZy Enhanced](https://me.sivert.io)** – enhanced MatchZy plugin for in-server automation.
+- **[MatchZy Enhanced](https://github.com/sivert-io/MatchZy-Enhanced)** – enhanced MatchZy plugin for in-server automation.
 
 ## What it does
 
@@ -20,30 +20,30 @@ Designed to work hand-in-hand with:
 - **Tournament-ready stack**: Installs Metamod, CounterStrikeSharp, MatchZy (enhanced), and AutoUpdater.
 - **Safe updates**: Handles game and plugin updates automatically while preserving your configs.
 - **Persistent overrides**: Everything in `overrides/` survives updates.
-- **Observability & control**: Handy management script and tmux integration for logs and debugging.
+- **Observability & control**: Go-based CLI/TUI and tmux integration for logs and debugging.
 
 ## Quick Start
 
-For most users, this is all you need:
+For most users, installing `csm` globally and running the TUI is all you need:
 
 ```bash
-wget https://raw.githubusercontent.com/sivert-io/cs2-server-manager/master/install.sh
-bash install.sh
-```
-
-For automated installs (no prompts):
-
-```bash
-bash install.sh --auto --servers 5
+arch=$(uname -m); \
+case "$arch" in \
+  x86_64)  asset="csm-linux-amd64" ;; \
+  aarch64|arm64) asset="csm-linux-arm64" ;; \
+  *) echo "Unsupported architecture: $arch" && exit 1 ;; \
+esac; \
+tmp=$(mktemp); \
+curl -L "https://github.com/sivert-io/cs2-server-manager/releases/latest/download/$asset" -o "$tmp" && \
+sudo install -m 0755 "$tmp" /usr/local/bin/csm && \
+rm "$tmp" && \
+sudo csm            # launches the interactive TUI installer
 ```
 
 Read the **Getting Started** section for a full walkthrough.
 
 ## Project layout
 
-- `install.sh` – one-shot installer for CS2 servers and required dependencies.
-- `manage.sh` – main CLI for installing, starting, stopping, and repairing servers.
-- `scripts/` – supporting utilities (`cs2_tmux.sh`, update helpers, etc.).
 - `overrides/` – your persistent game and plugin configuration.
 
 See:
@@ -66,7 +66,7 @@ See:
 
 - [CS2 Server Manager](https://sivert-io.github.io/cs2-server-manager/) – multi-server CS2 deployment and management.
 - [MatchZy Auto Tournament](https://mat.sivert.io) – web UI and API for automated CS2 tournaments.
-- [MatchZy Enhanced](https://me.sivert.io) – enhanced MatchZy plugin for in-server automation.
+- [MatchZy Enhanced](https://github.com/sivert-io/MatchZy-Enhanced) – enhanced MatchZy plugin for in-server automation.
 
 ---
 
