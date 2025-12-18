@@ -119,6 +119,13 @@ func (m *TmuxManager) serverLogFile(server int) string {
 	return filepath.Join("/home", m.CS2User, "logs", fmt.Sprintf("server-%d.log", server))
 }
 
+// serverStatusFile returns a small status marker file for a given server. It
+// lives alongside the persistent per-server log file so both the CS2 user and
+// root can read/write it. The file is optional and may not exist.
+func (m *TmuxManager) serverStatusFile(server int) string {
+	return filepath.Join("/home", m.CS2User, "logs", fmt.Sprintf("server-%d.status", server))
+}
+
 // ServerLogPath exposes the underlying log file path for a given server.
 // This is used by CLI/TUI helpers so users can discover or tail logs directly.
 func (m *TmuxManager) ServerLogPath(server int) string {
@@ -154,14 +161,28 @@ func (m *TmuxManager) Status() (string, error) {
 		gamePort, tvPort := detectServerPorts(m.CS2User, i)
 		session := m.sessionName(i)
 		cmd := m.runAsCS2User("tmux has-session -t " + session)
-		if err := cmd.Run(); err != nil {
-			// STOPPED in red.
-			fmt.Fprintf(&buf, "Server %d (Game %d, GOTV %d): \x1b[31mSTOPPED\x1b[0m\n\n", i, gamePort, tvPort)
-			continue
+
+		running := cmd.Run() == nil
+
+		status := "STOPPED"
+		color := "\x1b[31m" // red
+		if running {
+			status = "RUNNING"
+			color = "\x1b[32m" // green
 		}
-		// RUNNING in green.
-		fmt.Fprintf(&buf, "Server %d (Game %d, GOTV %d): \x1b[32mRUNNING\x1b[0m\n", i, gamePort, tvPort)
-		fmt.Fprintf(&buf, "  Attach: csm attach %d\n", i)
+
+		// Overlay any transient status marker (e.g. UPDATING) if present.
+		if data, err := os.ReadFile(m.serverStatusFile(i)); err == nil {
+			if s := strings.TrimSpace(string(data)); s == "UPDATING" {
+				status = s
+				color = "\x1b[33m" // yellow
+			}
+		}
+
+		fmt.Fprintf(&buf, "Server %d (Game %d, GOTV %d): %s%s\x1b[0m\n", i, gamePort, tvPort, color, status)
+		if running {
+			fmt.Fprintf(&buf, "  Attach: csm attach %d\n", i)
+		}
 		fmt.Fprintln(&buf)
 	}
 

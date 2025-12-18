@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -330,6 +331,26 @@ func main() {
 			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "game update failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "update-server":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "usage: csm update-server <server>")
+				os.Exit(1)
+			}
+			sn, serr := strconv.Atoi(args[1])
+			if serr != nil || sn <= 0 {
+				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				os.Exit(1)
+			}
+			out, err := csm.UpdateServerWithContext(context.Background(), sn)
+			csm.LogAction("cli", fmt.Sprintf("update-server-%d", sn), out, err)
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "update-server %d failed: %v\n", sn, err)
 				os.Exit(1)
 			}
 			return

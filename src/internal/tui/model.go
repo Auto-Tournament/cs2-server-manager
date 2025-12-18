@@ -95,6 +95,7 @@ type installConfig struct {
 	updateMaster       bool
 	rconPassword       string
 	updatePlugins      bool
+	installMonitor     bool
 	matchzySkipDocker  bool
 	externalDBHost     string
 	externalDBPort     int
@@ -424,6 +425,7 @@ func (m *model) initWizardDefaults() {
 		// event-specific default.
 		rconPassword:       "",
 		updatePlugins:      true,
+		installMonitor:     true,
 		matchzySkipDocker:  false,
 		externalDBHost:     "127.0.0.1",
 		externalDBPort:     3306,
@@ -1170,6 +1172,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				fmt.Sprintf("  Fresh install  : %v", m.wizard.cfg.freshInstall),
 				fmt.Sprintf("  Update master  : %v", m.wizard.cfg.updateMaster),
 				fmt.Sprintf("  Update plugins : %v", m.wizard.cfg.updatePlugins),
+				fmt.Sprintf("  Auto-update    : %v", m.wizard.cfg.installMonitor),
 				"",
 				"Per-server summary:",
 			}

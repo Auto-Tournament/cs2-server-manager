@@ -42,6 +42,7 @@ const (
 	wizardFieldFreshInstall
 	wizardFieldUpdateMaster
 	wizardFieldUpdatePlugins
+	wizardFieldInstallMonitor
 	wizardFieldRCONPassword
 	wizardFieldDBExternalHost
 	wizardFieldDBExternalPort
@@ -271,6 +272,7 @@ func (m model) viewInstallWizard() string {
 	renderRow(wizardFieldFreshInstall, "Fresh install:", boolLabel(m.wizard.cfg.freshInstall))
 	renderRow(wizardFieldUpdateMaster, "Update master:", boolLabel(m.wizard.cfg.updateMaster))
 	renderRow(wizardFieldUpdatePlugins, "Update plugins:", boolLabel(m.wizard.cfg.updatePlugins))
+	renderRow(wizardFieldInstallMonitor, "Install auto-update:", boolLabel(m.wizard.cfg.installMonitor))
 
 	// RCON password row (do not echo anything special; keep it simple).
 	rconVal := m.wizard.cfg.rconPassword
@@ -346,6 +348,8 @@ func (m model) viewInstallWizard() string {
 		desc = "Run SteamCMD to update the master CS2 install before deploying servers."
 	case wizardFieldUpdatePlugins:
 		desc = "Download the latest plugins before installing or redeploying servers."
+	case wizardFieldInstallMonitor:
+		desc = "Install a cron-based auto-update monitor that keeps servers up to date when the AutoUpdater plugin shuts them down."
 	case wizardFieldRCONPassword:
 		desc = "Password applied to all servers (you can change per-server later)."
 	case wizardFieldDBExternalHost:
@@ -573,6 +577,9 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			case wizardFieldUpdatePlugins:
 				m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
 				m.wizard.errMsg = ""
+			case wizardFieldInstallMonitor:
+				m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
+				m.wizard.errMsg = ""
 			}
 		}
 		return m, nil
@@ -619,6 +626,9 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.errMsg = ""
 			case wizardFieldUpdatePlugins:
 				m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
+				m.wizard.errMsg = ""
+			case wizardFieldInstallMonitor:
+				m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
 				m.wizard.errMsg = ""
 			}
 		}
@@ -686,6 +696,9 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			return m, nil
 		case wizardFieldUpdatePlugins:
 			m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
+			return m, nil
+		case wizardFieldInstallMonitor:
+			m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
 			return m, nil
 		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldRCONPassword,
 			wizardFieldDBExternalHost, wizardFieldDBExternalPort, wizardFieldDBExternalName,
@@ -946,21 +959,25 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			}
 
 		case installStepMonitor:
-			logs = append(logs, "[3/4] Configuring auto-update monitor (cron job)...")
-			if out, err := csm.InstallAutoUpdateCron(""); err != nil {
-				if out != "" {
+			if cfg.installMonitor {
+				logs = append(logs, "[3/4] Configuring auto-update monitor (cron job)...")
+				if out, err := csm.InstallAutoUpdateCron(""); err != nil {
+					if out != "" {
+						logs = append(logs, out)
+					}
+					logs = append(logs, fmt.Sprintf("Auto-update monitor setup failed: %v", err))
+					return installStepMsg{
+						step: installStepMonitor,
+						out:  strings.Join(logs, "\n"),
+						err:  err,
+					}
+				} else if out != "" {
 					logs = append(logs, out)
 				}
-				logs = append(logs, fmt.Sprintf("Auto-update monitor setup failed: %v", err))
-				return installStepMsg{
-					step: installStepMonitor,
-					out:  strings.Join(logs, "\n"),
-					err:  err,
-				}
-			} else if out != "" {
-				logs = append(logs, out)
+				logs = append(logs, "[3/4] Auto-update monitor configured.")
+			} else {
+				logs = append(logs, "[3/4] Skipping auto-update monitor setup (user disabled it in the wizard).")
 			}
-			logs = append(logs, "[3/4] Auto-update monitor configured.")
 			dur := time.Since(start).Round(time.Second)
 			logs = append(logs, fmt.Sprintf("[i] Step 3/4 (auto-update monitor) took %s.", dur))
 			appendInstallLog(cfg, installStepMonitor, strings.Join(logs, "\n"))

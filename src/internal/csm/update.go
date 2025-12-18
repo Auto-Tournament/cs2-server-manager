@@ -110,28 +110,9 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
-	log("Updating master install at %s via SteamCMD...", masterDir)
-	cmd := exec.CommandContext(ctx, "sudo", "-u", cs2User, "steamcmd",
-		"+force_install_dir", masterDir,
-		"+login", "anonymous",
-		"+app_update", "730", "validate",
-		"+quit",
-	)
-
-	// Stream SteamCMD output into both the in-memory buffer and, when
-	// configured, the CSM_UPDATE_GAME_LOG file so the TUI can tail progress in
-	// real time.
-	var steamOut io.Writer = &buf
-	if logFile != nil {
-		steamOut = &teeWriter{buf: &buf, file: logFile}
-	}
-	cmd.Stdout = steamOut
-	cmd.Stderr = steamOut
-	if err := cmd.Run(); err != nil {
-		log("SteamCMD update failed: %v", err)
+	if err := updateMasterInstallWithContext(ctx, &buf, logFile, cs2User, masterDir); err != nil {
 		return buf.String(), err
 	}
-	log("Master CS2 install updated.")
 
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
@@ -143,48 +124,12 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 		if err := checkCtx(); err != nil {
 			return buf.String(), err
 		}
-
-		serverDir := mgr.serverDir(i)
-		if fi, err := os.Stat(serverDir); err != nil || !fi.IsDir() {
-			log("  Server-%d not found at %s, skipping", i, serverDir)
+		if err := syncMasterToServerWithContext(ctx, &buf, logFile, masterDir, mgr, i); err != nil {
+			// Errors are logged inside syncMasterToServerWithContext; continue
+			// to try remaining servers so a partial update doesn't block
+			// others.
 			continue
 		}
-		log("  Updating server-%d ...", i)
-		dst := filepath.Join(serverDir, "game")
-
-		// Back up cfg and addons directories, similar to original script.
-		cfgDir := filepath.Join(dst, "csgo", "cfg")
-		addonsDir := filepath.Join(dst, "csgo", "addons")
-		if fi, err := os.Stat(cfgDir); err == nil && fi.IsDir() {
-			_ = exec.Command("cp", "-a", cfgDir, cfgDir+".backup").Run()
-		}
-		if fi, err := os.Stat(addonsDir); err == nil && fi.IsDir() {
-			_ = exec.Command("cp", "-a", addonsDir, addonsDir+".backup").Run()
-		}
-
-		// rsync master game/ into server game/, excluding addons to preserve
-		// plugins. Use the provided context so cancellation can terminate the
-		// rsync process mid-transfer, and stream output into the same
-		// log/buffer writer so the TUI can tail progress.
-		srcRoot := filepath.Join(masterDir, "game") + string(os.PathSeparator)
-		dstRoot := dst + string(os.PathSeparator)
-
-		args := []string{
-			"-a", "--delete",
-			"--info=PROGRESS2",
-			"--exclude", "csgo/addons/",
-			srcRoot,
-			dstRoot,
-		}
-		var rsyncOut io.Writer = &buf
-		if logFile != nil {
-			rsyncOut = &teeWriter{buf: &buf, file: logFile}
-		}
-		if err := runCmdLoggedContext(ctx, rsyncOut, "rsync", args...); err != nil {
-			log("  [ERROR] rsync to server-%d failed: %v", i, err)
-			continue
-		}
-		log("  [OK] Server-%d game files updated", i)
 	}
 
 	if err := checkCtx(); err != nil {
@@ -410,4 +355,236 @@ func UpdateAndDeployPluginsWithContext(ctx context.Context) (string, error) {
 
 	AppendLog("update-and-deploy-plugins.log", all)
 	return all, nil
+}
+
+// UpdateServerWithContext updates the game files for a single server via
+// SteamCMD (against the shared master install) and rsync, without touching
+// other servers. It is intended for targeted update flows such as reacting to
+// an AutoUpdater-driven shutdown of a specific server.
+func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
+	var buf bytes.Buffer
+
+	if server <= 0 {
+		return "", fmt.Errorf("invalid server number %d", server)
+	}
+
+	// Discover the CS2 service user and total number of servers.
+	mgr, err := NewTmuxManager()
+	if err != nil {
+		return "", err
+	}
+	if server > mgr.NumServers {
+		return "", fmt.Errorf("server-%d not found (only %d server(s) detected)", server, mgr.NumServers)
+	}
+	cs2User := mgr.CS2User
+	masterDir := filepath.Join("/home", cs2User, "master-install")
+
+	// Track a transient "UPDATING" status for this server so the TUI/CLI status
+	// view can show that work is in progress rather than simply "STOPPED".
+	statusPath := mgr.serverStatusFile(server)
+	setStatus := func(state string) {
+		if strings.TrimSpace(statusPath) == "" {
+			return
+		}
+		if state == "" {
+			_ = os.Remove(statusPath)
+			return
+		}
+		if err := os.MkdirAll(filepath.Dir(statusPath), 0o755); err != nil {
+			return
+		}
+		_ = os.WriteFile(statusPath, []byte(state+"\n"), 0o644)
+	}
+	setStatus("UPDATING")
+	defer setStatus("")
+
+	log := func(format string, args ...any) {
+		fmt.Fprintf(&buf, format, args...)
+		if !strings.HasSuffix(format, "\n") {
+			buf.WriteByte('\n')
+		}
+	}
+
+	// Optional log file for streaming progress to the TUI when invoked from a
+	// long-running monitor or CLI wrapper that sets CSM_UPDATE_GAME_LOG.
+	var logFile *os.File
+	if logPath := strings.TrimSpace(os.Getenv("CSM_UPDATE_GAME_LOG")); logPath != "" {
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			logFile = f
+			defer func() {
+				_ = f.Close()
+			}()
+		}
+	}
+
+	// Helper to honor cancellation between major phases.
+	checkCtx := func() error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return doneOrNil(nil)
+		}
+	}
+
+	if err := checkCtx(); err != nil {
+		return buf.String(), err
+	}
+
+	if fi, err := os.Stat(masterDir); err != nil || !fi.IsDir() {
+		return buf.String(), fmt.Errorf("master install not found at %s", masterDir)
+	}
+
+	log("=== Update CS2 Game Files for server-%d (After Valve Update) ===", server)
+	log("This will:")
+	log("  • Update master CS2 installation via SteamCMD (if needed)")
+	log("  • Stop server-%d", server)
+	log("  • Update game files for server-%d from the master install", server)
+	log("  • Restart server-%d", server)
+	log("")
+
+	// Stop the target server first so the subsequent SteamCMD/rsync cannot
+	// affect a running process.
+	if err := mgr.Stop(server); err != nil {
+		log("Error stopping server-%d: %v", server, err)
+		return buf.String(), err
+	}
+	log("server-%d stopped.", server)
+
+	if err := checkCtx(); err != nil {
+		return buf.String(), err
+	}
+
+	// Update the shared master install via SteamCMD.
+	if err := updateMasterInstallWithContext(ctx, &buf, logFile, cs2User, masterDir); err != nil {
+		return buf.String(), err
+	}
+
+	if err := checkCtx(); err != nil {
+		return buf.String(), err
+	}
+
+	// Sync the updated master game files into the specific server instance.
+	if err := syncMasterToServerWithContext(ctx, &buf, logFile, masterDir, mgr, server); err != nil {
+		// Errors are logged inside the helper.
+		return buf.String(), err
+	}
+
+	if err := checkCtx(); err != nil {
+		return buf.String(), err
+	}
+
+	log("")
+	log("Restarting server-%d...", server)
+	if err := mgr.Start(server); err != nil {
+		log("Error starting server-%d: %v", server, err)
+		return buf.String(), err
+	}
+	log("[OK] Server-%d started after game update.", server)
+
+	out := buf.String()
+	AppendLog("update-server.log", out)
+	return out, nil
+}
+
+// updateMasterInstallWithContext runs SteamCMD against the shared master
+// install for the given CS2 user, streaming output into the provided buffer
+// and optional log file.
+func updateMasterInstallWithContext(ctx context.Context, w *bytes.Buffer, logFile *os.File, cs2User, masterDir string) error {
+	log := func(format string, args ...any) {
+		fmt.Fprintf(w, format, args...)
+		if !strings.HasSuffix(format, "\n") {
+			w.WriteString("\n")
+		}
+		if logFile != nil {
+			fmt.Fprintf(logFile, format, args...)
+			if !strings.HasSuffix(format, "\n") {
+				_, _ = logFile.Write([]byte{'\n'})
+			}
+		}
+	}
+
+	log("Updating master install at %s via SteamCMD...", masterDir)
+	cmd := exec.CommandContext(ctx, "sudo", "-u", cs2User, "steamcmd",
+		"+force_install_dir", masterDir,
+		"+login", "anonymous",
+		"+app_update", "730", "validate",
+		"+quit",
+	)
+
+	var steamOut io.Writer = w
+	if logFile != nil {
+		steamOut = &teeWriter{buf: w, file: logFile}
+	}
+	cmd.Stdout = steamOut
+	cmd.Stderr = steamOut
+	if err := cmd.Run(); err != nil {
+		log("SteamCMD update failed: %v", err)
+		return err
+	}
+	log("Master CS2 install updated.")
+	return nil
+}
+
+// syncMasterToServerWithContext rsyncs the master CS2 game install into a
+// single server's game directory, preserving plugins and streaming progress
+// into the provided buffer and optional log file.
+func syncMasterToServerWithContext(ctx context.Context, w *bytes.Buffer, logFile *os.File, masterDir string, mgr *TmuxManager, server int) error {
+	log := func(format string, args ...any) {
+		fmt.Fprintf(w, format, args...)
+		if !strings.HasSuffix(format, "\n") {
+			w.WriteString("\n")
+		}
+		if logFile != nil {
+			fmt.Fprintf(logFile, format, args...)
+			if !strings.HasSuffix(format, "\n") {
+				_, _ = logFile.Write([]byte{'\n'})
+			}
+		}
+	}
+
+	serverDir := mgr.serverDir(server)
+	if fi, err := os.Stat(serverDir); err != nil || !fi.IsDir() {
+		log("  Server-%d not found at %s, skipping", server, serverDir)
+		return fmt.Errorf("server-%d not found at %s", server, serverDir)
+	}
+	log("  Updating server-%d ...", server)
+	dst := filepath.Join(serverDir, "game")
+
+	// Back up cfg and addons directories, similar to the full update flow.
+	cfgDir := filepath.Join(dst, "csgo", "cfg")
+	addonsDir := filepath.Join(dst, "csgo", "addons")
+	if fi, err := os.Stat(cfgDir); err == nil && fi.IsDir() {
+		_ = exec.Command("cp", "-a", cfgDir, cfgDir+".backup").Run()
+	}
+	if fi, err := os.Stat(addonsDir); err == nil && fi.IsDir() {
+		_ = exec.Command("cp", "-a", addonsDir, addonsDir+".backup").Run()
+	}
+
+	srcRoot := filepath.Join("/home", mgr.CS2User, "master-install", "game") + string(os.PathSeparator)
+	dstRoot := dst + string(os.PathSeparator)
+
+	args := []string{
+		"-a", "--delete",
+		"--info=PROGRESS2",
+		"--exclude", "csgo/addons/",
+		srcRoot,
+		dstRoot,
+	}
+	var rsyncOut io.Writer = w
+	if logFile != nil {
+		rsyncOut = &teeWriter{buf: w, file: logFile}
+	}
+	if err := runCmdLoggedContext(ctx, rsyncOut, "rsync", args...); err != nil {
+		log("  [ERROR] rsync to server-%d failed: %v", server, err)
+		return err
+	}
+	log("  [OK] Server-%d game files updated", server)
+	return nil
+}
+
+// doneOrNil is a tiny helper used to satisfy the checkCtx pattern while
+// keeping the code concise.
+func doneOrNil(err error) error {
+	return err
 }
