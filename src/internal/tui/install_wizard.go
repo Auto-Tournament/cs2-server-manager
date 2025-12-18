@@ -489,13 +489,20 @@ func (m model) viewInstallWizard() string {
 
 	out := b.String()
 
-	// Ensure the rendered wizard view always occupies at least the current
-	// terminal height so that when fields are shown/hidden (e.g. toggling DB
-	// mode) we don't leave stale lines from the previous frame on screen.
+	// Ensure the rendered wizard view occupies a reasonably stable height so
+	// that when fields are shown/hidden (e.g. toggling DB mode) we don't leave
+	// stale lines from the previous frame on screen. We deliberately leave a
+	// small margin so we don't exceed the overall terminal height once the
+	// outer chrome (tabs, status bar, etc.) is added, which would otherwise
+	// cause the top border line to scroll off.
 	if m.height > 0 {
+		target := m.height - 2
+		if target < 1 {
+			target = m.height
+		}
 		lineCount := strings.Count(out, "\n")
-		if lineCount < m.height {
-			out += strings.Repeat("\n", m.height-lineCount)
+		if lineCount < target {
+			out += strings.Repeat("\n", target-lineCount)
 		}
 	}
 
