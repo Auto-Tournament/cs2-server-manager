@@ -25,6 +25,16 @@ func RunAutoUpdateMonitor() error {
 	log("=== CS2 Auto-Update Monitor (Go) ===")
 	log("Time: %s", time.Now().Format(time.RFC3339))
 
+	// The monitor is intended to be run as root (typically via root's cron)
+	// because it ultimately shells out to SteamCMD and rsync in the same way
+	// as the interactive wizard / CLI update-game flow. When invoked without
+	// root privileges, return a clear error instead of propagating a bare
+	// "exit status 1".
+	if os.Geteuid() != 0 {
+		log("RunAutoUpdateMonitor must be run as root (use sudo or the install-monitor-cron helper).")
+		return writeMonitorLog(buf.String(), fmt.Errorf("monitor must be run as root (use sudo)"))
+	}
+
 	mgr, err := NewTmuxManager()
 	if err != nil {
 		log("Failed to initialize tmux manager: %v", err)
