@@ -212,16 +212,26 @@ func (m *TmuxManager) Start(server int) error {
 	gameDir := filepath.Join(serverDir, "game")
 	logFile := m.serverLogFile(server)
 
+	// Derive game/TV ports from the server's autoexec.cfg so tmux launches
+	// servers with the same port layout the installer configured. This mirrors
+	// the original cs2_tmux.sh behaviour which always passed -port/+tv_port
+	// on the command line.
+	gamePort, tvPort := detectServerPorts(m.CS2User, server)
+
 	// Kill any existing session first to ensure a clean log/console.
 	_ = m.runAsCS2User("tmux kill-session -t " + session).Run()
 
 	// Use the Valve cs2.sh script from the game directory and tee output into
-	// a persistent per-server log file so logs survive tmux restarts.
+	// a persistent per-server log file so logs survive tmux restarts. Keep the
+	// legacy launch flags (+map, -port, +tv_port, +maxplayers, -usercon) so
+	// multiple servers bind to distinct ports just like the old scripts.
 	cmdline := fmt.Sprintf(
-		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon 2>&1 | tee -a %s'",
+		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers 10 -usercon 2>&1 | tee -a %s'",
 		filepath.Dir(logFile),
 		gameDir,
 		session,
+		gamePort,
+		tvPort,
 		logFile,
 	)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
@@ -381,7 +391,13 @@ func (m *TmuxManager) ListSessions() (string, error) {
 func (m *TmuxManager) Debug(server int) error {
 	serverDir := m.serverDir(server)
 	gameDir := filepath.Join(serverDir, "game")
-	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 -usercon", gameDir))
+	gamePort, tvPort := detectServerPorts(m.CS2User, server)
+	cmd := m.runAsCS2User(fmt.Sprintf(
+		"cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers 10 -usercon",
+		gameDir,
+		gamePort,
+		tvPort,
+	))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
