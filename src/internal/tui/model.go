@@ -173,8 +173,10 @@ type model struct {
 
 	wizard installWizard
 
-	vp      viewport.Model
-	vpTitle string
+	vp             viewport.Model
+	vpTitle        string
+	vpRawContent   string
+	vpContentLines int
 
 	version         string
 	latestVersion   string
@@ -197,9 +199,11 @@ type model struct {
 	logProgress progress.Model
 	logPercent  int
 
-	// Terminal height (rows), captured from Bubble Tea's WindowSizeMsg so we
-	// can size scrollable views (like the install wizard) dynamically.
+	// Terminal size (rows/cols), captured from Bubble Tea's WindowSizeMsg so we
+	// can size scrollable views (like the install wizard and viewports)
+	// dynamically.
 	height int
+	width  int
 
 	// menuWindowStart controls which slice of m.items is visible in the main
 	// menu so that the list feels scrollable on smaller terminals.
@@ -476,17 +480,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Track terminal height so scrollable views (like the install wizard
-		// and scrollable viewports) can adapt their visible window dynamically.
+		// Track terminal size so scrollable views (like the install wizard and
+		// scrollable viewports) can adapt their layout dynamically.
 		m.height = msg.Height
+		m.width = msg.Width
 
-		// Resize the viewport height to make better use of the available space.
-		if m.vp.Width != 0 {
-			h := msg.Height - 8
-			if h < 8 {
-				h = 8
-			}
-			m.vp.Height = h
+		// When a viewport is active, reflow its content to the new width and
+		// clamp the height so we don't render a huge block of empty space or
+		// push the header off-screen.
+		if m.view == viewViewport && m.vp.Width != 0 && m.vp.Height != 0 {
+			m.layoutViewport()
 		}
 		return m, tea.Batch(cmds...)
 
@@ -806,10 +809,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.wizard.errMsg = ""
 				m.status = "Install wizard: configure your servers, then choose Start install."
 			case itemServersStatusViewport:
+				// Load the tmux-based servers dashboard and show it as a simple
+				// detail page (no nested scrolling).
 				m.running = true
 				m.status = "Loading server status (checking for tmux sessions and installed servers)..."
 				m.lastOutput = ""
-				cmds = append(cmds, runTmuxStatusViewport(), m.spin.Tick)
+				cmds = append(cmds, runTmuxStatusDetail(), m.spin.Tick)
 			case itemMatchzyDBViewport:
 				m.running = true
 				m.status = "Verifying MatchZy database..."
@@ -1328,42 +1333,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.view = viewViewport
 		m.vpTitle = msg.title
+		m.vpRawContent = msg.content
 
-		// Lazily initialize the viewport with a sensible default size, then
-		// resize it based on the current terminal height if known.
+		// Lazily initialize the viewport with a sensible default size; the
+		// layoutViewport helper will adjust height and reflow content based on
+		// the current terminal size.
 		if m.vp.Width == 0 || m.vp.Height == 0 {
-			h := 20
-			if m.height > 0 {
-				h = m.height - 8
-				if h < 8 {
-					h = 8
-				}
-			}
-			m.vp = viewport.New(80, h)
-		} else if m.height > 0 {
-			h := m.height - 8
-			if h < 8 {
-				h = 8
-			}
-			m.vp.Height = h
+			m.vp = viewport.New(80, 20)
 		}
-		m.vp.SetContent(msg.content)
-
-		// If the content is shorter than the available viewport height, shrink
-		// the viewport so we don't render a huge block of empty space.
-		if m.height > 0 {
-			contentLines := strings.Count(msg.content, "\n") + 1
-			maxH := m.height - 8
-			if maxH < 4 {
-				maxH = 4
-			}
-			if contentLines < maxH {
-				if contentLines < 4 {
-					contentLines = 4
-				}
-				m.vp.Height = contentLines
-			}
-		}
+		m.layoutViewport()
 
 		if msg.err != nil && strings.TrimSpace(msg.content) == "" {
 			m.status = fmt.Sprintf("Error: %v", msg.err)

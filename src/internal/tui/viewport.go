@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
-	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 )
 
 func (m model) viewViewport() string {
@@ -40,7 +39,9 @@ func (m model) viewViewport() string {
 	fmt.Fprintln(&b)
 
 	statusText := m.status
-	fmt.Fprintln(&b, statusBarStyle.Render(statusText))
+	if strings.TrimSpace(statusText) != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render(statusText))
+	}
 
 	return b.String()
 }
@@ -147,7 +148,7 @@ func (m model) updateLogsPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 		m.status = fmt.Sprintf("Loading logs for server %s...", value)
 		m.lastOutput = ""
 		// Use 200 lines as a reasonable default.
-		cmd := runTmuxLogsViewport(value, 200)
+		cmd := runTmuxLogsDetail(value, 200)
 		return m, tea.Batch(cmd, m.spin.Tick)
 	}
 
@@ -278,58 +279,9 @@ func (m model) updateRemoveServersPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 	return m, cmd
 }
 
-func runTmuxStatusViewport() tea.Cmd {
-	return func() tea.Msg {
-		manager, err := csm.NewTmuxManager()
-		if err != nil {
-			return viewportFinishedMsg{
-				title:   "Servers dashboard",
-				content: fmt.Sprintf("Failed to load tmux status: %v\n\nIf you haven't installed servers yet, run the install wizard first from the Setup tab.", err),
-				err:     err,
-			}
-		}
-		out, err := manager.Status()
-		return viewportFinishedMsg{
-			title:   "Servers dashboard",
-			content: out,
-			err:     err,
-		}
-	}
-}
-
-func runTmuxLogsViewport(server string, lines int) tea.Cmd {
-	return func() tea.Msg {
-		manager, err := csm.NewTmuxManager()
-		if err != nil {
-			return viewportFinishedMsg{
-				title:   fmt.Sprintf("Server %s logs", server),
-				content: "",
-				err:     err,
-			}
-		}
-
-		n, err := strconv.Atoi(server)
-		if err != nil {
-			return viewportFinishedMsg{
-				title:   fmt.Sprintf("Server %s logs", server),
-				content: "",
-				err:     fmt.Errorf("invalid server number %q", server),
-			}
-		}
-
-		out, err := manager.Logs(n, lines)
-		logPath := manager.ServerLogPath(n)
-		if strings.TrimSpace(logPath) != "" {
-			header := fmt.Sprintf("Underlying log file: %s\n\n", logPath)
-			out = header + out
-		}
-		return viewportFinishedMsg{
-			title:   fmt.Sprintf("Server %d logs", n),
-			content: out,
-			err:     err,
-		}
-	}
-}
+// Note: the old scrollable logs viewport has been replaced with a simpler
+// non-scrollable detail view (see runTmuxLogsDetail in commands.go) to avoid
+// nested scrolling complexity in the TUI.
 
 // Debugging servers is only supported via the CLI (csm debug <server>) to
 // avoid conflicts with the TUI's own terminal control.

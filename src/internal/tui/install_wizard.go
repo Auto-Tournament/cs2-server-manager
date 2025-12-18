@@ -94,19 +94,25 @@ func wizardWindowSizeFor(height int) int {
 }
 
 // estimateDiskSpace returns total and free space (in GB) for the filesystem
-// that will hold /home/<cs2User>. If cs2User is empty or the check fails, it
-// falls back to "/" and may return ok=false on error.
+// that will hold /home/<cs2User>. If that path is not available (for example
+// on platforms without /home/<user>), it transparently falls back to "/" so
+// we can still show a useful estimate.
 func estimateDiskSpace(cs2User string) (totalGB, freeGB float64, ok bool) {
-	path := "/"
-	if strings.TrimSpace(cs2User) != "" {
-		path = filepath.Join("/home", cs2User)
+	var st syscall.Statfs_t
+
+	// Prefer the target /home/<user> path when possible.
+	if user := strings.TrimSpace(cs2User); user != "" {
+		if err := syscall.Statfs(filepath.Join("/home", user), &st); err == nil {
+			goto haveStats
+		}
 	}
 
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
+	// Fallback to the root filesystem if /home/<user> isn't available.
+	if err := syscall.Statfs("/", &st); err != nil {
 		return 0, 0, false
 	}
 
+haveStats:
 	totalBytes := float64(st.Blocks) * float64(st.Bsize)
 	freeBytes := float64(st.Bavail) * float64(st.Bsize)
 
@@ -455,30 +461,30 @@ func (m model) viewInstallWizard() string {
 	}
 
 	// Try to estimate disk space on the filesystem that will hold /home/<cs2User>.
-	baseLine := fmt.Sprintf("Estimated total footprint for this layout: ~%.1f GB (master + %d server(s)).", totalRequiredGB, numServers)
-	additionalLine := fmt.Sprintf("Estimated additional space needed: ~%.1f GB.", additionalGB)
-
+	// Present this as a single summary line so we don't repeat ourselves.
 	_, freeGB, ok := estimateDiskSpace(m.wizard.cfg.cs2User)
 	if ok {
-		freeLine := fmt.Sprintf("Currently available: ~%.1f GB free.", freeGB)
 		afterGB := freeGB - additionalGB
 		if afterGB >= 0 {
-			afterLine := fmt.Sprintf("Approximate free space after install: ~%.1f GB.", afterGB)
-			fmt.Fprintln(&b, subtleStyle.Render(freeLine))
-			fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-			fmt.Fprintln(&b, subtleStyle.Render(additionalLine))
-			fmt.Fprintln(&b, subtleStyle.Render(afterLine))
+			summary := fmt.Sprintf(
+				"Disk: need ~%.1f GB (master + %d server(s)), currently ~%.1f GB free, ~%.1f GB free after install.",
+				totalRequiredGB, numServers, freeGB, afterGB,
+			)
+			fmt.Fprintln(&b, subtleStyle.Render(summary))
 		} else {
 			needed := -afterGB
-			warnLine := fmt.Sprintf("Warning: estimated additional space is short by ~%.1f GB.", needed)
-			fmt.Fprintln(&b, subtleStyle.Render(freeLine))
-			fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-			fmt.Fprintln(&b, warningStyle.Render(additionalLine))
-			fmt.Fprintln(&b, warningStyle.Render(warnLine))
+			summary := fmt.Sprintf(
+				"Disk: need ~%.1f GB (master + %d server(s)), currently ~%.1f GB free, short by ~%.1f GB for this layout.",
+				totalRequiredGB, numServers, freeGB, needed,
+			)
+			fmt.Fprintln(&b, warningStyle.Render(summary))
 		}
 	} else {
-		fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-		fmt.Fprintln(&b, subtleStyle.Render(additionalLine))
+		summary := fmt.Sprintf(
+			"Disk: need ~%.1f GB (master + %d server(s)); free space could not be estimated.",
+			totalRequiredGB, numServers,
+		)
+		fmt.Fprintln(&b, subtleStyle.Render(summary))
 	}
 	fmt.Fprintln(&b)
 
@@ -488,25 +494,8 @@ func (m model) viewInstallWizard() string {
 	}
 
 	out := b.String()
-
-	// Ensure the rendered wizard view occupies a reasonably stable height so
-	// that when fields are shown/hidden (e.g. toggling DB mode) we don't leave
-	// stale lines from the previous frame on screen. We deliberately leave a
-	// small margin so we don't exceed the overall terminal height once the
-	// outer chrome (tabs, status bar, etc.) is added, which would otherwise
-	// cause the top border line to scroll off.
-	if m.height > 0 {
-		target := m.height - 2
-		if target < 1 {
-			target = m.height
-		}
-		lineCount := strings.Count(out, "\n")
-		if lineCount < target {
-			out += strings.Repeat("\n", target-lineCount)
-		}
-	}
-
-	return out
+	// Reserve a small offset for outer chrome (tab bar, global status line).
+	return m.padViewToHeight(out, 2)
 }
 
 // updateInstallWizard handles navigation and editing for the one-page wizard.

@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
@@ -130,6 +132,54 @@ func runInstallMonitorGo() tea.Cmd {
 	}
 }
 
+// runTmuxLogsDetail loads tmux logs for a specific server and shows them on a
+// simple action-result page instead of a scrollable viewport. Output is
+// truncated by the generic detail view logic to keep it readable.
+func runTmuxLogsDetail(server string, lines int) tea.Cmd {
+	return func() tea.Msg {
+		mgr, err := csm.NewTmuxManager()
+		title := fmt.Sprintf("Server %s logs", server)
+		if err != nil {
+			return commandFinishedMsg{
+				item: menuItem{
+					title: title,
+					kind:  itemLogsViewport,
+				},
+				output: "",
+				err:    err,
+			}
+		}
+
+		n, err := strconv.Atoi(server)
+		if err != nil {
+			return commandFinishedMsg{
+				item: menuItem{
+					title: title,
+					kind:  itemLogsViewport,
+				},
+				output: "",
+				err:    fmt.Errorf("invalid server number %q", server),
+			}
+		}
+
+		out, err := mgr.Logs(n, lines)
+		logPath := mgr.ServerLogPath(n)
+		if strings.TrimSpace(logPath) != "" {
+			header := fmt.Sprintf("Underlying log file: %s\n\n", logPath)
+			out = header + out
+		}
+
+		return commandFinishedMsg{
+			item: menuItem{
+				title: fmt.Sprintf("Server %d logs", n),
+				kind:  itemLogsViewport,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
 // runStartAllServers starts all servers via the Go tmux manager.
 func runStartAllServers() tea.Cmd {
 	return func() tea.Msg {
@@ -196,6 +246,34 @@ func runRestartAllServers() tea.Cmd {
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Restart all servers", kind: itemRestartAllGo},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
+// runTmuxStatusDetail loads the tmux-based servers dashboard and presents it
+// as a simple, non-scrollable detail page instead of a nested scrollable
+// viewport. The content is typically short and fits on a single screen.
+func runTmuxStatusDetail() tea.Cmd {
+	return func() tea.Msg {
+		mgr, err := csm.NewTmuxManager()
+		if err != nil {
+			return commandFinishedMsg{
+				item: menuItem{
+					title: "Servers dashboard",
+					kind:  itemServersStatusViewport,
+				},
+				output: "",
+				err:    err,
+			}
+		}
+		out, err := mgr.Status()
+		return commandFinishedMsg{
+			item: menuItem{
+				title: "Servers dashboard",
+				kind:  itemServersStatusViewport,
+			},
 			output: out,
 			err:    err,
 		}

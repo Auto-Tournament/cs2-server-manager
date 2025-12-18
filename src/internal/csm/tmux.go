@@ -225,8 +225,18 @@ func (m *TmuxManager) Start(server int) error {
 		logFile,
 	)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
-	if err := m.runAsCS2User(cmdline).Run(); err != nil {
-		log.Printf("[tmux] Start: failed to start server %d: %v", server, err)
+
+	// Capture tmux/shell stderr so we can see *why* startup failed in csm.log
+	// instead of just getting "exit status 1" with no context.
+	cmd := m.runAsCS2User(cmdline)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("[tmux] Start: failed to start server %d: %v\nOutput:\n%s", server, err, string(out))
+		if strings.TrimSpace(string(out)) != "" {
+			LogAction("tmux", fmt.Sprintf("start server-%d", server), string(out), err)
+		} else {
+			LogAction("tmux", fmt.Sprintf("start server-%d", server), "", err)
+		}
 		return fmt.Errorf("failed to start server %d in tmux: %w", server, err)
 	}
 	return nil
