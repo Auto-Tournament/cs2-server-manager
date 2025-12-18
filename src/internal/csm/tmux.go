@@ -227,19 +227,48 @@ func (m *TmuxManager) Start(server int) error {
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
 
 	// Capture tmux/shell stderr so we can see *why* startup failed in csm.log
-	// instead of just getting "exit status 1" with no context.
+	// and in the TUI detail page instead of just getting "exit status 1" with
+	// no context.
 	cmd := m.runAsCS2User(cmdline)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("[tmux] Start: failed to start server %d: %v\nOutput:\n%s", server, err, string(out))
-		if strings.TrimSpace(string(out)) != "" {
-			LogAction("tmux", fmt.Sprintf("start server-%d", server), string(out), err)
+		output := string(out)
+		if strings.TrimSpace(output) != "" {
+			LogAction("tmux", fmt.Sprintf("start server-%d", server), output, err)
 		} else {
 			LogAction("tmux", fmt.Sprintf("start server-%d", server), "", err)
 		}
-		return fmt.Errorf("failed to start server %d in tmux: %w", server, err)
+		return &TmuxStartError{
+			Server: server,
+			Err:    err,
+			Output: output,
+		}
 	}
 	return nil
+}
+
+// TmuxStartError wraps a tmux/server startup failure with the server index and
+// the captured command output so callers (like the TUI) can display more
+// helpful diagnostics than just "exit status 1".
+type TmuxStartError struct {
+	Server int
+	Err    error
+	Output string
+}
+
+func (e *TmuxStartError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("failed to start server %d in tmux: %v", e.Server, e.Err)
+}
+
+func (e *TmuxStartError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }
 
 // StopAll stops all servers by killing their tmux sessions.

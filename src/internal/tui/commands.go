@@ -192,9 +192,26 @@ func runStartAllServers() tea.Cmd {
 			}
 		}
 		err = mgr.StartAll()
+
+		// On failure, surface any captured tmux/cs2 output into the TUI detail
+		// page so the user can immediately see why startup failed instead of
+		// only "exit status 1".
 		out := ""
 		if err == nil {
 			out = fmt.Sprintf("Started %d server(s) via tmux.\n\nUse the Servers dashboard or `csm attach <n>` to inspect them.", mgr.NumServers)
+		} else {
+			if se, ok := err.(*csm.TmuxStartError); ok {
+				trimmed := strings.TrimSpace(se.Output)
+				if trimmed != "" {
+					lines := strings.Split(trimmed, "\n")
+					// Show only the last N lines to keep the detail view readable.
+					const maxLines = 40
+					if len(lines) > maxLines {
+						lines = lines[len(lines)-maxLines:]
+					}
+					out = strings.Join(lines, "\n")
+				}
+			}
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Start all servers", kind: itemStartAllGo},
@@ -243,6 +260,18 @@ func runRestartAllServers() tea.Cmd {
 		out := ""
 		if err == nil {
 			out = fmt.Sprintf("Restarted %d server(s) via tmux.", mgr.NumServers)
+		} else {
+			if se, ok := err.(*csm.TmuxStartError); ok {
+				trimmed := strings.TrimSpace(se.Output)
+				if trimmed != "" {
+					lines := strings.Split(trimmed, "\n")
+					const maxLines = 40
+					if len(lines) > maxLines {
+						lines = lines[len(lines)-maxLines:]
+					}
+					out = strings.Join(lines, "\n")
+				}
+			}
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Restart all servers", kind: itemRestartAllGo},
