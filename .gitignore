@@ -36,3 +36,4 @@ build/
 
 game_files/
 extracted_csgo/
+.env

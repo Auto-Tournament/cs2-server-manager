@@ -35,10 +35,10 @@ Look in the CounterStrikeSharp logs under each server’s `game/csgo/addons/coun
 ## Auto updates not working
 
 - Verify the cron job is installed and points to the correct path.
-- Inspect the monitor log:
+- Inspect the monitor log entries in the consolidated `csm.log` file:
 
 ```bash
-sudo tail -n 200 /var/log/cs2_auto_update_monitor.log
+sudo tail -n 200 csm.log | sed -n '/\\[log=auto_update_monitor\\.log\\]/,$p'
 ```
 
 - Confirm the AutoUpdater plugin is actually shutting servers down on updates.
