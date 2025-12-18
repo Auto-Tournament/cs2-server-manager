@@ -224,6 +224,14 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		log("")
 	}
 
+	// As a final safety net, ensure the CS2 user owns everything under its home
+	// directory. Most paths are created with the correct ownership as we go,
+	// but recursive chown here avoids subtle permission issues (for example,
+	// plugin files or gameinfo.gi being left as root-owned).
+	homeDir := filepath.Join("/home", cfg.CS2User)
+	log("[i] Ensuring ownership of %s for user %s", homeDir, cfg.CS2User)
+	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), homeDir).Run()
+
 	log("=== Setup Complete ===")
 	log("User              : %s", cfg.CS2User)
 	log("Master install    : /home/%s/master-install", cfg.CS2User)
