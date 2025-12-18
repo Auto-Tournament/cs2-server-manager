@@ -80,9 +80,10 @@ func wizardWindowSizeFor(height int) int {
 
 	// Rough layout budget:
 	// - 4–5 lines for header + spacing
-	// - 2–3 lines for description / error at the bottom
+	// - 4–6 lines for description, disk estimate and optional error at bottom
 	// - Each wizard row uses ~2 lines (label + blank)
-	rowsForItems := (height - 8) / 2
+	// Reserve ~12 lines for non-row content so the header/footer remain visible.
+	rowsForItems := (height - 12) / 2
 	if rowsForItems < 4 {
 		rowsForItems = 4
 	}
@@ -292,41 +293,56 @@ func (m model) viewInstallWizard() string {
 	}
 	renderRow(wizardFieldRCONPassword, "RCON password:", rconVal)
 
-	// External DB configuration (used when MatchZy DB is set to external).
+	// External DB configuration rows. These are only *labeled* and populated
+	// when MatchZy DB is set to "external", but we always render them so the
+	// overall wizard height stays constant and previously rendered content
+	// can't "bleed through" when toggling DB mode.
+	var dbHostLabel, dbHostVal string
+	var dbPortLabel, dbPortVal string
+	var dbNameLabel, dbNameVal string
+	var dbUserLabel, dbUserVal string
+	var dbPassLabel, dbPassVal string
+
 	if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-		dbHostVal := m.wizard.cfg.externalDBHost
+		dbHostLabel = "DB host (external):"
+		dbHostVal = m.wizard.cfg.externalDBHost
 		if m.wizard.cursor == wizardFieldDBExternalHost && m.wizard.editing {
 			dbHostVal = m.wizard.input.View()
 		}
-		renderRow(wizardFieldDBExternalHost, "DB host (external):", dbHostVal)
 
-		dbPortVal := m.wizard.dbPortStr
+		dbPortLabel = "DB port (external):"
+		dbPortVal = m.wizard.dbPortStr
 		if strings.TrimSpace(dbPortVal) == "" && m.wizard.cfg.externalDBPort > 0 {
 			dbPortVal = fmt.Sprintf("%d", m.wizard.cfg.externalDBPort)
 		}
 		if m.wizard.cursor == wizardFieldDBExternalPort && m.wizard.editing {
 			dbPortVal = m.wizard.input.View()
 		}
-		renderRow(wizardFieldDBExternalPort, "DB port (external):", dbPortVal)
 
-		dbNameVal := m.wizard.cfg.externalDBName
+		dbNameLabel = "DB name (external):"
+		dbNameVal = m.wizard.cfg.externalDBName
 		if m.wizard.cursor == wizardFieldDBExternalName && m.wizard.editing {
 			dbNameVal = m.wizard.input.View()
 		}
-		renderRow(wizardFieldDBExternalName, "DB name (external):", dbNameVal)
 
-		dbUserVal := m.wizard.cfg.externalDBUser
+		dbUserLabel = "DB user (external):"
+		dbUserVal = m.wizard.cfg.externalDBUser
 		if m.wizard.cursor == wizardFieldDBExternalUser && m.wizard.editing {
 			dbUserVal = m.wizard.input.View()
 		}
-		renderRow(wizardFieldDBExternalUser, "DB user (external):", dbUserVal)
 
-		dbPassVal := m.wizard.cfg.externalDBPassword
+		dbPassLabel = "DB password (external):"
+		dbPassVal = m.wizard.cfg.externalDBPassword
 		if m.wizard.cursor == wizardFieldDBExternalPassword && m.wizard.editing {
 			dbPassVal = m.wizard.input.View()
 		}
-		renderRow(wizardFieldDBExternalPassword, "DB password (external):", dbPassVal)
 	}
+
+	renderRow(wizardFieldDBExternalHost, dbHostLabel, dbHostVal)
+	renderRow(wizardFieldDBExternalPort, dbPortLabel, dbPortVal)
+	renderRow(wizardFieldDBExternalName, dbNameLabel, dbNameVal)
+	renderRow(wizardFieldDBExternalUser, dbUserLabel, dbUserVal)
+	renderRow(wizardFieldDBExternalPassword, dbPassLabel, dbPassVal)
 
 	// Action rows: Start install / Cancel.
 	startLabel := "Start install"
