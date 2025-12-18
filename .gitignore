@@ -37,3 +37,4 @@ build/
 game_files/
 extracted_csgo/
 .env
+cs2-tui
