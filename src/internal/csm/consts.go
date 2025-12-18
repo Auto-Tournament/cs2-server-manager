@@ -42,4 +42,9 @@ const (
 	// DefaultMatchzyRootPassword is the default MySQL root password used for the
 	// Docker-managed MatchZy database unless overridden via environment.
 	DefaultMatchzyRootPassword = "MatchZyRoot!2025"
+
+	// DefaultRootDir is the default on-disk root where CSM stores its state
+	// (overrides, game_files, logs, etc.) when CSM_ROOT is not explicitly set.
+	// This is created on demand during installs and updates.
+	DefaultRootDir = "/opt/cs2-server-manager"
 )

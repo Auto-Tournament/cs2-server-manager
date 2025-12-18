@@ -24,19 +24,12 @@ rm "$tmp" && \
 sudo csm            # launches the interactive TUI installer
 ```
 
-By default, CSM assumes a **configuration root** (`CSM_ROOT`) where it expects `overrides/` and `game_files/`:
+By default, CSM uses a **configuration root** where it expects `overrides/` and `game_files/`:
 
 - If you set `CSM_ROOT`, it uses that directory.
-- Otherwise, it uses the directory containing the `csm` binary (for example `/usr/local/bin` for the global install).
+- Otherwise, it defaults to `/opt/cs2-server-manager` (creating it on demand).
 
-For most setups it’s a good idea to pick a dedicated config directory, e.g. `/opt/cs2-server-manager`, and set:
-
-```bash
-export CSM_ROOT=/opt/cs2-server-manager
-cd /opt/cs2-server-manager && sudo csm
-```
-
-The first time you run the installer, CSM will seed `CSM_ROOT/overrides/` with safe defaults if it doesn’t exist yet.
+The first time you run the installer, CSM will seed the root’s `overrides/` folder with safe defaults if it doesn’t exist yet.
 
 ### 2. Git clone & customize
 

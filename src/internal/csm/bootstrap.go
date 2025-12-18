@@ -107,27 +107,11 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		cfg.RCONPassword = DefaultRCONPassword
 	}
 
-	// Determine the project root for game_files/ and overrides/.
-	// Priority:
-	//   1) Explicit cfg.GameFilesDir / cfg.OverridesDir (from CLI env or caller)
-	//   2) CSM_ROOT environment variable, if set
-	//   3) Directory of the CSM executable
-	//   4) Current working directory
-	root := ""
-	if v, ok := os.LookupEnv("CSM_ROOT"); ok && v != "" {
-		root = v
-	} else if exe, err := os.Executable(); err == nil && exe != "" {
-		if dir := filepath.Dir(exe); dir != "" {
-			root = dir
-		}
-	}
-	if root == "" {
-		if wd, err := os.Getwd(); err == nil && wd != "" {
-			root = wd
-		} else {
-			root = "."
-		}
-	}
+	// Determine the project root for game_files/ and overrides/. Callers can
+	// override these explicitly via cfg.GameFilesDir / cfg.OverridesDir; when
+	// those are empty we fall back to ResolveRoot, which honours CSM_ROOT and
+	// otherwise uses a sensible default like /opt/cs2-server-manager.
+	root := ResolveRoot()
 	if cfg.GameFilesDir == "" {
 		cfg.GameFilesDir = filepath.Join(root, "game_files")
 	}

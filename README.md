@@ -34,17 +34,7 @@ rm "$tmp" && \
 sudo csm          # launches the interactive TUI installer
 ```
 
-If you prefer a dedicated config directory (for example `/opt/cs2-server-manager`), you can point CSM at it explicitly:
-
-```bash
-sudo mkdir -p /opt/cs2-server-manager
-sudo chown "$(id -u)":"$(id -g)" /opt/cs2-server-manager
-export CSM_ROOT=/opt/cs2-server-manager
-export CSM_LOG_DIR=/opt/cs2-server-manager/logs   # optional; defaults to the csm binary dir
-cd /opt/cs2-server-manager && sudo csm
-```
-
-On first run, CSM will seed `CSM_ROOT/overrides/` and related paths with safe defaults if they don’t exist yet.
+By default, CSM stores its data under `/opt/cs2-server-manager` (creating it on demand) so overrides, game files, and logs are kept in one place.
 
 ---
 

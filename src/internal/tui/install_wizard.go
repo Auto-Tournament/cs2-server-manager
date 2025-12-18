@@ -429,26 +429,29 @@ func (m model) viewInstallWizard() string {
 
 	// Try to estimate disk space on the filesystem that will hold /home/<cs2User>.
 	baseLine := fmt.Sprintf("Estimated total footprint for this layout: ~%.1f GB (master + %d server(s)).", totalRequiredGB, numServers)
-	diskLine := fmt.Sprintf("Estimated additional space needed: ~%.1f GB.", additionalGB)
+	additionalLine := fmt.Sprintf("Estimated additional space needed: ~%.1f GB.", additionalGB)
 
 	_, freeGB, ok := estimateDiskSpace(m.wizard.cfg.cs2User)
 	if ok {
+		freeLine := fmt.Sprintf("Currently available: ~%.1f GB free.", freeGB)
 		afterGB := freeGB - additionalGB
 		if afterGB >= 0 {
-			diskLine2 := fmt.Sprintf("Approx after install: ~%.1f GB free (currently ~%.1f GB free).", afterGB, freeGB)
+			afterLine := fmt.Sprintf("Approximate free space after install: ~%.1f GB.", afterGB)
+			fmt.Fprintln(&b, subtleStyle.Render(freeLine))
 			fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-			fmt.Fprintln(&b, subtleStyle.Render(diskLine))
-			fmt.Fprintln(&b, subtleStyle.Render(diskLine2))
+			fmt.Fprintln(&b, subtleStyle.Render(additionalLine))
+			fmt.Fprintln(&b, subtleStyle.Render(afterLine))
 		} else {
 			needed := -afterGB
-			diskLine2 := fmt.Sprintf("Warning: estimated additional space is short by ~%.1f GB (currently ~%.1f GB free).", needed, freeGB)
+			warnLine := fmt.Sprintf("Warning: estimated additional space is short by ~%.1f GB.", needed)
+			fmt.Fprintln(&b, subtleStyle.Render(freeLine))
 			fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-			fmt.Fprintln(&b, warningStyle.Render(diskLine))
-			fmt.Fprintln(&b, warningStyle.Render(diskLine2))
+			fmt.Fprintln(&b, warningStyle.Render(additionalLine))
+			fmt.Fprintln(&b, warningStyle.Render(warnLine))
 		}
 	} else {
 		fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-		fmt.Fprintln(&b, subtleStyle.Render(diskLine))
+		fmt.Fprintln(&b, subtleStyle.Render(additionalLine))
 	}
 	fmt.Fprintln(&b)
 
