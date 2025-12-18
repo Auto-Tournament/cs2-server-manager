@@ -25,6 +25,12 @@ type BootstrapConfig struct {
 	EnableMetamod     bool
 	FreshInstall      bool
 	UpdateMaster      bool
+	// RequireExistingMaster, when true, tells bootstrap to *only* reuse an
+	// existing master install and never attempt to create or update it via
+	// SteamCMD. If the master install is missing, bootstrap will fail instead
+	// of downloading anything. This is primarily driven by the TUI install
+	// wizard option to “skip master download and rely on existing master”.
+	RequireExistingMaster bool
 	RCONPassword      string
 	MatchzySkipDocker bool
 	GameFilesDir      string // typically <root>/game_files
@@ -277,6 +283,26 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 	masterDir := filepath.Join(homeDir, "master-install")
 	gameinfo := filepath.Join(masterDir, "game", "csgo", "gameinfo.gi")
 
+	masterExists := false
+	if _, err := os.Stat(gameinfo); err == nil {
+		masterExists = true
+	}
+
+	// When RequireExistingMaster is set, never attempt to create or update the
+	// master via SteamCMD. If the master exists, reuse it as-is; if it does
+	// not exist, abort so the user can install it manually or rerun the
+	// wizard with master management enabled.
+	if cfg.RequireExistingMaster {
+		if cfg.FreshInstall {
+			return fmt.Errorf("cannot use RequireExistingMaster with FreshInstall; disable one of these options")
+		}
+		if masterExists {
+			fmt.Fprintln(w, "  [i] Master install exists; RequireExistingMaster=1, reusing without SteamCMD")
+			return nil
+		}
+		return fmt.Errorf("master install not found at %s and RequireExistingMaster=1; install master manually or disable this option", masterDir)
+	}
+
 	if cfg.FreshInstall {
 		if _, err := os.Stat(masterDir); err == nil {
 			fmt.Fprintln(w, "  [*] FRESH_INSTALL=1: Deleting existing master install")
@@ -293,7 +319,7 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		}
 	}
 
-	if _, err := os.Stat(gameinfo); err == nil && !cfg.UpdateMaster {
+	if masterExists && !cfg.UpdateMaster {
 		fmt.Fprintln(w, "  [i] Master install exists and UPDATE_MASTER=0, skipping")
 		return nil
 	}

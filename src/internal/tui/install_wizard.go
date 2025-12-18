@@ -41,6 +41,7 @@ const (
 	wizardFieldMetamod
 	wizardFieldFreshInstall
 	wizardFieldUpdateMaster
+	wizardFieldRequireMaster
 	wizardFieldUpdatePlugins
 	wizardFieldInstallMonitor
 	wizardFieldRCONPassword
@@ -194,6 +195,11 @@ func (w *installWizard) validateAll() error {
 		return fmt.Errorf("RCON password is required")
 	}
 
+	// Guard against incompatible install modes.
+	if w.cfg.requireExistingMaster && w.cfg.freshInstall {
+		return fmt.Errorf("fresh install cannot be combined with \"Require existing master\"; disable one of them")
+	}
+
 	return nil
 }
 
@@ -289,6 +295,7 @@ func (m model) viewInstallWizard() string {
 	renderRow(wizardFieldMetamod, "Enable Metamod:", boolLabel(m.wizard.cfg.enableMetamod))
 	renderRow(wizardFieldFreshInstall, "Fresh install:", boolLabel(m.wizard.cfg.freshInstall))
 	renderRow(wizardFieldUpdateMaster, "Update master:", boolLabel(m.wizard.cfg.updateMaster))
+	renderRow(wizardFieldRequireMaster, "Require existing master:", boolLabel(m.wizard.cfg.requireExistingMaster))
 	renderRow(wizardFieldUpdatePlugins, "Update plugins:", boolLabel(m.wizard.cfg.updatePlugins))
 	renderRow(wizardFieldInstallMonitor, "Install auto-update:", boolLabel(m.wizard.cfg.installMonitor))
 
@@ -379,6 +386,8 @@ func (m model) viewInstallWizard() string {
 		}
 	case wizardFieldUpdateMaster:
 		desc = "Run SteamCMD to update the master CS2 install before deploying servers."
+	case wizardFieldRequireMaster:
+		desc = "Do not run SteamCMD; reuse the master install only if it already exists. If missing, the install will fail instead of downloading CS2."
 	case wizardFieldUpdatePlugins:
 		desc = "Download the latest plugins before installing or redeploying servers."
 	case wizardFieldInstallMonitor:
@@ -639,6 +648,21 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.errMsg = ""
 			case wizardFieldUpdateMaster:
 				m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
+				if m.wizard.cfg.updateMaster {
+					// Updating the master implies we are willing to talk to
+					// SteamCMD; disable the "require existing master only"
+					// guard so the semantics stay clear.
+					m.wizard.cfg.requireExistingMaster = false
+				}
+				m.wizard.errMsg = ""
+			case wizardFieldRequireMaster:
+				m.wizard.cfg.requireExistingMaster = !m.wizard.cfg.requireExistingMaster
+				if m.wizard.cfg.requireExistingMaster {
+					// When we insist on reusing an existing master only, never
+					// auto-update it via SteamCMD. This prevents confusing
+					// combinations of options.
+					m.wizard.cfg.updateMaster = false
+				}
 				m.wizard.errMsg = ""
 			case wizardFieldUpdatePlugins:
 				m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
@@ -766,6 +790,15 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			return m, nil
 		case wizardFieldUpdateMaster:
 			m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
+			if m.wizard.cfg.updateMaster {
+				m.wizard.cfg.requireExistingMaster = false
+			}
+			return m, nil
+		case wizardFieldRequireMaster:
+			m.wizard.cfg.requireExistingMaster = !m.wizard.cfg.requireExistingMaster
+			if m.wizard.cfg.requireExistingMaster {
+				m.wizard.cfg.updateMaster = false
+			}
 			return m, nil
 		case wizardFieldUpdatePlugins:
 			m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
@@ -969,21 +1002,22 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			// Derive MatchZy Docker behaviour from dbMode.
 			cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
 			bcfg := csm.BootstrapConfig{
-				CS2User:            cfg.cs2User,
-				NumServers:         cfg.numServers,
-				BaseGamePort:       cfg.basePort,
-				BaseTVPort:         cfg.tvPort,
-				EnableMetamod:      cfg.enableMetamod,
-				FreshInstall:       cfg.freshInstall,
-				UpdateMaster:       cfg.updateMaster,
-				RCONPassword:       cfg.rconPassword,
-				MatchzySkipDocker:  cfg.matchzySkipDocker,
-				DBMode:             cfg.dbMode,
-				ExternalDBHost:     cfg.externalDBHost,
-				ExternalDBPort:     cfg.externalDBPort,
-				ExternalDBName:     cfg.externalDBName,
-				ExternalDBUser:     cfg.externalDBUser,
-				ExternalDBPassword: cfg.externalDBPassword,
+				CS2User:               cfg.cs2User,
+				NumServers:            cfg.numServers,
+				BaseGamePort:          cfg.basePort,
+				BaseTVPort:            cfg.tvPort,
+				EnableMetamod:         cfg.enableMetamod,
+				FreshInstall:          cfg.freshInstall,
+				UpdateMaster:          cfg.updateMaster,
+				RequireExistingMaster: cfg.requireExistingMaster,
+				RCONPassword:          cfg.rconPassword,
+				MatchzySkipDocker:     cfg.matchzySkipDocker,
+				DBMode:                cfg.dbMode,
+				ExternalDBHost:        cfg.externalDBHost,
+				ExternalDBPort:        cfg.externalDBPort,
+				ExternalDBName:        cfg.externalDBName,
+				ExternalDBUser:        cfg.externalDBUser,
+				ExternalDBPassword:    cfg.externalDBPassword,
 			}
 
 			// Stream bootstrap progress by mirroring logs into a temp file that
