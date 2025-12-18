@@ -54,6 +54,17 @@ const (
 	wizardFieldCount
 )
 
+// isFieldActive reports whether the given wizard field index should be focusable
+// in the current configuration. External DB fields are only active when the
+// MatchZy DB mode is set to "external"; in all other cases they are skipped
+// during navigation so the cursor never lands on invisible rows.
+func (w *installWizard) isFieldActive(index int) bool {
+	if index >= wizardFieldDBExternalHost && index <= wizardFieldDBExternalPassword {
+		return strings.EqualFold(w.cfg.dbMode, "external")
+	}
+	return index >= 0 && index < wizardFieldCount
+}
+
 // wizardWindowSize is the default number of wizard rows shown at once when we
 // don't know the terminal height yet. Once we receive a WindowSizeMsg, the
 // install wizard will compute a dynamic window size based on available rows.
@@ -460,7 +471,19 @@ func (m model) viewInstallWizard() string {
 		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
 	}
 
-	return b.String()
+	out := b.String()
+
+	// Ensure the rendered wizard view always occupies at least the current
+	// terminal height so that when fields are shown/hidden (e.g. toggling DB
+	// mode) we don't leave stale lines from the previous frame on screen.
+	if m.height > 0 {
+		lineCount := strings.Count(out, "\n")
+		if lineCount < m.height {
+			out += strings.Repeat("\n", m.height-lineCount)
+		}
+	}
+
+	return out
 }
 
 // updateInstallWizard handles navigation and editing for the one-page wizard.
@@ -473,7 +496,14 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	switch key.String() {
 	case "up", "k":
 		if m.wizard.cursor > 0 {
-			m.wizard.cursor--
+			// Move to the previous *active* field, skipping any inactive ones
+			// (such as external DB fields when DB mode is not set to external).
+			for {
+				m.wizard.cursor--
+				if m.wizard.cursor <= 0 || m.wizard.isFieldActive(m.wizard.cursor) {
+					break
+				}
+			}
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
 			// Keep cursor within the visible window when scrolling up.
@@ -487,7 +517,13 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		return m, nil
 	case "down", "j":
 		if m.wizard.cursor < wizardFieldCount-1 {
-			m.wizard.cursor++
+			// Move to the next *active* field, skipping any inactive ones.
+			for {
+				m.wizard.cursor++
+				if m.wizard.cursor >= wizardFieldCount-1 || m.wizard.isFieldActive(m.wizard.cursor) {
+					break
+				}
+			}
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
 			// Keep cursor within the visible window when scrolling down.
@@ -500,7 +536,11 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		}
 		return m, nil
 	case "tab":
+		// Advance to the next active field, wrapping around as needed.
 		m.wizard.cursor = (m.wizard.cursor + 1) % wizardFieldCount
+		for !m.wizard.isFieldActive(m.wizard.cursor) {
+			m.wizard.cursor = (m.wizard.cursor + 1) % wizardFieldCount
+		}
 		m.wizard.editing = false
 		m.wizard.errMsg = ""
 		windowSize := wizardWindowSizeFor(m.height)
@@ -511,9 +551,16 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		}
 		return m, nil
 	case "shift+tab":
+		// Move to the previous active field, wrapping around as needed.
 		m.wizard.cursor--
 		if m.wizard.cursor < 0 {
 			m.wizard.cursor = wizardFieldCount - 1
+		}
+		for !m.wizard.isFieldActive(m.wizard.cursor) {
+			m.wizard.cursor--
+			if m.wizard.cursor < 0 {
+				m.wizard.cursor = wizardFieldCount - 1
+			}
 		}
 		m.wizard.editing = false
 		m.wizard.errMsg = ""
@@ -567,6 +614,10 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				} else {
 					m.wizard.cfg.dbMode = "external"
 				}
+				// After toggling, keep focus on the DB mode row and reset the
+				// window so the visible rows match the new configuration.
+				m.wizard.cursor = wizardFieldDBMode
+				m.wizard.windowStart = 0
 				m.wizard.errMsg = ""
 			case wizardFieldMetamod:
 				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
@@ -617,6 +668,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				} else {
 					m.wizard.cfg.dbMode = "external"
 				}
+				m.wizard.cursor = wizardFieldDBMode
+				m.wizard.windowStart = 0
 				m.wizard.errMsg = ""
 			case wizardFieldMetamod:
 				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
@@ -687,6 +740,11 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			} else {
 				m.wizard.cfg.dbMode = "external"
 			}
+			// After toggling via Enter/space, keep focus on the DB mode row and
+			// reset the window so the newly visible rows line up cleanly.
+			m.wizard.cursor = wizardFieldDBMode
+			m.wizard.windowStart = 0
+			m.wizard.errMsg = ""
 			return m, nil
 		case wizardFieldMetamod:
 			m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
