@@ -12,6 +12,28 @@ CSM_WEBHOOK_DRY_RUN="${CSM_WEBHOOK_DRY_RUN:-false}"
 
 VERSION_FILE="src/internal/tui/version.go"
 
+confirm_release() {
+  local tag="$1"
+
+  # In non-interactive environments (e.g. CI), skip the prompt to preserve
+  # existing automation behaviour.
+  if [[ ! -t 0 ]]; then
+    echo "[csm] Non-interactive shell; skipping confirmation for ${tag}."
+    return 0
+  fi
+
+  echo
+  read -r -p "[csm] About to build and publish release ${tag}. Continue? [y/N]: " answer
+  case "$answer" in
+    y|Y|yes|YES)
+      ;;
+    *)
+      echo "[csm] Release cancelled."
+      exit 0
+      ;;
+  esac
+}
+
 git_commit_and_tag() {
   local tag="$1"
   local version_file="$2"
@@ -104,6 +126,9 @@ if [[ "$MODE" =~ ^(patch|minor|major)$ ]]; then
 
   echo "[csm] Bumping version: ${CURRENT_VERSION} -> ${TAG}"
 
+  # Ask for confirmation before modifying version.go, tagging and building.
+  confirm_release "${TAG}"
+
   # Update currentVersion in version.go to match the new tag.
   # Use a portable in-place edit (creates a .bak on macOS/BSD).
   # We anchor on the const line to avoid touching comments.
@@ -121,6 +146,9 @@ elif [[ "$MODE" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   TAG="v${BASE}"
 
   echo "[csm] Using explicit version: ${TAG}"
+
+  # Ask for confirmation before modifying version.go, tagging and building.
+  confirm_release "${TAG}"
 
   # Update currentVersion in version.go to match the requested tag so the
   # consistency check passes and the binary reports the correct version.
