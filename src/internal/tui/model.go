@@ -93,7 +93,6 @@ type installConfig struct {
 	enableMetamod      bool
 	freshInstall       bool
 	updateMaster       bool
-	requireExistingMaster bool
 	rconPassword       string
 	updatePlugins      bool
 	installMonitor     bool
@@ -425,7 +424,6 @@ func (m *model) initWizardDefaults() {
 		enableMetamod:        true,
 		freshInstall:         false,
 		updateMaster:         true,
-		requireExistingMaster: false,
 		// Leave RCON password empty by default so the wizard can require the
 		// user to set a value explicitly instead of relying on a baked-in
 		// event-specific default.

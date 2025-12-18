@@ -24,13 +24,10 @@ type BootstrapConfig struct {
 	BaseTVPort        int
 	EnableMetamod     bool
 	FreshInstall      bool
+	// UpdateMaster controls how the master CS2 install is handled:
+	//   - true  → run SteamCMD to install or update the master (fresh or in-place)
+	//   - false → reuse an existing master if present; fail if missing
 	UpdateMaster      bool
-	// RequireExistingMaster, when true, tells bootstrap to *only* reuse an
-	// existing master install and never attempt to create or update it via
-	// SteamCMD. If the master install is missing, bootstrap will fail instead
-	// of downloading anything. This is primarily driven by the TUI install
-	// wizard option to “skip master download and rely on existing master”.
-	RequireExistingMaster bool
 	RCONPassword      string
 	MatchzySkipDocker bool
 	GameFilesDir      string // typically <root>/game_files
@@ -296,19 +293,19 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		masterExists = true
 	}
 
-	// When RequireExistingMaster is set, never attempt to create or update the
+	// When UPDATE_MASTER is disabled, never attempt to create or update the
 	// master via SteamCMD. If the master exists, reuse it as-is; if it does
 	// not exist, abort so the user can install it manually or rerun the
-	// wizard with master management enabled.
-	if cfg.RequireExistingMaster {
+	// wizard/CLI with UPDATE_MASTER enabled.
+	if !cfg.UpdateMaster {
 		if cfg.FreshInstall {
-			return fmt.Errorf("cannot use RequireExistingMaster with FreshInstall; disable one of these options")
+			return fmt.Errorf("cannot use FreshInstall with UPDATE_MASTER=0; enable master download/update for a fresh install")
 		}
 		if masterExists {
-			fmt.Fprintln(w, "  [i] Master install exists; RequireExistingMaster=1, reusing without SteamCMD")
+			fmt.Fprintln(w, "  [i] Master install exists and UPDATE_MASTER=0; reusing without SteamCMD")
 			return nil
 		}
-		return fmt.Errorf("master install not found at %s and RequireExistingMaster=1; install master manually or disable this option", masterDir)
+		return fmt.Errorf("master install not found at %s and UPDATE_MASTER=0; install master manually or enable master download/update", masterDir)
 	}
 
 	if cfg.FreshInstall {
