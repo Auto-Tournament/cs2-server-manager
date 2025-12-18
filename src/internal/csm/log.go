@@ -9,12 +9,18 @@ import (
 )
 
 // logDir returns the base directory where CSM writes its log files. It can be
-// overridden with CSM_LOG_DIR; by default we use the current directory so that
-// local/dev runs don't require root. On servers you can set CSM_LOG_DIR to
-// e.g. /var/log/csm to centralise logs.
+// overridden with CSM_LOG_DIR; by default we use the directory containing the
+// csm binary so logs are colocated with the manager rather than the caller's
+// current working directory. On servers you can set CSM_LOG_DIR to e.g.
+// /var/log/csm to centralise logs.
 func logDir() string {
 	if d := os.Getenv("CSM_LOG_DIR"); d != "" {
 		return d
+	}
+	if exe, err := os.Executable(); err == nil && exe != "" {
+		if dir := filepath.Dir(exe); dir != "" {
+			return dir
+		}
 	}
 	return "."
 }

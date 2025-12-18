@@ -24,7 +24,19 @@ rm "$tmp" && \
 sudo csm            # launches the interactive TUI installer
 ```
 
-This uses the default `overrides/` folder that ships with the release, if present.
+By default, CSM assumes a **configuration root** (`CSM_ROOT`) where it expects `overrides/` and `game_files/`:
+
+- If you set `CSM_ROOT`, it uses that directory.
+- Otherwise, it uses the directory containing the `csm` binary (for example `/usr/local/bin` for the global install).
+
+For most setups it’s a good idea to pick a dedicated config directory, e.g. `/opt/cs2-server-manager`, and set:
+
+```bash
+export CSM_ROOT=/opt/cs2-server-manager
+cd /opt/cs2-server-manager && sudo csm
+```
+
+The first time you run the installer, CSM will seed `CSM_ROOT/overrides/` with safe defaults if it doesn’t exist yet.
 
 ### 2. Git clone & customize
 
@@ -47,12 +59,12 @@ The `overrides/` folder contains configuration that is applied to all servers:
 - Structure mirrors the game folder:
 
 ```text
-overwrites/game/csgo/
+overrides/game/csgo/
 ├── cfg/MatchZy/
 └── addons/
 ```
 
-Anything you put here will be copied into each server’s game directory.
+Anything you put here will be copied into each server’s game directory (via `/home/<cs2_user>/cs2-config/game`).
 
 ## Ports and RCON
 
@@ -71,5 +83,5 @@ Default ports (incrementing by 10):
 
 - Keep all long-term customizations inside `overrides/`.
 - Use a git repo for your overrides directory so you can version changes.
-- Avoid editing files directly under `/home/cs2servermanager/server-*` unless testing something temporarily.
+- Avoid editing files directly under `/home/<cs2_user>/server-*` unless testing something temporarily.
 - After changing configs, restart the relevant server(s) via `csm restart`.

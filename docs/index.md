@@ -40,11 +40,11 @@ rm "$tmp" && \
 sudo csm            # launches the interactive TUI installer
 ```
 
-Read the **Getting Started** section for a full walkthrough.
+Read the **Getting Started** section for a full walkthrough. For advanced setups you can point CSM at a dedicated config directory via `CSM_ROOT` and `CSM_LOG_DIR` (see **Guides → Configuration & Overrides**).
 
 ## Project layout
 
-- `overrides/` – your persistent game and plugin configuration.
+- `overrides/` – your persistent game and plugin configuration (under the CSM root, typically next to the `csm` binary unless `CSM_ROOT` is set).
 
 See:
 

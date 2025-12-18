@@ -23,11 +23,19 @@ type PluginUpdater struct {
 }
 
 // NewPluginUpdater discovers the game_files and overrides directories based on
-// CSM_ROOT or the current working directory.
+// CSM_ROOT or the csm binary location (falling back to the current working
+// directory for local/dev runs).
 func NewPluginUpdater() *PluginUpdater {
 	root := os.Getenv("CSM_ROOT")
 	if root == "" {
-		if wd, err := os.Getwd(); err == nil {
+		if exe, err := os.Executable(); err == nil && exe != "" {
+			if dir := filepath.Dir(exe); dir != "" {
+				root = dir
+			}
+		}
+	}
+	if root == "" {
+		if wd, err := os.Getwd(); err == nil && wd != "" {
 			root = wd
 		} else {
 			root = "."
