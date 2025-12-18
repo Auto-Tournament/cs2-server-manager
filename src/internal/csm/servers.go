@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -131,6 +132,12 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 	}
 
 	log("  [✓] Server-%d ready (game %d, TV %d)", newIdx, gamePortNew, tvPortNew)
+
+	// As a final safety net, ensure the CS2 user owns everything under its home
+	// directory so the newly created server files are writable by that user.
+	homeDir := filepath.Join("/home", user)
+	log("  [i] Ensuring ownership of %s for user %s", homeDir, user)
+	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", user, user), homeDir).Run()
 
 	// Automatically start the new server so scale-up feels complete without
 	// requiring a separate "start" action.

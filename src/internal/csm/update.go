@@ -75,6 +75,11 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 	cs2User := mgr.CS2User
 	masterDir := filepath.Join("/home", cs2User, "master-install")
 
+	// Preserve the current Metamod enabled/disabled state so we can re-apply
+	// it after refreshing game files from the master install. Valve updates
+	// may overwrite gameinfo.gi, which would otherwise drop the Metamod line.
+	enableMetamod := detectMetamodEnabled(cs2User)
+
 	log("=== Update CS2 Game Files (After Valve Update) ===")
 	log("This will:")
 	log("  • Update master CS2 installation via SteamCMD")
@@ -130,7 +135,23 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 			// others.
 			continue
 		}
+
+		// Ensure Metamod remains in sync with the pre-update setting.
+		if err := configureMetamodGo(&buf, cs2User, i, enableMetamod); err != nil {
+			log("  [!] Configure Metamod for server-%d failed after game update: %v", i, err)
+		}
 	}
+
+	if err := checkCtx(); err != nil {
+		return buf.String(), err
+	}
+
+	// As a safety net, ensure the CS2 user owns everything under its home
+	// directory. This avoids subtle permission issues after rsync/SteamCMD
+	// operations run as root.
+	homeDir := filepath.Join("/home", cs2User)
+	log("Ensuring ownership of %s for user %s", homeDir, cs2User)
+	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), homeDir).Run()
 
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
@@ -207,6 +228,10 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 	up := NewPluginUpdater()
 	gameDir := up.GameDir
 
+	// Preserve the current Metamod enabled/disabled state so we can re-apply
+	// it on each server after syncing updated plugins/configs.
+	enableMetamod := detectMetamodEnabled(mgr.CS2User)
+
 	log("=== Update Plugins on All Servers ===")
 	log("This will:")
 	log("  • Stop all servers")
@@ -254,7 +279,23 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 
 		srcCfg := filepath.Join(gameDir, "csgo", "cfg") + string(os.PathSeparator)
 		_ = runCmdLoggedContext(ctx, w, "rsync", "-a", srcCfg, filepath.Join(dstGame, "cfg")+"/")
+
+		// Re-apply Metamod configuration for each server so that any changes
+		// to plugins/configs do not drop the Metamod line from gameinfo.gi.
+		if err := configureMetamodGo(&buf, mgr.CS2User, i, enableMetamod); err != nil {
+			log("  [!] Configure Metamod for server-%d failed after plugin deploy: %v", i, err)
+		}
 	}
+
+	if err := checkCtx(); err != nil {
+		return buf.String(), err
+	}
+
+	// Ensure the CS2 user owns everything under its home directory after
+	// rsyncing plugins/configs as root.
+	homeDir := filepath.Join("/home", mgr.CS2User)
+	log("Ensuring ownership of %s for user %s", homeDir, mgr.CS2User)
+	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", mgr.CS2User, mgr.CS2User), homeDir).Run()
 
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
@@ -379,6 +420,10 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 	cs2User := mgr.CS2User
 	masterDir := filepath.Join("/home", cs2User, "master-install")
 
+	// Preserve the current Metamod enabled/disabled state so we can re-apply
+	// it on this server after refreshing game files from the master install.
+	enableMetamod := detectMetamodEnabled(cs2User)
+
 	// Track a transient "UPDATING" status for this server so the TUI/CLI status
 	// view can show that work is in progress rather than simply "STOPPED".
 	statusPath := mgr.serverStatusFile(server)
@@ -470,9 +515,22 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 		return buf.String(), err
 	}
 
+	// Ensure Metamod remains in sync with the pre-update setting.
+	if err := configureMetamodGo(&buf, cs2User, server, enableMetamod); err != nil {
+		log("Error configuring Metamod for server-%d after update: %v", server, err)
+	}
+
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
 	}
+
+	log("")
+
+	// As a safety net, ensure the CS2 user owns everything under its home
+	// directory after rsync/SteamCMD work.
+	homeDir := filepath.Join("/home", cs2User)
+	log("Ensuring ownership of %s for user %s", homeDir, cs2User)
+	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), homeDir).Run()
 
 	log("")
 	log("Restarting server-%d...", server)
