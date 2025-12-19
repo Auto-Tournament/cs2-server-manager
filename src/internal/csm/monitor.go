@@ -252,37 +252,6 @@ func findMatchzyUpdateMarker(path, marker string, maxBytes int64) (bool, string,
 	return true, "", nil
 }
 
-// tailContains checks whether the last up-to-maxBytes contents of path contain
-// the given substring. It avoids reading the entire file when logs grow large.
-func tailContains(path, substr string, maxBytes int64) (bool, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return false, err
-	}
-
-	size := info.Size()
-	start := int64(0)
-	if size > maxBytes {
-		start = size - maxBytes
-	}
-	if _, err := f.Seek(start, 0); err != nil {
-		return false, err
-	}
-
-	buf := make([]byte, size-start)
-	if _, err := f.Read(buf); err != nil {
-		return false, err
-	}
-
-	return strings.Contains(string(buf), substr), nil
-}
-
 // shouldProcessUpdate enforces a simple cooldown based on a timestamp file on
 // disk so the monitor does not run updates too frequently (for example, if
 // AutoUpdater restarts servers multiple times in quick succession). The
