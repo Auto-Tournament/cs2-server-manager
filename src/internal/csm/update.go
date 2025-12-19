@@ -646,7 +646,9 @@ func syncMasterToServerWithContext(ctx context.Context, w *bytes.Buffer, logFile
 		_ = exec.Command("cp", "-a", addonsDir, addonsDir+".backup").Run()
 	}
 
-	srcRoot := filepath.Join("/home", mgr.CS2User, "master-install", "game") + string(os.PathSeparator)
+	// Use the provided masterDir as the authoritative source for updated game
+	// files so callers can control which master install to sync from.
+	srcRoot := filepath.Join(masterDir, "game") + string(os.PathSeparator)
 	dstRoot := dst + string(os.PathSeparator)
 
 	args := []string{
