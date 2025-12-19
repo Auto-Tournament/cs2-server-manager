@@ -41,7 +41,9 @@ Look in the CounterStrikeSharp logs under each server’s `game/csgo/addons/coun
 sudo tail -n 200 csm.log | sed -n '/\\[log=auto_update_monitor\\.log\\]/,$p'
 ```
 
-- Confirm the AutoUpdater plugin is actually shutting servers down on updates.
+- Confirm that MatchZy logs contain the expected update markers when Valve ships a new build, for example:
+  - `[MATCHZY_UPDATE_AVAILABLE] required_version=14129`
+  - `[MATCHZY_UPDATE_SHUTDOWN] required_version=14129`
 - Run `csm update-game` manually to confirm updates work outside the monitor.
 
 ## Can’t connect to server

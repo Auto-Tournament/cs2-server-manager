@@ -32,7 +32,7 @@ The installer wizard will:
 - Install required system dependencies.
 - Download CS2 server files.
 - Set up Dockerized MySQL.
-- Install Metamod, CounterStrikeSharp, MatchZy, and AutoUpdater.
+- Install Metamod, CounterStrikeSharp, and MatchZy (enhanced).
 - Configure multiple CS2 instances with sane defaults.
 
 ## 2. Use the CSM TUI

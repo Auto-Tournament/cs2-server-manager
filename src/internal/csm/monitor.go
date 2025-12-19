@@ -50,18 +50,19 @@ func RunAutoUpdateMonitor() error {
 
 	log("Detected %d CS2 servers for user %s", mgr.NumServers, mgr.CS2User)
 
-	// Step 1: For each server, if its tmux session is NOT running, inspect the
-	// corresponding tmux log for the AutoUpdater shutdown marker. This allows
-	// per-server updates without requiring all servers to be down at once.
-	const shutdownMarker = "plugin:AutoUpdater Shutting the server down due to the new game update"
+	// Step 1: For each server, inspect the tmux log for MatchZy auto-update
+	// markers. While the session is running we only record that an update is
+	// pending; once the server is stopped and a shutdown marker is present we
+	// run the actual game update for that specific server.
+	const (
+		matchzyAvailableMarker = "[MATCHZY_UPDATE_AVAILABLE]"
+		matchzyShutdownMarker  = "[MATCHZY_UPDATE_SHUTDOWN]"
+	)
 
 	for i := 1; i <= mgr.NumServers; i++ {
 		session := mgr.sessionName(i)
 		cmd := mgr.runAsCS2User("tmux has-session -t " + session)
-		if err := cmd.Run(); err == nil {
-			// Session still running; skip this server for now.
-			continue
-		}
+		running := cmd.Run() == nil
 
 		logPath := mgr.ServerLogPath(i)
 		if strings.TrimSpace(logPath) == "" {
@@ -69,7 +70,24 @@ func RunAutoUpdateMonitor() error {
 			continue
 		}
 
-		found, err := tailContains(logPath, shutdownMarker, 64*1024)
+		// While the server is running, only record that an update is pending
+		// so operators and dashboards can see why a restart will happen later.
+		if running {
+			if found, version, err := findMatchzyUpdateMarker(logPath, matchzyAvailableMarker, 64*1024); err == nil && found {
+				if version != "" {
+					log("Server-%d: MatchZy reports a pending CS2 update (required_version=%s); waiting for a safe shutdown before applying.", i, version)
+				} else {
+					log("Server-%d: MatchZy reports a pending CS2 update; waiting for a safe shutdown before applying.", i)
+				}
+			}
+			// Do not attempt updates while matches are live; MatchZy will
+			// trigger a clean shutdown once it is safe.
+			continue
+		}
+
+		// When the server is stopped, look for the MatchZy shutdown marker to
+		// distinguish intentional update restarts from crashes.
+		found, version, err := findMatchzyUpdateMarker(logPath, matchzyShutdownMarker, 64*1024)
 		if err != nil {
 			log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
 			continue
@@ -78,7 +96,11 @@ func RunAutoUpdateMonitor() error {
 			continue
 		}
 
-		log("Server-%d: AutoUpdater shutdown marker found in tmux log (%s).", i, logPath)
+		if version != "" {
+			log("Server-%d: MatchZy shutdown marker found in tmux log (%s), required_version=%s.", i, logPath, version)
+		} else {
+			log("Server-%d: MatchZy shutdown marker found in tmux log (%s).", i, logPath)
+		}
 
 		info, err := os.Stat(logPath)
 		if err != nil {
@@ -176,6 +198,58 @@ func InstallAutoUpdateCronWithContext(ctx context.Context, interval string) (str
 func writeMonitorLog(content string, err error) error {
 	AppendLog("auto_update_monitor.log", content)
 	return err
+}
+
+// findMatchzyUpdateMarker scans up to maxBytes from the end of the given log
+// file looking for the last occurrence of a MatchZy auto-update marker line
+// and, when found, attempts to parse the required_version=<number> token.
+// It returns whether the marker was found at all, the parsed version string
+// (which may be empty on parse failure) and any I/O error encountered.
+func findMatchzyUpdateMarker(path, marker string, maxBytes int64) (bool, string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, "", err
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return false, "", err
+	}
+
+	size := info.Size()
+	start := int64(0)
+	if size > maxBytes {
+		start = size - maxBytes
+	}
+	if _, err := f.Seek(start, 0); err != nil {
+		return false, "", err
+	}
+
+	buf := make([]byte, size-start)
+	if _, err := f.Read(buf); err != nil {
+		return false, "", err
+	}
+
+	text := string(buf)
+	if !strings.Contains(text, marker) {
+		return false, "", nil
+	}
+
+	lines := strings.Split(text, "\n")
+	re := regexp.MustCompile(`\[MATCHZY_UPDATE_(AVAILABLE|SHUTDOWN)\]\s+required_version=(\d+)`)
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" || !strings.Contains(line, marker) {
+			continue
+		}
+		if m := re.FindStringSubmatch(line); len(m) == 3 {
+			return true, m[2], nil
+		}
+	}
+
+	// Marker was present in the tail, but we couldn't parse a version token.
+	return true, "", nil
 }
 
 // tailContains checks whether the last up-to-maxBytes contents of path contain

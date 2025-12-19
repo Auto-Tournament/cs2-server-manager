@@ -1,27 +1,45 @@
 # Auto Updates
 
-CS2 Server Manager includes an automated update flow that works with the CS2 AutoUpdater plugin and SteamCMD.
+CS2 Server Manager includes an automated update flow that works with **MatchZy Enhanced’s built-in auto-updater** and SteamCMD.
+
+MatchZy emits clear log markers when a CS2 update is available and when it is about to shut the server down to apply that update. The Go-native monitor built into `csm` watches for these markers and runs the game update for the affected server.
+
+## Log markers
+
+MatchZy writes the following lines to the server console/logs:
+
+```text
+[MATCHZY_UPDATE_AVAILABLE] required_version=<number>
+[MATCHZY_UPDATE_SHUTDOWN] required_version=<number>
+```
+
+- `[MATCHZY_UPDATE_AVAILABLE]` – A new CS2 update is available according to Steam’s `UpToDateCheck`. MatchZy has detected the update but will **not restart yet** while a MatchZy match is active.
+- `[MATCHZY_UPDATE_SHUTDOWN]` – MatchZy has decided it is **safe to restart** (no active match) and is about to execute `quit` so the server process can shut down for the update.
+
+The `required_version=<number>` value is the app build that the server should update to.
 
 ## What gets automated
 
 The auto-update system:
 
-- Detects when the AutoUpdater plugin shuts servers down for a game update.
-- Runs the game update via SteamCMD.
-- Restarts servers after the update.
-- Enforces a cooldown so you don’t get stuck in an update loop.
+- Detects when MatchZy has safely shut a server down for a CS2 update.
+- Runs the game update via SteamCMD against the shared master install.
+- rsyncs the updated master into the specific `server-N`.
+- Restarts only that server.
+- Enforces a per-server cooldown so you don’t get stuck in an update loop.
 
-All of this is now orchestrated by the Go-native monitor built into `csm` (no separate shell script required).
+All of this is orchestrated by the Go-native monitor built into `csm` (no separate shell script required).
 
 ## How the monitor works
 
 The auto-update monitor is designed to be run periodically (e.g., via cron) using the `csm` binary:
 
 1. For each server:
-   - If its `cs2-N` tmux session is **running**, it is left alone.
-   - If the session is **stopped**, the monitor scans the per-server tmux log (`/home/<CS2_USER>/logs/server-N.log`) for the AutoUpdater shutdown message.
-2. When that shutdown message is detected for a stopped server, the monitor:
-   - Ensures an update hasn’t been processed too recently for that specific server (1-hour per-server cooldown).
+   - If its `cs2-N` tmux session is **running**, the monitor only notes `[MATCHZY_UPDATE_AVAILABLE]` markers (if present) and waits; MatchZy will decide when it is safe to restart.
+   - If the session is **stopped**, the monitor scans the per-server tmux log (`/home/<CS2_USER>/logs/server-N.log`) for a `[MATCHZY_UPDATE_SHUTDOWN]` line.
+2. When a shutdown marker is detected for a stopped server, the monitor:
+   - Parses the `required_version=<number>` value.
+   - Ensures an update hasn’t been processed too recently for that specific server (1‑hour per-server cooldown).
    - Runs a **per-server game update** via `UpdateServerWithContext`, which:
      - Updates the shared master CS2 install via SteamCMD.
      - rsyncs the updated master into `server-N`.

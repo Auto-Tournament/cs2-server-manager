@@ -413,7 +413,7 @@ func UpdateAndDeployPluginsWithContext(ctx context.Context) (string, error) {
 // UpdateServerWithContext updates the game files for a single server via
 // SteamCMD (against the shared master install) and rsync, without touching
 // other servers. It is intended for targeted update flows such as reacting to
-// an AutoUpdater-driven shutdown of a specific server.
+// a MatchZy-driven update shutdown of a specific server.
 func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 	var buf bytes.Buffer
 
