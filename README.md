@@ -41,7 +41,7 @@ By default, CSM stores its data under `/opt/cs2-server-manager` (creating it on 
 ## ✨ Features
 
 💣 **Multi-Server Deployment** — 3–5 servers with one command  
-⚙️ **Auto-Plugin Install** — Metamod, CounterStrikeSharp, MatchZy, AutoUpdater  
+⚙️ **Auto-Plugin Install** — Metamod, CounterStrikeSharp, MatchZy  
 🔁 **Auto-Updates** — Game & plugin updates happen automatically  
 📦 **Config Persistence** — Your configs in `overrides/` survive all updates  
 🏆 **Tournament Ready** — Integrates with MatchZy Auto Tournament  

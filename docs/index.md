@@ -17,7 +17,7 @@ Designed to work hand-in-hand with:
 ## What it does
 
 - **Multi-server deployment**: Spin up 3–5 CS2 servers with a single command.
-- **Tournament-ready stack**: Installs Metamod, CounterStrikeSharp, MatchZy (enhanced), and AutoUpdater.
+- **Tournament-ready stack**: Installs Metamod, CounterStrikeSharp, MatchZy (enhanced).
 - **Safe updates**: Handles game and plugin updates automatically while preserving your configs.
 - **Persistent overrides**: Everything in `overrides/` survives updates.
 - **Observability & control**: Go-based CLI/TUI and tmux integration for logs and debugging.

@@ -36,8 +36,8 @@ func NewPluginUpdater() *PluginUpdater {
 }
 
 // UpdatePlugins downloads and stages the latest Metamod:Source,
-// CounterStrikeSharp, MatchZy (enhanced if available) and CS2-AutoUpdater
-// plugins into game_files/, then applies overrides.
+// CounterStrikeSharp and MatchZy (enhanced if available) plugins into
+// game_files/, then applies overrides.
 func UpdatePlugins() (string, error) {
 	up := NewPluginUpdater()
 	var buf bytes.Buffer
@@ -69,7 +69,14 @@ func UpdatePlugins() (string, error) {
 	log("=== Update Plugins ===")
 	log("")
 
-	if err := os.MkdirAll(filepath.Join(up.GameDir, "csgo", "addons"), 0o755); err != nil {
+	// Ensure a clean plugin baseline before downloading new bundles so that
+	// stale files from previous versions are not carried forward. The deploy
+	// step will mirror this clean tree into each server's addons directory.
+	addonsDir := filepath.Join(up.GameDir, "csgo", "addons")
+	if err := os.RemoveAll(addonsDir); err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to clean existing addons directory %s: %w", addonsDir, err)
+	}
+	if err := os.MkdirAll(addonsDir, 0o755); err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(up.TempDir, 0o755); err != nil {
@@ -90,10 +97,6 @@ func UpdatePlugins() (string, error) {
 		log("[ERROR] MatchZy update failed: %v", err)
 		failed = append(failed, "MatchZy")
 	}
-	if err := up.downloadCS2AutoUpdater(w); err != nil {
-		log("[ERROR] CS2-AutoUpdater update failed: %v", err)
-		failed = append(failed, "CS2-AutoUpdater")
-	}
 
 	if len(failed) == 0 {
 		up.applyOverrides(w)
@@ -109,7 +112,6 @@ func UpdatePlugins() (string, error) {
 		log("  • Metamod:Source     → game_files/game/csgo/addons/metamod/")
 		log("  • CounterStrikeSharp → game_files/game/csgo/addons/counterstrikesharp/")
 		log("  • MatchZy            → game_files/game/csgo/addons/counterstrikesharp/plugins/MatchZy/")
-		log("  • CS2-AutoUpdater    → game_files/game/csgo/addons/counterstrikesharp/plugins/AutoUpdater/")
 		log("  • Custom overrides   → Applied from overrides/game/")
 		return buf.String(), nil
 	}
@@ -352,85 +354,6 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 		return err
 	}
 	return nil
-}
-
-func (up *PluginUpdater) downloadCS2AutoUpdater(w io.Writer) error {
-	const apiURL = "https://api.github.com/repos/dran1x/CS2-AutoUpdater/releases/latest"
-
-	fmt.Fprintln(w, "[AutoUpdater] Fetching latest CS2-AutoUpdater release...")
-	var rel struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := up.fetchJSON(apiURL, &rel); err != nil {
-		return err
-	}
-
-	var downloadURL string
-	for _, a := range rel.Assets {
-		if strings.HasSuffix(a.Name, ".zip") {
-			downloadURL = a.URL
-			break
-		}
-	}
-	if downloadURL == "" {
-		return fmt.Errorf("no suitable CS2-AutoUpdater asset found")
-	}
-
-	fmt.Fprintf(w, "[AutoUpdater] Target: CS2-AutoUpdater %s\n", rel.TagName)
-	fmt.Fprintln(w, "[AutoUpdater] Downloading...")
-
-	resp, err := up.httpClient().Get(downloadURL)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download failed with status %d", resp.StatusCode)
-	}
-
-	tmpZip := filepath.Join(up.TempDir, "cs2autoupdater.zip")
-	f, err := os.Create(tmpZip)
-	if err != nil {
-		return err
-	}
-
-	pw := &downloadProgressWriter{
-		dest:     f,
-		progress: w,
-		label:    "[AutoUpdater]",
-		total:    resp.ContentLength,
-	}
-	if _, err := io.Copy(pw, resp.Body); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-
-	extractDir := filepath.Join(up.TempDir, "cs2autoupdater_extract")
-	_ = os.RemoveAll(extractDir)
-	if err := os.MkdirAll(extractDir, 0o755); err != nil {
-		return err
-	}
-	if err := up.unzipTo(tmpZip, extractDir); err != nil {
-		return err
-	}
-
-	pluginsSrc := filepath.Join(extractDir, "plugins")
-	if fi, err := os.Stat(pluginsSrc); err != nil || !fi.IsDir() {
-		return fmt.Errorf("plugins folder not found in CS2-AutoUpdater package")
-	}
-
-	dst := filepath.Join(up.GameDir, "csgo", "addons", "counterstrikesharp", "plugins")
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
-	}
-	return runCmdLogged(w, "rsync", "-a", pluginsSrc+string(os.PathSeparator), dst+string(os.PathSeparator))
 }
 
 func (up *PluginUpdater) applyOverrides(w io.Writer) {

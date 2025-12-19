@@ -235,6 +235,7 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 	log("=== Update Plugins on All Servers ===")
 	log("This will:")
 	log("  • Stop all servers")
+	log("  • Replace all files under each server's game/csgo/addons directory with the latest plugin bundle")
 	log("  • Sync plugins from %s to each server", gameDir)
 	log("  • Restart all servers")
 	log("")
@@ -269,9 +270,20 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 		}
 		log("  Updating plugins on server-%d ...", i)
 		dstGame := filepath.Join(serverDir, "game", "csgo")
+		dstAddons := filepath.Join(dstGame, "addons")
+
+		// Fully replace the server's addons tree so no stale plugin files linger
+		// between updates.
+		if err := os.RemoveAll(dstAddons); err != nil && !os.IsNotExist(err) {
+			log("  [WARN] Failed to clean addons for server-%d at %s: %v", i, dstAddons, err)
+		}
+		if err := os.MkdirAll(dstAddons, 0o755); err != nil {
+			log("  [ERROR] Failed to recreate addons directory for server-%d at %s: %v", i, dstAddons, err)
+			continue
+		}
 
 		srcAddons := filepath.Join(gameDir, "csgo", "addons") + string(os.PathSeparator)
-		if err := runCmdLoggedContext(ctx, w, "rsync", "-a", "--delete", srcAddons, filepath.Join(dstGame, "addons")+"/"); err != nil {
+		if err := runCmdLoggedContext(ctx, w, "rsync", "-a", "--delete", srcAddons, dstAddons+string(os.PathSeparator)); err != nil {
 			log("  [ERROR] rsync addons for server-%d failed: %v", i, err)
 		} else {
 			log("  [OK] Updated addons on server-%d", i)

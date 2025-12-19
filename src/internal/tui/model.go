@@ -334,7 +334,7 @@ func buildItemsForTab(t tab) []menuItem {
 			},
 			{
 				title:       "Update plugins on all servers",
-				description: "Sync plugins from game_files/ and overrides/ to every server instance.",
+				description: "Download the latest plugin bundle and redeploy it to all servers (replaces addon files).",
 				kind:        itemDeployPluginsGo,
 			},
 			{
@@ -834,7 +834,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, runUpdateGameGo(), m.spin.Tick)
 			case itemDeployPluginsGo:
 				m.running = true
-				m.status = "Updating plugins on all servers (download + deploy)..."
+				m.status = "Updating plugins on all servers (download + deploy, replaces existing addon files)..."
 				m.lastOutput = ""
 				cmds = append(cmds, runDeployPluginsGo(), m.spin.Tick)
 			case itemInstallMonitorGo:
@@ -923,7 +923,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					"      Update CS2 game files after a Valve update.",
 					"",
 					"  sudo csm update-plugins",
-					"      Download and deploy the latest plugin bundle.",
+					"      Download and deploy the latest plugin bundle (replaces addon files on all servers).",
 					"",
 					"For a full list of commands and which require sudo, run:",
 					"",
@@ -1541,7 +1541,7 @@ func (m model) View() string {
 		case itemUpdateGameGo:
 			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:
-			desc = "Download the latest plugin bundle, then sync plugins/configs to all servers."
+			desc = "Download the latest plugin bundle, then sync plugins/configs to all servers (replaces addon files)."
 		case itemMatchzyDBViewport:
 			desc = "Verify and (if needed) repair the MatchZy MySQL database in a scrollable view."
 		case itemPublicIPGo:

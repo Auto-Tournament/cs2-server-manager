@@ -384,7 +384,7 @@ func (m model) viewInstallWizard() string {
 			desc = "Reuse an existing master CS2 install if present; if it is missing, the install will fail instead of downloading CS2."
 		}
 	case wizardFieldUpdatePlugins:
-		desc = "Download the latest plugins before installing or redeploying servers."
+		desc = "Download the latest plugins and replace existing addon files on all servers."
 	case wizardFieldInstallMonitor:
 		desc = "Install a cron-based auto-update monitor that keeps servers up to date when the AutoUpdater plugin shuts them down."
 	case wizardFieldRCONPassword:
