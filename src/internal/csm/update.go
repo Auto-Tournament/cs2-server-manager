@@ -227,6 +227,7 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 
 	up := NewPluginUpdater()
 	gameDir := up.GameDir
+	sharedCfgDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "cfg")
 
 	// Preserve the current Metamod enabled/disabled state so we can re-apply
 	// it on each server after syncing updated plugins/configs.
@@ -236,7 +237,7 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 	log("This will:")
 	log("  • Stop all servers")
 	log("  • Replace all files under each server's game/csgo/addons directory with the latest plugin bundle")
-	log("  • Sync plugins from %s to each server", gameDir)
+	log("  • Sync plugin configs from %s to each server", sharedCfgDir)
 	log("  • Restart all servers")
 	log("")
 
@@ -289,8 +290,22 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 			log("  [OK] Updated addons on server-%d", i)
 		}
 
-		srcCfg := filepath.Join(gameDir, "csgo", "cfg") + string(os.PathSeparator)
-		_ = runCmdLoggedContext(ctx, w, "rsync", "-a", srcCfg, filepath.Join(dstGame, "cfg")+"/")
+		// For configs, treat the shared cs2-config tree as the canonical source
+		// so that any MatchZy or other plugin configs maintained there are
+		// propagated to all servers.
+		if fi, err := os.Stat(sharedCfgDir); err == nil && fi.IsDir() {
+			if err := runCmdLoggedContext(ctx, w, "rsync",
+				"-a",
+				sharedCfgDir+string(os.PathSeparator),
+				filepath.Join(dstGame, "cfg")+"/",
+			); err != nil {
+				log("  [ERROR] rsync cfg for server-%d failed: %v", i, err)
+			} else {
+				log("  [OK] Synced cfg from %s to server-%d", sharedCfgDir, i)
+			}
+		} else {
+			log("  [i] Shared cfg directory %s not found; skipping cfg sync for server-%d", sharedCfgDir, i)
+		}
 
 		// Re-apply Metamod configuration for each server so that any changes
 		// to plugins/configs do not drop the Metamod line from gameinfo.gi.
