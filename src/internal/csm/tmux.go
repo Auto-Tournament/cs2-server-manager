@@ -212,6 +212,13 @@ func (m *TmuxManager) Start(server int) error {
 	gameDir := filepath.Join(serverDir, "game")
 	logFile := m.serverLogFile(server)
 
+	// Clear any existing persistent log so each start gets a fresh log file and
+	// old logs do not grow without bound. The next tmux/tee invocation will
+	// recreate the file as needed.
+	if err := os.Remove(logFile); err != nil && !os.IsNotExist(err) {
+		log.Printf("[tmux] Start: failed to remove existing log file %q: %v", logFile, err)
+	}
+
 	// Derive game/TV ports from the server's autoexec.cfg so tmux launches
 	// servers with the same port layout the installer configured. This mirrors
 	// the original cs2_tmux.sh behaviour which always passed -port/+tv_port
