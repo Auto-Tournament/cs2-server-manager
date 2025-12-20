@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/progress"
 	tea "github.com/charmbracelet/bubbletea"
+	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 )
 
 func (m model) viewViewport() string {
@@ -178,6 +179,33 @@ func (m model) viewAddServersPrompt() string {
 		fmt.Fprintln(&b, "Press Enter to add servers, Esc to cancel.")
 	}
 
+	// Rough disk space estimate for adding N additional servers, based on the
+	// same per-server footprint used by the install wizard's disk estimate.
+	value := strings.TrimSpace(m.wizard.input.Value())
+	if n, err := strconv.Atoi(value); err == nil && n > 0 {
+		const perServerGB = csm.DefaultPerServerDiskGB
+		additionalGB := perServerGB * float64(n)
+
+		// Derive the CS2 user from the tmux manager so we match the actual
+		// install layout on disk.
+		if mgr, err := csm.NewTmuxManager(); err == nil {
+			_, freeGB, ok := estimateDiskSpace(mgr.CS2User)
+			if ok {
+				afterGB := freeGB - additionalGB
+				fmt.Fprintln(&b)
+				summary := fmt.Sprintf(
+					"Disk: adding %d server(s) will use ~%.1f GB; currently ~%.1f GB free, ~%.1f GB free after add.",
+					n, additionalGB, freeGB, afterGB,
+				)
+				if afterGB < 0 {
+					fmt.Fprintln(&b, warningStyle.Render(summary))
+				} else {
+					fmt.Fprintln(&b, subtleStyle.Render(summary))
+				}
+			}
+		}
+	}
+
 	return b.String()
 }
 
@@ -237,6 +265,33 @@ func (m model) viewRemoveServersPrompt() string {
 		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
 	} else {
 		fmt.Fprintln(&b, "Press Enter to remove servers, Esc to cancel.")
+	}
+
+	// Rough disk space estimate for removing N servers. This mirrors the wizard
+	// disk estimate style but focuses on space freed instead of required.
+	value := strings.TrimSpace(m.wizard.input.Value())
+	if n, err := strconv.Atoi(value); err == nil && n > 0 {
+		if mgr, err := csm.NewTmuxManager(); err == nil && mgr.NumServers > 0 {
+			// Clamp to the number of existing servers so the estimate remains
+			// realistic even if the user types a larger number.
+			if n > mgr.NumServers {
+				n = mgr.NumServers
+			}
+
+			const perServerGB = csm.DefaultPerServerDiskGB
+			freedGB := perServerGB * float64(n)
+
+			_, freeGB, ok := estimateDiskSpace(mgr.CS2User)
+			if ok {
+				afterGB := freeGB + freedGB
+				fmt.Fprintln(&b)
+				summary := fmt.Sprintf(
+					"Disk: removing %d server(s) will free ~%.1f GB; currently ~%.1f GB free, ~%.1f GB free after removal.",
+					n, freedGB, freeGB, afterGB,
+				)
+				fmt.Fprintln(&b, subtleStyle.Render(summary))
+			}
+		}
 	}
 
 	return b.String()

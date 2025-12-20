@@ -1535,9 +1535,9 @@ func (m model) View() string {
 		case itemRestartAllGo:
 			desc = "Restart all CS2 servers via tmux."
 		case itemAddServerGo:
-			desc = "Add N new CS2 servers based on the existing setup."
+			desc = "Add N new CS2 servers based on the existing setup without stopping other servers."
 		case itemRemoveServerGo:
-			desc = "Stop and delete the highest-numbered N servers (server-M downwards) to scale down."
+			desc = "Stop and delete the highest-numbered N servers (server-M downwards) while keeping other servers running."
 		case itemUpdateGameGo:
 			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:
