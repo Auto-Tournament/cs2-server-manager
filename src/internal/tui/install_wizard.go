@@ -973,20 +973,20 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			// Derive MatchZy Docker behaviour from dbMode.
 			cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
 			bcfg := csm.BootstrapConfig{
-				CS2User:           cfg.cs2User,
-				NumServers:        cfg.numServers,
-				BaseGamePort:      cfg.basePort,
-				BaseTVPort:        cfg.tvPort,
-				EnableMetamod:     cfg.enableMetamod,
-				FreshInstall:      cfg.freshInstall,
-				UpdateMaster:      cfg.updateMaster,
-				RCONPassword:      cfg.rconPassword,
-				MatchzySkipDocker: cfg.matchzySkipDocker,
-				DBMode:            cfg.dbMode,
-				ExternalDBHost:    cfg.externalDBHost,
-				ExternalDBPort:    cfg.externalDBPort,
-				ExternalDBName:    cfg.externalDBName,
-				ExternalDBUser:    cfg.externalDBUser,
+				CS2User:            cfg.cs2User,
+				NumServers:         cfg.numServers,
+				BaseGamePort:       cfg.basePort,
+				BaseTVPort:         cfg.tvPort,
+				EnableMetamod:      cfg.enableMetamod,
+				FreshInstall:       cfg.freshInstall,
+				UpdateMaster:       cfg.updateMaster,
+				RCONPassword:       cfg.rconPassword,
+				MatchzySkipDocker:  cfg.matchzySkipDocker,
+				DBMode:             cfg.dbMode,
+				ExternalDBHost:     cfg.externalDBHost,
+				ExternalDBPort:     cfg.externalDBPort,
+				ExternalDBName:     cfg.externalDBName,
+				ExternalDBUser:     cfg.externalDBUser,
 				ExternalDBPassword: cfg.externalDBPassword,
 			}
 
@@ -1065,7 +1065,7 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			}
 
 		case installStepStartServers:
-			logs = append(logs, "[4/4] Starting all servers...")
+			logs = append(logs, "[4/4] Ensuring all servers are running...")
 			manager, err := csm.NewTmuxManager()
 			if err != nil {
 				logs = append(logs, fmt.Sprintf("Failed to initialize tmux manager: %v", err))
@@ -1075,15 +1075,15 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 					err:  err,
 				}
 			}
-			if err := manager.StartAll(); err != nil {
-				logs = append(logs, fmt.Sprintf("Failed to start servers: %v", err))
+			if err := manager.StartMissing(); err != nil {
+				logs = append(logs, fmt.Sprintf("Failed to ensure servers are running: %v", err))
 				return installStepMsg{
 					step: installStepStartServers,
 					out:  strings.Join(logs, "\n"),
 					err:  err,
 				}
 			}
-			logs = append(logs, "[4/4] All servers started via tmux.")
+			logs = append(logs, "[4/4] All servers are running via tmux.")
 			dur := time.Since(start).Round(time.Second)
 			logs = append(logs, fmt.Sprintf("[i] Step 4/4 (start servers) took %s.", dur))
 			appendInstallLog(cfg, installStepStartServers, strings.Join(logs, "\n"))

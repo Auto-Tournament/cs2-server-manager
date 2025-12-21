@@ -18,12 +18,12 @@ import (
 // BootstrapConfig mirrors the high-level options used by the original
 // bootstrap_cs2.sh script.
 type BootstrapConfig struct {
-	CS2User           string
-	NumServers        int
-	BaseGamePort      int
-	BaseTVPort        int
-	EnableMetamod     bool
-	FreshInstall      bool
+	CS2User       string
+	NumServers    int
+	BaseGamePort  int
+	BaseTVPort    int
+	EnableMetamod bool
+	FreshInstall  bool
 	// UpdateMaster controls how the master CS2 install is handled:
 	//   - true  → run SteamCMD to install or update the master (fresh or in-place)
 	//   - false → reuse an existing master if present; fail if missing
@@ -191,6 +191,11 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		}
 	}
 
+	// Start servers as soon as each instance is fully provisioned so large
+	// installs become usable incrementally instead of waiting for all N
+	// servers to be ready.
+	mgr := &TmuxManager{CS2User: cfg.CS2User}
+
 	for i := 1; i <= cfg.NumServers; i++ {
 		gamePort := cfg.BaseGamePort + (i-1)*10
 		tvPort := cfg.BaseTVPort + (i-1)*10
@@ -218,6 +223,14 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		}
 
 		log("  [✓] Server-%d ready (port %d, TV %d)", i, gamePort, tvPort)
+
+		// Start this server immediately after it is ready so users can begin
+		// using early servers while later ones are still provisioning.
+		if err := mgr.Start(i); err != nil {
+			log("  [!] Failed to start server-%d via tmux: %v", i, err)
+		} else {
+			log("  [✓] Server-%d started via tmux", i)
+		}
 		log("")
 	}
 

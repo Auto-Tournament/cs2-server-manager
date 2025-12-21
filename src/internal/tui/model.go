@@ -1141,7 +1141,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.currentInstallStep = installStepStartServers
 			m.installStepStart = time.Now()
-			m.installStatusBase = "Step 4/4: Starting all servers..."
+			// Step 4 starts any remaining stopped servers; most servers will
+			// already be running from the bootstrap step, so emphasise that
+			// we're just ensuring everything is up.
+			m.installStatusBase = "Step 4/4: Ensuring all servers are running..."
 			m.installExpected = "~10–60 seconds"
 			m.status = m.installStatusBase
 			return m, tea.Batch(append(cmds,

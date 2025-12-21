@@ -190,6 +190,30 @@ func (m *TmuxManager) Status() (string, error) {
 	return buf.String(), nil
 }
 
+// StartMissing starts any servers that are currently stopped, leaving already
+// running tmux sessions untouched. This is used by flows like the install
+// wizard that may start servers incrementally during provisioning and only
+// need a final "ensure everything is running" pass.
+func (m *TmuxManager) StartMissing() error {
+	if m.NumServers <= 0 {
+		log.Printf("[tmux] StartMissing: no servers to start (NumServers=0, user=%q)", m.CS2User)
+		return fmt.Errorf("no CS2 servers found; run the install wizard first")
+	}
+	log.Printf("[tmux] StartMissing: ensuring %d server(s) are running for user=%q", m.NumServers, m.CS2User)
+	for i := 1; i <= m.NumServers; i++ {
+		session := m.sessionName(i)
+		cmd := m.runAsCS2User("tmux has-session -t " + session)
+		if err := cmd.Run(); err == nil {
+			// Session already exists and is running; skip.
+			continue
+		}
+		if err := m.Start(i); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // StartAll starts all servers (creating tmux sessions if needed).
 func (m *TmuxManager) StartAll() error {
 	if m.NumServers <= 0 {
