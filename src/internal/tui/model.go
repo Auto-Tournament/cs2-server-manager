@@ -90,6 +90,7 @@ type installConfig struct {
 	basePort           int
 	tvPort             int
 	cs2User            string
+	hostnamePrefix     string
 	enableMetamod      bool
 	freshInstall       bool
 	updateMaster       bool
@@ -412,14 +413,15 @@ func buildItemsForTab(t tab) []menuItem {
 
 func (m *model) initWizardDefaults() {
 	cfg := installConfig{
-		dbMode:        "docker",
-		numServers:    csm.DefaultNumServers,
-		basePort:      csm.DefaultBaseGamePort,
-		tvPort:        csm.DefaultBaseTVPort,
-		cs2User:       csm.DefaultCS2User,
-		enableMetamod: true,
-		freshInstall:  false,
-		updateMaster:  true,
+		dbMode:         "docker",
+		numServers:     csm.DefaultNumServers,
+		basePort:       csm.DefaultBaseGamePort,
+		tvPort:         csm.DefaultBaseTVPort,
+		cs2User:        csm.DefaultCS2User,
+		hostnamePrefix: "CS2 Server",
+		enableMetamod:  true,
+		freshInstall:   false,
+		updateMaster:   true,
 		// Leave RCON password empty by default so the wizard can require the
 		// user to set a value explicitly instead of relying on a baked-in
 		// event-specific default.

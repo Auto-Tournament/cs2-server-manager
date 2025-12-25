@@ -38,6 +38,7 @@ const (
 	wizardFieldBasePort
 	wizardFieldTVPort
 	wizardFieldCS2User
+	wizardFieldHostnamePrefix
 	wizardFieldMetamod
 	wizardFieldFreshInstall
 	wizardFieldUpdateMaster
@@ -261,6 +262,12 @@ func (m model) viewInstallWizard() string {
 	cs2UserVal := m.wizard.cfg.cs2User
 	renderRow(wizardFieldCS2User, "CS2 user:", cs2UserVal)
 
+	hostnameVal := m.wizard.cfg.hostnamePrefix
+	if m.wizard.cursor == wizardFieldHostnamePrefix && m.wizard.editing {
+		hostnameVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldHostnamePrefix, "Server name prefix:", hostnameVal)
+
 	// Boolean rows.
 	boolLabel := func(v bool) string {
 		if v {
@@ -336,6 +343,8 @@ func (m model) viewInstallWizard() string {
 		desc = "First GOTV port to use; additional servers use consecutive ports."
 	case wizardFieldCS2User:
 		desc = "Dedicated account for CS2 Server Manager. Danger zone cleanup deletes this user and its home; don't use it for anything else."
+	case wizardFieldHostnamePrefix:
+		desc = "Base name for your servers, e.g. \"My CS2 Server\" (CSM will append server numbers automatically)."
 	case wizardFieldMetamod:
 		desc = "Install Metamod so you can run SourceMod and other plugins."
 	case wizardFieldFreshInstall:
@@ -648,6 +657,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.basePortStr = val
 			case wizardFieldTVPort:
 				m.wizard.tvPortStr = val
+			case wizardFieldHostnamePrefix:
+				m.wizard.cfg.hostnamePrefix = val
 			case wizardFieldRCONPassword:
 				m.wizard.cfg.rconPassword = val
 			case wizardFieldDBExternalHost:
@@ -700,7 +711,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		case wizardFieldInstallMonitor:
 			m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
 			return m, nil
-		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldRCONPassword,
+		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldHostnamePrefix, wizardFieldRCONPassword,
 			wizardFieldDBExternalHost, wizardFieldDBExternalPort, wizardFieldDBExternalName,
 			wizardFieldDBExternalUser, wizardFieldDBExternalPassword:
 			// Begin editing the selected text/numeric field.
@@ -714,6 +725,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				initial = m.wizard.basePortStr
 			case wizardFieldTVPort:
 				initial = m.wizard.tvPortStr
+			case wizardFieldHostnamePrefix:
+				initial = m.wizard.cfg.hostnamePrefix
 			case wizardFieldRCONPassword:
 				initial = m.wizard.cfg.rconPassword
 			case wizardFieldDBExternalHost:
@@ -896,20 +909,21 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			// Derive MatchZy Docker behaviour from dbMode.
 			cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
 			bcfg := csm.BootstrapConfig{
-				CS2User:            cfg.cs2User,
-				NumServers:         cfg.numServers,
-				BaseGamePort:       cfg.basePort,
-				BaseTVPort:         cfg.tvPort,
-				EnableMetamod:      cfg.enableMetamod,
-				FreshInstall:       cfg.freshInstall,
-				UpdateMaster:       cfg.updateMaster,
-				RCONPassword:       cfg.rconPassword,
-				MatchzySkipDocker:  cfg.matchzySkipDocker,
-				DBMode:             cfg.dbMode,
-				ExternalDBHost:     cfg.externalDBHost,
-				ExternalDBPort:     cfg.externalDBPort,
-				ExternalDBName:     cfg.externalDBName,
-				ExternalDBUser:     cfg.externalDBUser,
+				CS2User:         cfg.cs2User,
+				NumServers:      cfg.numServers,
+				BaseGamePort:    cfg.basePort,
+				BaseTVPort:      cfg.tvPort,
+				HostnamePrefix:  cfg.hostnamePrefix,
+				EnableMetamod:   cfg.enableMetamod,
+				FreshInstall:    cfg.freshInstall,
+				UpdateMaster:    cfg.updateMaster,
+				RCONPassword:    cfg.rconPassword,
+				MatchzySkipDocker: cfg.matchzySkipDocker,
+				DBMode:            cfg.dbMode,
+				ExternalDBHost:    cfg.externalDBHost,
+				ExternalDBPort:    cfg.externalDBPort,
+				ExternalDBName:    cfg.externalDBName,
+				ExternalDBUser:    cfg.externalDBUser,
 				ExternalDBPassword: cfg.externalDBPassword,
 			}
 

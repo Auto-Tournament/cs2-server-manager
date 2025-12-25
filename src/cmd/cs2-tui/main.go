@@ -56,14 +56,16 @@ func main() {
 				// Prefer the same dedicated service user as the TUI install
 				// wizard so CLI bootstrap and interactive installs remain in
 				// sync by default.
-				CS2User:           getenvDefault("CS2_USER", csm.DefaultCS2User),
-				NumServers:        intFromEnv("NUM_SERVERS", csm.DefaultNumServers),
-				BaseGamePort:      intFromEnv("BASE_GAME_PORT", csm.DefaultBaseGamePort),
-				BaseTVPort:        intFromEnv("BASE_TV_PORT", csm.DefaultBaseTVPort),
-				EnableMetamod:     intFromEnv("ENABLE_METAMOD", 1) != 0,
-				FreshInstall:      intFromEnv("FRESH_INSTALL", 0) != 0,
-				UpdateMaster:      intFromEnv("UPDATE_MASTER", 1) != 0,
-				RCONPassword:      getenvDefault("RCON_PASSWORD", csm.DefaultRCONPassword),
+				CS2User:        getenvDefault("CS2_USER", csm.DefaultCS2User),
+				NumServers:     intFromEnv("NUM_SERVERS", csm.DefaultNumServers),
+				BaseGamePort:   intFromEnv("BASE_GAME_PORT", csm.DefaultBaseGamePort),
+				BaseTVPort:     intFromEnv("BASE_TV_PORT", csm.DefaultBaseTVPort),
+				HostnamePrefix: getenvDefault("HOSTNAME_PREFIX", "CS2 Server"),
+				EnableMetamod:  intFromEnv("ENABLE_METAMOD", 1) != 0,
+				FreshInstall:   intFromEnv("FRESH_INSTALL", 0) != 0,
+				UpdateMaster:   intFromEnv("UPDATE_MASTER", 1) != 0,
+				RCONPassword:   getenvDefault("RCON_PASSWORD", csm.DefaultRCONPassword),
+
 				MatchzySkipDocker: intFromEnv("MATCHZY_SKIP_DOCKER", 0) != 0,
 				GameFilesDir:      getenvDefault("GAME_FILES_DIR", ""),
 				OverridesDir:      getenvDefault("OVERRIDES_DIR", ""),

@@ -22,6 +22,7 @@ type BootstrapConfig struct {
 	NumServers        int
 	BaseGamePort      int
 	BaseTVPort        int
+	HostnamePrefix    string
 	EnableMetamod     bool
 	FreshInstall      bool
 	UpdateMaster      bool
@@ -99,6 +100,9 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	}
 	if cfg.BaseTVPort == 0 {
 		cfg.BaseTVPort = DefaultBaseTVPort
+	}
+	if strings.TrimSpace(cfg.HostnamePrefix) == "" {
+		cfg.HostnamePrefix = "CS2 Server"
 	}
 	if cfg.RCONPassword == "" {
 		// Use a neutral fallback rather than an event-specific password; the
@@ -226,7 +230,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 			log("  [!] Configure Metamod for server-%d failed: %v", i, err)
 		}
 
-		if err := customizeServerCfgGo(&buf, cfg.CS2User, i, cfg.RCONPassword, gamePort, tvPort); err != nil {
+		if err := customizeServerCfgGo(&buf, cfg.CS2User, i, cfg.RCONPassword, cfg.HostnamePrefix, gamePort, tvPort); err != nil {
 			log("  [!] Customize server.cfg for server-%d failed: %v", i, err)
 		}
 
@@ -615,7 +619,7 @@ func configureMetamodGo(w *bytes.Buffer, user string, serverNum int, enable bool
 	return nil
 }
 
-func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon string, gamePort, tvPort int) error {
+func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hostnamePrefix string, gamePort, tvPort int) error {
 	cfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
@@ -625,13 +629,18 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon stri
 
 	fmt.Fprintf(w, "  [*] Customizing configs for server-%d\n", serverNum)
 
+	if strings.TrimSpace(hostnamePrefix) == "" {
+		hostnamePrefix = "CS2 Server"
+	}
+	fullName := fmt.Sprintf(`hostname "%s #%d"`, hostnamePrefix, serverNum)
+
 	if data, err := os.ReadFile(serverCfg); err == nil {
 		// Update existing server.cfg
 		lines := strings.Split(string(data), "\n")
 		var out []string
 		for _, line := range lines {
 			if strings.HasPrefix(strings.TrimSpace(line), "hostname ") {
-				out = append(out, fmt.Sprintf(`hostname "NTLAN CS2 Server #%d"`, serverNum))
+				out = append(out, fullName)
 				continue
 			}
 			if strings.HasPrefix(strings.TrimSpace(line), "rcon_password") {
@@ -671,7 +680,7 @@ ip "0.0.0.0"
 // ========================================
 // Server Identity
 // ========================================
-hostname "NTLAN CS2 Server #%d"
+%s
 
 // ========================================
 // Logging
@@ -703,7 +712,7 @@ sv_minrate 196608
 sv_maxcmdrate 128
 sv_mincmdrate 64
 sv_hibernate_when_empty 0
-`, rcon, serverNum, tvPort)
+`, rcon, fullName, tvPort)
 		if err := os.WriteFile(serverCfg, []byte(content), 0o644); err != nil {
 			return err
 		}
@@ -719,19 +728,19 @@ rcon_password "%s"
 ip "0.0.0.0"
 
 // Server Identity
-hostname "NTLAN CS2 Server #%d"
+%s
 
 // Start warmup mode
 startwarmup
 
 // Startup message
 echo "==========================================="
-echo " NTLAN CS2 Server #%d"
+echo " %s #%d"
 echo " Port: Game %d, TV %d"
 echo " RCON: Enabled on port %d (TCP)"
 echo " RCON Password: %s"
 echo "==========================================="
-`, rcon, serverNum, serverNum, gamePort, tvPort, gamePort, rcon)
+`, rcon, fullName, serverNum, gamePort, tvPort, gamePort, rcon)
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
