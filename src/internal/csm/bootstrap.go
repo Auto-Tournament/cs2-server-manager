@@ -795,12 +795,17 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 			dbCfg.MySQLUsername = user
 			dbCfg.MySQLPassword = pass
 
+			// Persist wizard-managed external DB config with an explicit mode
+			// marker so tools like VerifyMatchzyDB can detect that Docker
+			// provisioning should be skipped even outside the install wizard.
 			onDisk := struct {
 				matchzyDBConfig
 				CSMNote string `json:"__CSM_NOTE,omitempty"`
+				DBMode  string `json:"__CSM_DB_MODE,omitempty"`
 			}{
 				matchzyDBConfig: dbCfg,
 				CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+				DBMode:          "external",
 			}
 
 			data, _ := json.MarshalIndent(onDisk, "", "  ")
@@ -825,9 +830,11 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		onDisk := struct {
 			matchzyDBConfig
 			CSMNote string `json:"__CSM_NOTE,omitempty"`
+			DBMode  string `json:"__CSM_DB_MODE,omitempty"`
 		}{
 			matchzyDBConfig: dbCfg,
 			CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+			DBMode:          "docker",
 		}
 
 		data, _ := json.MarshalIndent(onDisk, "", "  ")
@@ -941,9 +948,11 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	onDisk := struct {
 		matchzyDBConfig
 		CSMNote string `json:"__CSM_NOTE,omitempty"`
+		DBMode  string `json:"__CSM_DB_MODE,omitempty"`
 	}{
 		matchzyDBConfig: dbCfg,
 		CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+		DBMode:          "docker",
 	}
 
 	data, _ = json.MarshalIndent(onDisk, "", "  ")
