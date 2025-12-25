@@ -90,6 +90,7 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 	tvPortNew := tvPortLast + 10
 
 	rcon := detectRCONPassword(user)
+	hostnamePrefix := detectHostnamePrefix(user)
 	enableMetamod := detectMetamodEnabled(user)
 
 	var buf bytes.Buffer
@@ -124,7 +125,7 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
-	if err := customizeServerCfgGo(&buf, user, newIdx, rcon, gamePortNew, tvPortNew); err != nil {
+	if err := customizeServerCfgGo(&buf, user, newIdx, rcon, hostnamePrefix, gamePortNew, tvPortNew); err != nil {
 		log("  [!] Customize server.cfg for server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
 		return buf.String(), err
@@ -276,6 +277,36 @@ func detectRCONPassword(user string) string {
 		}
 	}
 	return "changeme"
+}
+
+// detectHostnamePrefix reads server-1's hostname and derives the base prefix so
+// that newly added servers follow the same naming pattern. When parsing fails,
+// it falls back to a neutral default.
+func detectHostnamePrefix(user string) string {
+	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		return "CS2 Server"
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "hostname ") {
+			continue
+		}
+		// Expect formats like:
+		//   hostname "My CS2 Server #1"
+		//   hostname "My CS2 Server"
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "hostname"))
+		rest = strings.Trim(rest, `"`)
+		if rest == "" {
+			continue
+		}
+		if strings.HasSuffix(rest, " #1") {
+			return strings.TrimSuffix(rest, " #1")
+		}
+		return rest
+	}
+	return "CS2 Server"
 }
 
 // detectMetamodEnabled inspects server-1's gameinfo.gi to see whether the
