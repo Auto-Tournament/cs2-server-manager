@@ -961,8 +961,15 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		}
 	}
 
-	hostIP := detectPrimaryIPGo()
-	dbCfg.MySQLHost = hostIP
+	// Do not auto-detect and overwrite the MySQL host with the primary/wireguard
+	// IP. That broke setups where the game server cannot reach that IP (e.g.
+	// WireGuard-only addresses). Instead, honor any existing MySQLHost value
+	// from database.json and only default to 127.0.0.1 if it's empty. This plays
+	// nicely with both Docker-managed installs (default localhost) and
+	// external DB mode where the wizard has already populated a specific host.
+	if strings.TrimSpace(dbCfg.MySQLHost) == "" {
+		dbCfg.MySQLHost = "127.0.0.1"
+	}
 
 	// Update database.json with host/port/db/user/pass, preserving the
 	// wizard-management note so users know manual edits may be overwritten.
@@ -1027,7 +1034,7 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	}
 
 	if ready {
-		fmt.Fprintf(w, "  [✓] MatchZy database is ready at %s:%d\n", hostIP, dbCfg.MySQLPort)
+		fmt.Fprintf(w, "  [✓] MatchZy database is ready at %s:%d\n", dbCfg.MySQLHost, dbCfg.MySQLPort)
 		if err := ensureMatchZyDatabaseExistsGo(w, containerName, dbCfg, rootPass); err != nil {
 			return err
 		}
