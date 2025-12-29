@@ -415,27 +415,37 @@ func buildItemsForTab(t tab) []menuItem {
 }
 
 func (m *model) initWizardDefaults() {
+	// Start from global defaults.
 	cfg := installConfig{
-		dbMode:               "docker",
-		numServers:           csm.DefaultNumServers,
-		basePort:             csm.DefaultBaseGamePort,
-		tvPort:               csm.DefaultBaseTVPort,
-		cs2User:              csm.DefaultCS2User,
-		enableMetamod:        true,
-		freshInstall:         false,
-		updateMaster:         true,
+		dbMode:              "docker",
+		numServers:          csm.DefaultNumServers,
+		basePort:            csm.DefaultBaseGamePort,
+		tvPort:              csm.DefaultBaseTVPort,
+		cs2User:             csm.DefaultCS2User,
+		enableMetamod:       true,
+		freshInstall:        false,
+		updateMaster:        true,
 		// Leave RCON password empty by default so the wizard can require the
 		// user to set a value explicitly instead of relying on a baked-in
 		// event-specific default.
-		rconPassword:       "",
-		updatePlugins:      true,
-		installMonitor:     true,
-		matchzySkipDocker:  false,
-		externalDBHost:     "127.0.0.1",
-		externalDBPort:     3306,
-		externalDBName:     "matchzy",
-		externalDBUser:     "matchzy",
+		rconPassword:      "",
+		updatePlugins:     true,
+		installMonitor:    true,
+		matchzySkipDocker: false,
+		externalDBHost:    "127.0.0.1",
+		externalDBPort:    3306,
+		externalDBName:    "matchzy",
+		externalDBUser:    "matchzy",
 		externalDBPassword: "matchzy",
+	}
+
+	// If there's already an install for the target CS2 user, auto-detect how
+	// many server-* directories exist and use that as the default "Number of
+	// servers" in the wizard instead of the global default (3). This makes
+	// redeploys and repairs match the existing layout without forcing the user
+	// to re-enter the server count manually.
+	if _, existing := existingInstallLayout(cfg.cs2User); existing > 0 {
+		cfg.numServers = existing
 	}
 
 	ti := textinput.New()
