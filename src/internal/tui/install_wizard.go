@@ -29,6 +29,12 @@ func (w *installWizard) applyWizardNumericFields() {
 	if p, err := strconv.Atoi(strings.TrimSpace(w.dbPortStr)); err == nil && p > 0 {
 		w.cfg.externalDBPort = p
 	}
+	if p, err := strconv.Atoi(strings.TrimSpace(w.matchzyDelayStr)); err == nil && p > 0 {
+		w.cfg.matchzyChatMessagesTimerDelay = p
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(w.matchzyMinReadyStr)); err == nil && n >= 0 {
+		w.cfg.matchzyMinimumReadyRequired = n
+	}
 }
 
 // Wizard field indices for the one-page install wizard view.
@@ -49,6 +55,11 @@ const (
 	wizardFieldDBExternalName
 	wizardFieldDBExternalUser
 	wizardFieldDBExternalPassword
+	wizardFieldMatchzyChatPrefix
+	wizardFieldMatchzyAdminChatPrefix
+	wizardFieldMatchzyChatDelay
+	wizardFieldMatchzyWhitelist
+	wizardFieldMatchzyMinReady
 	wizardFieldStartInstall
 	wizardFieldCancel
 	wizardFieldCount
@@ -194,6 +205,18 @@ func (w *installWizard) validateAll() error {
 		return fmt.Errorf("RCON password is required")
 	}
 
+	// MatchZy numeric fields (optional but if set, must be valid).
+	if s := strings.TrimSpace(w.matchzyDelayStr); s != "" {
+		if p, err := strconv.Atoi(s); err != nil || p <= 0 {
+			return fmt.Errorf("enter a positive integer for MatchZy chat timer delay")
+		}
+	}
+	if s := strings.TrimSpace(w.matchzyMinReadyStr); s != "" {
+		if _, err := strconv.Atoi(s); err != nil {
+			return fmt.Errorf("enter a non-negative integer for MatchZy minimum ready players")
+		}
+	}
+
 	return nil
 }
 
@@ -216,6 +239,12 @@ func (m model) viewInstallWizard() string {
 	}
 	if strings.TrimSpace(m.wizard.tvPortStr) == "" && m.wizard.cfg.tvPort > 0 {
 		m.wizard.tvPortStr = fmt.Sprintf("%d", m.wizard.cfg.tvPort)
+	}
+	if strings.TrimSpace(m.wizard.matchzyDelayStr) == "" && m.wizard.cfg.matchzyChatMessagesTimerDelay > 0 {
+		m.wizard.matchzyDelayStr = fmt.Sprintf("%d", m.wizard.cfg.matchzyChatMessagesTimerDelay)
+	}
+	if strings.TrimSpace(m.wizard.matchzyMinReadyStr) == "" && m.wizard.cfg.matchzyMinimumReadyRequired >= 0 {
+		m.wizard.matchzyMinReadyStr = fmt.Sprintf("%d", m.wizard.cfg.matchzyMinimumReadyRequired)
 	}
 
 	// Compute which rows should be visible in the current window so the wizard
@@ -291,6 +320,24 @@ func (m model) viewInstallWizard() string {
 	renderRow(wizardFieldUpdateMaster, "Download/update master:", boolLabel(m.wizard.cfg.updateMaster))
 	renderRow(wizardFieldUpdatePlugins, "Update plugins:", boolLabel(m.wizard.cfg.updatePlugins))
 	renderRow(wizardFieldInstallMonitor, "Install auto-update:", boolLabel(m.wizard.cfg.installMonitor))
+
+	// MatchZy settings.
+	renderRow(wizardFieldMatchzyChatPrefix, "MatchZy chat prefix:", m.wizard.cfg.matchzyChatPrefix)
+	renderRow(wizardFieldMatchzyAdminChatPrefix, "Admin chat prefix:", m.wizard.cfg.matchzyAdminChatPrefix)
+
+	delayVal := m.wizard.matchzyDelayStr
+	if m.wizard.cursor == wizardFieldMatchzyChatDelay && m.wizard.editing {
+		delayVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldMatchzyChatDelay, "Chat timer delay (s):", delayVal)
+
+	renderRow(wizardFieldMatchzyWhitelist, "Whitelist enabled:", boolLabel(m.wizard.cfg.matchzyWhitelistDefault))
+
+	minReadyVal := m.wizard.matchzyMinReadyStr
+	if m.wizard.cursor == wizardFieldMatchzyMinReady && m.wizard.editing {
+		minReadyVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldMatchzyMinReady, "Minimum ready players:", minReadyVal)
 
 	// RCON password row (do not echo anything special; keep it simple).
 	rconVal := m.wizard.cfg.rconPassword
@@ -389,6 +436,16 @@ func (m model) viewInstallWizard() string {
 		desc = "Install a cron-based auto-update monitor that keeps servers up to date when the AutoUpdater plugin shuts them down."
 	case wizardFieldRCONPassword:
 		desc = "Password applied to all servers (you can change per-server later)."
+	case wizardFieldMatchzyChatPrefix:
+		desc = "Prefix shown before MatchZy messages in chat. Include color tokens like {LightBlue} and end with {Default}."
+	case wizardFieldMatchzyAdminChatPrefix:
+		desc = "Prefix shown before .asay admin messages in chat."
+	case wizardFieldMatchzyChatDelay:
+		desc = "Delay (in seconds) between repeated MatchZy reminder messages in chat."
+	case wizardFieldMatchzyWhitelist:
+		desc = "Whether whitelist is enabled by default when a match loads (can still be toggled via .whitelist)."
+	case wizardFieldMatchzyMinReady:
+		desc = "Minimum number of players that must ready up before a match can start (0 means all connected players)."
 	case wizardFieldDBExternalHost:
 		if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
 			desc = "External MySQL host for MatchZy (used when MatchZy DB is set to external)."
@@ -623,6 +680,16 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.dbPortStr = fmt.Sprintf("%d", p-1)
 					m.wizard.errMsg = ""
 				}
+			case wizardFieldMatchzyChatDelay:
+				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.matchzyDelayStr)); err == nil && p > 1 {
+					m.wizard.matchzyDelayStr = fmt.Sprintf("%d", p-1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldMatchzyMinReady:
+				if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.matchzyMinReadyStr)); err == nil && n > 0 {
+					m.wizard.matchzyMinReadyStr = fmt.Sprintf("%d", n-1)
+					m.wizard.errMsg = ""
+				}
 			case wizardFieldDBMode:
 				// Left/right both toggle DB mode between docker and external.
 				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
@@ -676,6 +743,16 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			case wizardFieldDBExternalPort:
 				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.dbPortStr)); err == nil {
 					m.wizard.dbPortStr = fmt.Sprintf("%d", p+1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldMatchzyChatDelay:
+				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.matchzyDelayStr)); err == nil {
+					m.wizard.matchzyDelayStr = fmt.Sprintf("%d", p+1)
+					m.wizard.errMsg = ""
+				}
+			case wizardFieldMatchzyMinReady:
+				if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.matchzyMinReadyStr)); err == nil {
+					m.wizard.matchzyMinReadyStr = fmt.Sprintf("%d", n+1)
 					m.wizard.errMsg = ""
 				}
 			case wizardFieldDBMode:
@@ -732,6 +809,14 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.cfg.externalDBUser = val
 			case wizardFieldDBExternalPassword:
 				m.wizard.cfg.externalDBPassword = val
+			case wizardFieldMatchzyChatPrefix:
+				m.wizard.cfg.matchzyChatPrefix = val
+			case wizardFieldMatchzyAdminChatPrefix:
+				m.wizard.cfg.matchzyAdminChatPrefix = val
+			case wizardFieldMatchzyChatDelay:
+				m.wizard.matchzyDelayStr = val
+			case wizardFieldMatchzyMinReady:
+				m.wizard.matchzyMinReadyStr = val
 			}
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
@@ -777,9 +862,14 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		case wizardFieldInstallMonitor:
 			m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
 			return m, nil
+		case wizardFieldMatchzyWhitelist:
+			m.wizard.cfg.matchzyWhitelistDefault = !m.wizard.cfg.matchzyWhitelistDefault
+			return m, nil
 		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldRCONPassword,
 			wizardFieldDBExternalHost, wizardFieldDBExternalPort, wizardFieldDBExternalName,
-			wizardFieldDBExternalUser, wizardFieldDBExternalPassword:
+			wizardFieldDBExternalUser, wizardFieldDBExternalPassword,
+			wizardFieldMatchzyChatPrefix, wizardFieldMatchzyAdminChatPrefix,
+			wizardFieldMatchzyChatDelay, wizardFieldMatchzyMinReady:
 			// Begin editing the selected text/numeric field.
 			m.wizard.editing = true
 			m.wizard.errMsg = ""
@@ -803,6 +893,14 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				initial = m.wizard.cfg.externalDBUser
 			case wizardFieldDBExternalPassword:
 				initial = m.wizard.cfg.externalDBPassword
+			case wizardFieldMatchzyChatPrefix:
+				initial = m.wizard.cfg.matchzyChatPrefix
+			case wizardFieldMatchzyAdminChatPrefix:
+				initial = m.wizard.cfg.matchzyAdminChatPrefix
+			case wizardFieldMatchzyChatDelay:
+				initial = m.wizard.matchzyDelayStr
+			case wizardFieldMatchzyMinReady:
+				initial = m.wizard.matchzyMinReadyStr
 			}
 			m.wizard.input.SetValue(initial)
 			m.wizard.input.CursorEnd()
@@ -988,6 +1086,12 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				ExternalDBName:     cfg.externalDBName,
 				ExternalDBUser:     cfg.externalDBUser,
 				ExternalDBPassword: cfg.externalDBPassword,
+
+				MatchzyChatPrefix:             cfg.matchzyChatPrefix,
+				MatchzyAdminChatPrefix:        cfg.matchzyAdminChatPrefix,
+				MatchzyChatMessagesTimerDelay: cfg.matchzyChatMessagesTimerDelay,
+				MatchzyWhitelistDefault:       cfg.matchzyWhitelistDefault,
+				MatchzyMinimumReadyRequired:   cfg.matchzyMinimumReadyRequired,
 			}
 
 			// Stream bootstrap progress by mirroring logs into a temp file that

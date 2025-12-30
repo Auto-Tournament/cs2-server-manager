@@ -102,6 +102,15 @@ type installConfig struct {
 	externalDBName     string
 	externalDBUser     string
 	externalDBPassword string
+
+	// MatchZy config options managed by the install wizard. These are used to
+	// generate/patch overrides for MatchZy/config.cfg so events can brand chat
+	// and tweak ready/whitelist behaviour without hand-editing configs.
+	matchzyChatPrefix             string
+	matchzyAdminChatPrefix        string
+	matchzyChatMessagesTimerDelay int
+	matchzyWhitelistDefault       bool
+	matchzyMinimumReadyRequired   int
 }
 
 type installWizard struct {
@@ -109,10 +118,12 @@ type installWizard struct {
 	cfg    installConfig
 
 	// Numeric fields bound to the form as strings; parsed into cfg on submit.
-	numServersStr string
-	basePortStr   string
-	tvPortStr     string
-	dbPortStr     string
+	numServersStr      string
+	basePortStr        string
+	tvPortStr          string
+	dbPortStr          string
+	matchzyDelayStr    string
+	matchzyMinReadyStr string
 
 	// Cursor + editing/scroll state for the one-page wizard view.
 	cursor      int
@@ -417,14 +428,14 @@ func buildItemsForTab(t tab) []menuItem {
 func (m *model) initWizardDefaults() {
 	// Start from global defaults.
 	cfg := installConfig{
-		dbMode:              "docker",
-		numServers:          csm.DefaultNumServers,
-		basePort:            csm.DefaultBaseGamePort,
-		tvPort:              csm.DefaultBaseTVPort,
-		cs2User:             csm.DefaultCS2User,
-		enableMetamod:       true,
-		freshInstall:        false,
-		updateMaster:        true,
+		dbMode:        "docker",
+		numServers:    csm.DefaultNumServers,
+		basePort:      csm.DefaultBaseGamePort,
+		tvPort:        csm.DefaultBaseTVPort,
+		cs2User:       csm.DefaultCS2User,
+		enableMetamod: true,
+		freshInstall:  false,
+		updateMaster:  true,
 		// Leave RCON password empty by default so the wizard can require the
 		// user to set a value explicitly instead of relying on a baked-in
 		// event-specific default.
@@ -437,6 +448,14 @@ func (m *model) initWizardDefaults() {
 		externalDBName:    "matchzy",
 		externalDBUser:    "matchzy",
 		externalDBPassword: "matchzy",
+
+		// MatchZy defaults mirrored from the built-in config.cfg so events can
+		// tweak them without losing sensible base behaviour.
+		matchzyChatPrefix:             "[{LightBlue}MAT{Default}]",
+		matchzyAdminChatPrefix:        "[{Red}ADMIN{Default}]",
+		matchzyChatMessagesTimerDelay: 13,
+		matchzyWhitelistDefault:       false,
+		matchzyMinimumReadyRequired:   2,
 	}
 
 	// If there's already an install for the target CS2 user, auto-detect how
@@ -453,15 +472,17 @@ func (m *model) initWizardDefaults() {
 	ti.Focus()
 
 	m.wizard = installWizard{
-		active:        false,
-		cfg:           cfg,
-		numServersStr: fmt.Sprintf("%d", cfg.numServers),
-		basePortStr:   fmt.Sprintf("%d", cfg.basePort),
-		tvPortStr:     fmt.Sprintf("%d", cfg.tvPort),
-		dbPortStr:     fmt.Sprintf("%d", cfg.externalDBPort),
-		cursor:        0,
-		windowStart:   0,
-		input:         ti,
+		active:             false,
+		cfg:                cfg,
+		numServersStr:      fmt.Sprintf("%d", cfg.numServers),
+		basePortStr:        fmt.Sprintf("%d", cfg.basePort),
+		tvPortStr:          fmt.Sprintf("%d", cfg.tvPort),
+		dbPortStr:          fmt.Sprintf("%d", cfg.externalDBPort),
+		matchzyDelayStr:    fmt.Sprintf("%d", cfg.matchzyChatMessagesTimerDelay),
+		matchzyMinReadyStr: fmt.Sprintf("%d", cfg.matchzyMinimumReadyRequired),
+		cursor:             0,
+		windowStart:        0,
+		input:              ti,
 	}
 
 	// Ensure the menu reflects any existing update state.
