@@ -612,6 +612,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Second Q (or ctrl+c twice): cancel and quit.
 				CancelInstall()
+				// Clean up install state before quitting
+				if !m.installStepStart.IsZero() {
+					m.currentInstallStep = 0
+					m.installStepStart = time.Time{}
+					m.installStatusBase = ""
+					m.installExpected = ""
+					m.installElapsedLine = ""
+					m.wizard.active = false
+				}
 				return m, tea.Quit
 			case "c", "C":
 				// Best-effort cancel without quitting the TUI. For scaling and
@@ -630,6 +639,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if installCancel != nil {
 					CancelInstall()
 					if !m.installStepStart.IsZero() {
+						// Reset install wizard state when canceling
+						m.currentInstallStep = 0
+						m.installStepStart = time.Time{}
+						m.installStatusBase = ""
+						m.installExpected = ""
+						m.installElapsedLine = ""
+						m.wizard.active = false
 						m.status = "Cancelling install wizard (this may take a moment)..."
 					} else {
 						m.status = "Cancelling operation (this may take a moment)..."

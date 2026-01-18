@@ -1042,17 +1042,30 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		SetInstallCancel(cancel)
+		defer func() {
+			cancel()
+			CancelInstall()
+		}()
 
 		var err error
 		switch step {
 		case installStepPlugins:
 			if cfg.updatePlugins {
-				_, err = csm.UpdatePlugins()
-				if err != nil {
-					log("Plugin update failed: %v", err)
-				} else {
-					log("Plugin update completed successfully.")
+				// UpdatePlugins doesn't have context support yet, but we still
+				// check context cancellation before/after to allow quick abort
+				// during install wizard.
+				select {
+				case <-ctx.Done():
+					err = ctx.Err()
+					log("Plugin update cancelled: %v", err)
+				default:
+					_, err = csm.UpdatePlugins()
+					if err != nil {
+						log("Plugin update failed: %v", err)
+					} else {
+						log("Plugin update completed successfully.")
+					}
 				}
 			} else {
 				log("Plugin update skipped (update plugins disabled).")
