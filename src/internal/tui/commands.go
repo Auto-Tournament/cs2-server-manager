@@ -3,9 +3,11 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
@@ -470,4 +472,38 @@ func withEnvLogTail(envKey, tempName string, run func() (string, error)) (string
 	defer os.Unsetenv(envKey)
 
 	return run()
+}
+
+// tailInstallLog runs in a background goroutine and periodically reads the log
+// file at logPath, sending installLogTickMsg messages to the TUI program.
+// It stops when the done channel is closed.
+func tailInstallLog(logPath string, done <-chan struct{}) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastPos int64 = 0
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			f, err := os.Open(logPath)
+			if err != nil {
+				continue // File might not exist yet
+			}
+
+			// Seek to last known position
+			if lastPos > 0 {
+				f.Seek(lastPos, 0)
+			}
+
+			// Read new content
+			data, err := io.ReadAll(f)
+			if err == nil && len(data) > 0 {
+				send(installLogTickMsg{lines: string(data)})
+				lastPos, _ = f.Seek(0, io.SeekCurrent)
+			}
+			f.Close()
+		}
+	}
 }

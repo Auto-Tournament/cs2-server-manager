@@ -122,10 +122,10 @@ type installWizard struct {
 	tvPortStr     string
 	dbPortStr     string
 
-	// Cursor + editing/scroll state for the one-page wizard view.
+	// Cursor + editing/page state for the multi-step wizard view.
 	cursor      int
 	editing     bool
-	windowStart int
+	currentPage int // Current page number (0-indexed)
 
 	// Shared text input + error message used for the server logs prompt.
 	input            textinput.Model
@@ -301,7 +301,7 @@ func (m *model) rebuildItems() {
 
 	// Ensure the menu window start keeps the cursor visible when the visible
 	// window is smaller than the full list.
-	windowSize := wizardWindowSizeFor(m.height)
+	windowSize := menuWindowSizeFor(m.height)
 	if windowSize <= 0 {
 		windowSize = len(m.items)
 	}
@@ -310,6 +310,20 @@ func (m *model) rebuildItems() {
 	} else if m.cursor >= m.menuWindowStart+windowSize {
 		m.menuWindowStart = m.cursor - windowSize + 1
 	}
+}
+
+// menuWindowSizeFor computes how many menu items to show based on terminal height.
+func menuWindowSizeFor(height int) int {
+	const defaultSize = 10
+	if height <= 0 {
+		return defaultSize
+	}
+	// Reserve space for header, status, etc.
+	rowsForItems := (height - 8) / 2
+	if rowsForItems < 4 {
+		return 4
+	}
+	return rowsForItems
 }
 
 // buildItemsForTab returns the menu items for a given top-level tab.
@@ -447,6 +461,7 @@ func (m *model) initWizardDefaults() {
 		// user to set a value explicitly instead of relying on a baked-in
 		// event-specific default.
 		rconPassword:       "",
+		maxPlayers:         15, // Default max players per server
 		updatePlugins:      true,
 		installMonitor:     true,
 		matchzySkipDocker:  false,
@@ -469,7 +484,7 @@ func (m *model) initWizardDefaults() {
 		tvPortStr:     fmt.Sprintf("%d", cfg.tvPort),
 		dbPortStr:     fmt.Sprintf("%d", cfg.externalDBPort),
 		cursor:        0,
-		windowStart:   0,
+		currentPage:   0,
 		input:         ti,
 	}
 
@@ -777,7 +792,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = ""
 
 				// Keep cursor within the visible window when scrolling up.
-				windowSize := wizardWindowSizeFor(m.height)
+				windowSize := menuWindowSizeFor(m.height)
 				if m.cursor < m.menuWindowStart {
 					m.menuWindowStart = m.cursor
 				} else if m.cursor >= m.menuWindowStart+windowSize {
@@ -792,7 +807,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = ""
 
 				// Keep cursor within the visible window when scrolling down.
-				windowSize := wizardWindowSizeFor(m.height)
+				windowSize := menuWindowSizeFor(m.height)
 				if m.cursor < m.menuWindowStart {
 					m.menuWindowStart = m.cursor
 				} else if m.cursor >= m.menuWindowStart+windowSize {
@@ -838,7 +853,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Reset wizard navigation/editing state; keep existing config
 				// values so users can reopen and adjust.
 				m.wizard.cursor = 0
-				m.wizard.windowStart = 0
+				m.wizard.currentPage = 0
 				m.wizard.editing = false
 				m.wizard.errMsg = ""
 				m.status = "Install wizard: configure your servers, then choose Start install."
@@ -1535,9 +1550,9 @@ func (m model) View() string {
 		fmt.Fprintln(&b)
 	}
 
-	// Version / update banner: only on the main Install tab. Other tabs focus on
-	// their own content without the global banner noise.
-	if m.tab == tabInstall {
+	// Version / update banner: only on the main menu (viewMain) and Install tab. 
+	// Other views and tabs don't show this banner.
+	if m.view == viewMain && m.tab == tabInstall {
 		if !m.updateChecked {
 			fmt.Fprintln(&b, subtleStyle.Render("Checking for updates..."))
 		} else if m.updateAvailable && m.latestVersion != "" {
@@ -1558,7 +1573,7 @@ func (m model) View() string {
 		if start < 0 {
 			start = 0
 		}
-		windowSize := wizardWindowSizeFor(m.height)
+		windowSize := menuWindowSizeFor(m.height)
 		if windowSize <= 0 {
 			windowSize = len(m.items)
 		}

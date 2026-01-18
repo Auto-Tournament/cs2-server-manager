@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 )
@@ -31,7 +32,7 @@ func (w *installWizard) applyWizardNumericFields() {
 	}
 }
 
-// Wizard field indices for the one-page install wizard view.
+// Wizard field indices for the multi-step install wizard view.
 const (
 	wizardFieldDBMode = iota
 	wizardFieldNumServers
@@ -39,49 +40,58 @@ const (
 	wizardFieldTVPort
 	wizardFieldCS2User
 	wizardFieldHostnamePrefix
+	wizardFieldRCONPassword
+	wizardFieldMaxPlayers
+	wizardFieldGSLT
 	wizardFieldMetamod
 	wizardFieldFreshInstall
 	wizardFieldUpdateMaster
 	wizardFieldUpdatePlugins
 	wizardFieldInstallMonitor
-	wizardFieldRCONPassword
-	wizardFieldMaxPlayers
-	wizardFieldGSLT
 	wizardFieldDBExternalHost
 	wizardFieldDBExternalPort
 	wizardFieldDBExternalName
 	wizardFieldDBExternalUser
 	wizardFieldDBExternalPassword
+	wizardFieldNext
+	wizardFieldPrevious
 	wizardFieldStartInstall
 	wizardFieldCancel
 	wizardFieldCount
 )
 
-// wizardWindowSize is the default number of wizard rows shown at once when we
-// don't know the terminal height yet. Once we receive a WindowSizeMsg, the
-// install wizard will compute a dynamic window size based on available rows.
-const wizardWindowSize = 10
+// wizardPage defines which fields appear on each page
+type wizardPage []int
 
-// wizardWindowSizeFor computes how many wizard rows to show based on the
-// current terminal height. We account for header, spacing and the bottom
-// description so the window only scrolls when it actually needs to.
-func wizardWindowSizeFor(height int) int {
-	if height <= 0 {
-		return wizardWindowSize
+// getWizardPages returns the pages based on DB mode (external DB fields shown conditionally)
+func getWizardPages(dbMode string) []wizardPage {
+	pages := []wizardPage{
+		// Page 0: Basic setup (8 items)
+		{
+			wizardFieldDBMode, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort,
+			wizardFieldCS2User, wizardFieldHostnamePrefix, wizardFieldRCONPassword, wizardFieldMaxPlayers,
+		},
+		// Page 1: Tokens and options (8 items)
+		{
+			wizardFieldGSLT, wizardFieldMetamod, wizardFieldFreshInstall, wizardFieldUpdateMaster,
+			wizardFieldUpdatePlugins, wizardFieldInstallMonitor,
+		},
 	}
-
-	// Rough layout budget:
-	// - 4–5 lines for header + spacing
-	// - 2–3 lines for description / error at the bottom
-	// - Each wizard row uses ~2 lines (label + blank)
-	rowsForItems := (height - 8) / 2
-	if rowsForItems < 4 {
-		rowsForItems = 4
+	
+	// Add external DB page if using external mode
+	if strings.EqualFold(dbMode, "external") {
+		externalPage := wizardPage{
+			wizardFieldDBExternalHost,
+			wizardFieldDBExternalPort,
+			wizardFieldDBExternalName,
+			wizardFieldDBExternalUser,
+			wizardFieldDBExternalPassword,
+		}
+		// Insert before final page (which has Start install)
+		pages = append(pages[:len(pages)-1], externalPage, pages[len(pages)-1])
 	}
-	if rowsForItems > wizardFieldCount {
-		rowsForItems = wizardFieldCount
-	}
-	return rowsForItems
+	
+	return pages
 }
 
 // estimateDiskSpace returns total and free space (in GB) for the filesystem
@@ -93,22 +103,19 @@ func estimateDiskSpace(cs2User string) (totalGB, freeGB float64, ok bool) {
 		path = filepath.Join("/home", cs2User)
 	}
 
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
 		return 0, 0, false
 	}
 
-	totalBytes := float64(st.Blocks) * float64(st.Bsize)
-	freeBytes := float64(st.Bavail) * float64(st.Bsize)
-
-	const gb = 1024 * 1024 * 1024
-	return totalBytes / gb, freeBytes / gb, true
+	blockSize := float64(stat.Bsize)
+	totalGB = (float64(stat.Blocks) * blockSize) / (1024 * 1024 * 1024)
+	freeGB = (float64(stat.Bavail) * blockSize) / (1024 * 1024 * 1024)
+	return totalGB, freeGB, true
 }
 
-// existingInstallLayout inspects /home/<cs2User> to detect whether a master
-// install already exists and how many server-* directories are present. It is
-// used by the wizard's disk estimate so we can approximate how much of the
-// "required" space is already occupied by an existing install and focus on
+// existingInstallLayout returns whether a master-install directory exists and
+// how many server-* directories are present. This is used to estimate the
 // *additional* space needed for the requested layout.
 func existingInstallLayout(cs2User string) (hasMaster bool, numServers int) {
 	user := strings.TrimSpace(cs2User)
@@ -203,29 +210,48 @@ func (m model) viewInstallWizard() string {
 		m.wizard.tvPortStr = fmt.Sprintf("%d", m.wizard.cfg.tvPort)
 	}
 
-	// Compute which rows should be visible in the current window so the wizard
-	// feels scrollable on smaller terminals.
-	start := m.wizard.windowStart
-	if start < 0 {
-		start = 0
+	// Get pages for current DB mode
+	pages := getWizardPages(m.wizard.cfg.dbMode)
+	if m.wizard.currentPage < 0 {
+		m.wizard.currentPage = 0
 	}
-	// Derive window size dynamically from the terminal height when available.
-	windowSize := wizardWindowSizeFor(m.height)
-	end := start + windowSize
-	if end > wizardFieldCount {
-		end = wizardFieldCount
+	if m.wizard.currentPage >= len(pages) {
+		m.wizard.currentPage = len(pages) - 1
 	}
+	currentPage := pages[m.wizard.currentPage]
+	isLastPage := m.wizard.currentPage == len(pages)-1
 
-	visible := func(index int) bool {
-		return index >= start && index < end
+	// Build list of fields to show: navigation buttons first, then page fields
+	var visibleFields []int
+	
+	// Add navigation buttons at the top (Next first, then Previous)
+	if !isLastPage {
+		visibleFields = append(visibleFields, wizardFieldNext)
+	} else {
+		visibleFields = append(visibleFields, wizardFieldStartInstall)
+	}
+	if m.wizard.currentPage > 0 {
+		visibleFields = append(visibleFields, wizardFieldPrevious)
+	}
+	visibleFields = append(visibleFields, wizardFieldCancel)
+	
+	// Add page fields after navigation
+	visibleFields = append(visibleFields, currentPage...)
+
+	// Ensure cursor is within bounds
+	if m.wizard.cursor < 0 {
+		m.wizard.cursor = 0
+	}
+	if m.wizard.cursor >= len(visibleFields) {
+		m.wizard.cursor = len(visibleFields) - 1
 	}
 
 	// Helper to render a single row with optional selection highlighting.
-	renderRow := func(index int, label, value string) {
-		if !visible(index) {
-			return
+	renderRow := func(fieldIdx int, label, value string) {
+		selected := false
+		if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == fieldIdx {
+			selected = true
 		}
-		selected := index == m.wizard.cursor
 		style := menuItemStyle
 		if selected {
 			style = menuSelectedStyle
@@ -235,179 +261,242 @@ func (m model) viewInstallWizard() string {
 		fmt.Fprintln(&b)
 	}
 
-	// DB mode row.
-	dbLabel := "Docker-managed MySQL (recommended)"
-	if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-		dbLabel = "External MySQL (no Docker provisioning)"
-	}
-	renderRow(wizardFieldDBMode, "MatchZy DB:", dbLabel)
+	// Render all visible fields
+	for _, fieldIdx := range visibleFields {
+		switch fieldIdx {
+		case wizardFieldDBMode:
+			dbLabel := "Docker-managed MySQL (recommended)"
+			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+				dbLabel = "External MySQL (no Docker provisioning)"
+			}
+			renderRow(wizardFieldDBMode, "MatchZy DB:", dbLabel)
 
-	// Numeric / text rows.
-	numServersVal := m.wizard.numServersStr
-	if m.wizard.cursor == wizardFieldNumServers && m.wizard.editing {
-		numServersVal = m.wizard.input.View()
-	}
-	renderRow(wizardFieldNumServers, "Number of servers:", numServersVal)
+		case wizardFieldNumServers:
+			numServersVal := m.wizard.numServersStr
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldNumServers && m.wizard.editing {
+				numServersVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldNumServers, "Number of servers:", numServersVal)
 
-	basePortVal := m.wizard.basePortStr
-	if m.wizard.cursor == wizardFieldBasePort && m.wizard.editing {
-		basePortVal = m.wizard.input.View()
-	}
-	renderRow(wizardFieldBasePort, "Base game port:", basePortVal)
+		case wizardFieldBasePort:
+			basePortVal := m.wizard.basePortStr
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldBasePort && m.wizard.editing {
+				basePortVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldBasePort, "Base game port:", basePortVal)
 
-	tvPortVal := m.wizard.tvPortStr
-	if m.wizard.cursor == wizardFieldTVPort && m.wizard.editing {
-		tvPortVal = m.wizard.input.View()
-	}
-	renderRow(wizardFieldTVPort, "Base GOTV port:", tvPortVal)
+		case wizardFieldTVPort:
+			tvPortVal := m.wizard.tvPortStr
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldTVPort && m.wizard.editing {
+				tvPortVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldTVPort, "Base GOTV port:", tvPortVal)
 
-	cs2UserVal := m.wizard.cfg.cs2User
-	renderRow(wizardFieldCS2User, "CS2 user:", cs2UserVal)
+		case wizardFieldCS2User:
+			cs2UserVal := m.wizard.cfg.cs2User
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldCS2User && m.wizard.editing {
+				cs2UserVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldCS2User, "CS2 user:", cs2UserVal)
 
-	hostnameVal := m.wizard.cfg.hostnamePrefix
-	if m.wizard.cursor == wizardFieldHostnamePrefix && m.wizard.editing {
-		hostnameVal = m.wizard.input.View()
-	}
-	renderRow(wizardFieldHostnamePrefix, "Server name prefix:", hostnameVal)
+		case wizardFieldHostnamePrefix:
+			hostnameVal := m.wizard.cfg.hostnamePrefix
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldHostnamePrefix && m.wizard.editing {
+				hostnameVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldHostnamePrefix, "Server name prefix:", hostnameVal)
 
-	// Boolean rows.
-	boolLabel := func(v bool) string {
-		if v {
-			return "[x] Yes"
+		case wizardFieldRCONPassword:
+			rconVal := m.wizard.cfg.rconPassword
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldRCONPassword && m.wizard.editing {
+				rconVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldRCONPassword, "RCON password:", rconVal)
+
+		case wizardFieldMaxPlayers:
+			maxPlayersStr := ""
+			if m.wizard.cfg.maxPlayers > 0 {
+				maxPlayersStr = fmt.Sprintf("%d", m.wizard.cfg.maxPlayers)
+			}
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldMaxPlayers && m.wizard.editing {
+				maxPlayersStr = m.wizard.input.View()
+			}
+			renderRow(wizardFieldMaxPlayers, "Max players:", maxPlayersStr)
+
+		case wizardFieldGSLT:
+			gsltVal := m.wizard.cfg.gslt
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldGSLT && m.wizard.editing {
+				gsltVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldGSLT, "GSLT token (optional):", gsltVal)
+
+		case wizardFieldMetamod:
+			boolLabel := func(v bool) string {
+				if v {
+					return "[x] Yes"
+				}
+				return "[ ] No"
+			}
+			renderRow(wizardFieldMetamod, "Enable Metamod:", boolLabel(m.wizard.cfg.enableMetamod))
+
+		case wizardFieldFreshInstall:
+			boolLabel := func(v bool) string {
+				if v {
+					return "[x] Yes"
+				}
+				return "[ ] No"
+			}
+			renderRow(wizardFieldFreshInstall, "Fresh install:", boolLabel(m.wizard.cfg.freshInstall))
+
+		case wizardFieldUpdateMaster:
+			boolLabel := func(v bool) string {
+				if v {
+					return "[x] Yes"
+				}
+				return "[ ] No"
+			}
+			renderRow(wizardFieldUpdateMaster, "Update master:", boolLabel(m.wizard.cfg.updateMaster))
+
+		case wizardFieldUpdatePlugins:
+			boolLabel := func(v bool) string {
+				if v {
+					return "[x] Yes"
+				}
+				return "[ ] No"
+			}
+			renderRow(wizardFieldUpdatePlugins, "Update plugins:", boolLabel(m.wizard.cfg.updatePlugins))
+
+		case wizardFieldInstallMonitor:
+			boolLabel := func(v bool) string {
+				if v {
+					return "[x] Yes"
+				}
+				return "[ ] No"
+			}
+			renderRow(wizardFieldInstallMonitor, "Install auto-update:", boolLabel(m.wizard.cfg.installMonitor))
+
+		case wizardFieldDBExternalHost:
+			dbHostVal := m.wizard.cfg.externalDBHost
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalHost && m.wizard.editing {
+				dbHostVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldDBExternalHost, "DB host (external):", dbHostVal)
+
+		case wizardFieldDBExternalPort:
+			dbPortVal := m.wizard.dbPortStr
+			if strings.TrimSpace(dbPortVal) == "" && m.wizard.cfg.externalDBPort > 0 {
+				dbPortVal = fmt.Sprintf("%d", m.wizard.cfg.externalDBPort)
+			}
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalPort && m.wizard.editing {
+				dbPortVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldDBExternalPort, "DB port (external):", dbPortVal)
+
+		case wizardFieldDBExternalName:
+			dbNameVal := m.wizard.cfg.externalDBName
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalName && m.wizard.editing {
+				dbNameVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldDBExternalName, "DB name (external):", dbNameVal)
+
+		case wizardFieldDBExternalUser:
+			dbUserVal := m.wizard.cfg.externalDBUser
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalUser && m.wizard.editing {
+				dbUserVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldDBExternalUser, "DB user (external):", dbUserVal)
+
+		case wizardFieldDBExternalPassword:
+			dbPassVal := m.wizard.cfg.externalDBPassword
+			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalPassword && m.wizard.editing {
+				dbPassVal = m.wizard.input.View()
+			}
+			renderRow(wizardFieldDBExternalPassword, "DB password (external):", dbPassVal)
+
+		case wizardFieldNext:
+			renderRow(wizardFieldNext, "", "Next →")
+
+		case wizardFieldPrevious:
+			renderRow(wizardFieldPrevious, "", "← Previous")
+
+		case wizardFieldStartInstall:
+			renderRow(wizardFieldStartInstall, "", "Start install")
+
+		case wizardFieldCancel:
+			renderRow(wizardFieldCancel, "", "Cancel")
 		}
-		return "[ ] No"
-	}
-	renderRow(wizardFieldMetamod, "Enable Metamod:", boolLabel(m.wizard.cfg.enableMetamod))
-	renderRow(wizardFieldFreshInstall, "Fresh install:", boolLabel(m.wizard.cfg.freshInstall))
-	renderRow(wizardFieldUpdateMaster, "Update master:", boolLabel(m.wizard.cfg.updateMaster))
-	renderRow(wizardFieldUpdatePlugins, "Update plugins:", boolLabel(m.wizard.cfg.updatePlugins))
-	renderRow(wizardFieldInstallMonitor, "Install auto-update:", boolLabel(m.wizard.cfg.installMonitor))
-
-	// RCON password row (do not echo anything special; keep it simple).
-	rconVal := m.wizard.cfg.rconPassword
-	if m.wizard.cursor == wizardFieldRCONPassword && m.wizard.editing {
-		rconVal = m.wizard.input.View()
-	}
-	renderRow(wizardFieldRCONPassword, "RCON password:", rconVal)
-
-	// Max players row
-	maxPlayersStr := ""
-	if m.wizard.cfg.maxPlayers > 0 {
-		maxPlayersStr = fmt.Sprintf("%d", m.wizard.cfg.maxPlayers)
-	}
-	if m.wizard.cursor == wizardFieldMaxPlayers && m.wizard.editing {
-		maxPlayersStr = m.wizard.input.View()
-	}
-	renderRow(wizardFieldMaxPlayers, "Max players:", maxPlayersStr)
-
-	// GSLT token row
-	gsltVal := m.wizard.cfg.gslt
-	if m.wizard.cursor == wizardFieldGSLT && m.wizard.editing {
-		gsltVal = m.wizard.input.View()
-	}
-	renderRow(wizardFieldGSLT, "GSLT token (optional):", gsltVal)
-
-	// External DB configuration (used when MatchZy DB is set to external).
-	if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-		dbHostVal := m.wizard.cfg.externalDBHost
-		if m.wizard.cursor == wizardFieldDBExternalHost && m.wizard.editing {
-			dbHostVal = m.wizard.input.View()
-		}
-		renderRow(wizardFieldDBExternalHost, "DB host (external):", dbHostVal)
-
-		dbPortVal := m.wizard.dbPortStr
-		if strings.TrimSpace(dbPortVal) == "" && m.wizard.cfg.externalDBPort > 0 {
-			dbPortVal = fmt.Sprintf("%d", m.wizard.cfg.externalDBPort)
-		}
-		if m.wizard.cursor == wizardFieldDBExternalPort && m.wizard.editing {
-			dbPortVal = m.wizard.input.View()
-		}
-		renderRow(wizardFieldDBExternalPort, "DB port (external):", dbPortVal)
-
-		dbNameVal := m.wizard.cfg.externalDBName
-		if m.wizard.cursor == wizardFieldDBExternalName && m.wizard.editing {
-			dbNameVal = m.wizard.input.View()
-		}
-		renderRow(wizardFieldDBExternalName, "DB name (external):", dbNameVal)
-
-		dbUserVal := m.wizard.cfg.externalDBUser
-		if m.wizard.cursor == wizardFieldDBExternalUser && m.wizard.editing {
-			dbUserVal = m.wizard.input.View()
-		}
-		renderRow(wizardFieldDBExternalUser, "DB user (external):", dbUserVal)
-
-		dbPassVal := m.wizard.cfg.externalDBPassword
-		if m.wizard.cursor == wizardFieldDBExternalPassword && m.wizard.editing {
-			dbPassVal = m.wizard.input.View()
-		}
-		renderRow(wizardFieldDBExternalPassword, "DB password (external):", dbPassVal)
 	}
 
-	// Action rows: Start install / Cancel.
-	startLabel := "Start install"
-	cancelLabel := "Cancel"
-	renderRow(wizardFieldStartInstall, "", startLabel)
-	renderRow(wizardFieldCancel, "", cancelLabel)
+	// Page indicator
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("Page %d of %d", m.wizard.currentPage+1, len(pages))))
 
 	// Contextual description at the bottom for the currently selected field.
 	var desc string
-	switch m.wizard.cursor {
-	case wizardFieldDBMode:
-		desc = "Choose Docker-managed MySQL (recommended) or an existing external MySQL server."
-	case wizardFieldNumServers:
-		desc = "How many CS2 game servers to create on this machine."
-	case wizardFieldBasePort:
-		desc = "First game port to use; additional servers use consecutive ports."
-	case wizardFieldTVPort:
-		desc = "First GOTV port to use; additional servers use consecutive ports."
-	case wizardFieldCS2User:
-		desc = "Dedicated account for CS2 Server Manager. Danger zone cleanup deletes this user and its home; don't use it for anything else."
-	case wizardFieldHostnamePrefix:
-		desc = "Base name for your servers, e.g. \"My CS2 Server\" (CSM will append server numbers automatically)."
-	case wizardFieldMetamod:
-		desc = "Install Metamod so you can run SourceMod and other plugins."
-	case wizardFieldFreshInstall:
-		if m.wizard.cfg.freshInstall {
-			desc = "Perform a full fresh install: delete existing master install, MatchZy DB container/volume, and all server-* directories before recreating everything."
-		} else {
-			desc = "Reuse the existing master install, MatchZy DB, and servers; only update what is needed."
+	if m.wizard.cursor < len(visibleFields) {
+		selectedField := visibleFields[m.wizard.cursor]
+		switch selectedField {
+		case wizardFieldDBMode:
+			desc = "Choose Docker-managed MySQL (recommended) or an existing external MySQL server."
+		case wizardFieldNumServers:
+			desc = "How many CS2 game servers to create on this machine."
+		case wizardFieldBasePort:
+			desc = "First game port to use; additional servers use consecutive ports."
+		case wizardFieldTVPort:
+			desc = "First GOTV port to use; additional servers use consecutive ports."
+		case wizardFieldCS2User:
+			desc = "Dedicated account for CS2 Server Manager. Danger zone cleanup deletes this user and its home; don't use it for anything else."
+		case wizardFieldHostnamePrefix:
+			desc = "Base name for your servers, e.g. \"My CS2 Server\" (CSM will append server numbers automatically)."
+		case wizardFieldMetamod:
+			desc = "Install Metamod so you can run SourceMod and other plugins."
+		case wizardFieldFreshInstall:
+			if m.wizard.cfg.freshInstall {
+				desc = "Perform a full fresh install: delete existing master install, MatchZy DB container/volume, and all server-* directories before recreating everything."
+			} else {
+				desc = "Reuse the existing master install, MatchZy DB, and servers; only update what is needed."
+			}
+		case wizardFieldUpdateMaster:
+			desc = "Run SteamCMD to update the master CS2 install before deploying servers."
+		case wizardFieldUpdatePlugins:
+			desc = "Download the latest plugins before installing or redeploying servers."
+		case wizardFieldInstallMonitor:
+			desc = "Install a cron-based auto-update monitor that keeps servers up to date when the AutoUpdater plugin shuts them down."
+		case wizardFieldRCONPassword:
+			desc = "Password applied to all servers (you can change per-server later)."
+		case wizardFieldMaxPlayers:
+			desc = "Maximum number of players (0 or empty = use CS2 default, typically 10)."
+		case wizardFieldGSLT:
+			desc = "Steam Game Server Login Token (GSLT) for server authentication. Optional but recommended for public servers."
+		case wizardFieldDBExternalHost:
+			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+				desc = "External MySQL host for MatchZy (used when MatchZy DB is set to external)."
+			}
+		case wizardFieldDBExternalPort:
+			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+				desc = "External MySQL port for MatchZy (typically 3306)."
+			}
+		case wizardFieldDBExternalName:
+			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+				desc = "External MySQL database name for MatchZy (e.g. \"matchzy\")."
+			}
+		case wizardFieldDBExternalUser:
+			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+				desc = "External MySQL username for MatchZy."
+			}
+		case wizardFieldDBExternalPassword:
+			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+				desc = "External MySQL password for MatchZy."
+			}
+		case wizardFieldNext:
+			desc = "Continue to the next page."
+		case wizardFieldPrevious:
+			desc = "Go back to the previous page."
+		case wizardFieldStartInstall:
+			desc = "Run the full install with the settings above."
+		case wizardFieldCancel:
+			desc = "Return to the main menu without installing."
 		}
-	case wizardFieldUpdateMaster:
-		desc = "Run SteamCMD to update the master CS2 install before deploying servers."
-	case wizardFieldUpdatePlugins:
-		desc = "Download the latest plugins before installing or redeploying servers."
-	case wizardFieldInstallMonitor:
-		desc = "Install a cron-based auto-update monitor that keeps servers up to date when the AutoUpdater plugin shuts them down."
-	case wizardFieldRCONPassword:
-		desc = "Password applied to all servers (you can change per-server later)."
-	case wizardFieldMaxPlayers:
-		desc = "Maximum number of players (0 or empty = use CS2 default, typically 10)."
-	case wizardFieldGSLT:
-		desc = "Steam Game Server Login Token (GSLT) for server authentication. Optional but recommended for public servers."
-	case wizardFieldDBExternalHost:
-		if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-			desc = "External MySQL host for MatchZy (used when MatchZy DB is set to external)."
-		}
-	case wizardFieldDBExternalPort:
-		if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-			desc = "External MySQL port for MatchZy (typically 3306)."
-		}
-	case wizardFieldDBExternalName:
-		if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-			desc = "External MySQL database name for MatchZy (e.g. \"matchzy\")."
-		}
-	case wizardFieldDBExternalUser:
-		if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-			desc = "External MySQL username for MatchZy."
-		}
-	case wizardFieldDBExternalPassword:
-		if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-			desc = "External MySQL password for MatchZy."
-		}
-	case wizardFieldStartInstall:
-		desc = "Run the full install with the settings above."
-	case wizardFieldCancel:
-		desc = "Return to the main menu without installing."
 	}
 
 	if strings.TrimSpace(desc) != "" {
@@ -467,10 +556,7 @@ func (m model) viewInstallWizard() string {
 	if ok {
 		afterGB := freeGB - additionalGB
 		if afterGB >= 0 {
-			diskLine2 := fmt.Sprintf("Approx after install: ~%.1f GB free (currently ~%.1f GB free).", afterGB, freeGB)
-			fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-			fmt.Fprintln(&b, subtleStyle.Render(diskLine))
-			fmt.Fprintln(&b, subtleStyle.Render(diskLine2))
+			diskLine += fmt.Sprintf(" (will leave ~%.1f GB free)", afterGB)
 		} else {
 			needed := -afterGB
 			diskLine2 := fmt.Sprintf("Warning: estimated additional space is short by ~%.1f GB (currently ~%.1f GB free).", needed, freeGB)
@@ -492,12 +578,70 @@ func (m model) viewInstallWizard() string {
 	return b.String()
 }
 
-// updateInstallWizard handles navigation and editing for the one-page wizard.
+// updateInstallWizard handles navigation and editing for the multi-step wizard.
 func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
+	// If editing, handle input first (for both KeyMsg and non-KeyMsg)
+	if m.wizard.editing {
+		key, ok := msg.(tea.KeyMsg)
+		// Handle Enter/Esc to exit editing mode
+		if ok {
+			if key.String() == "enter" || key.String() == "esc" {
+				// Will be handled below in the enter/esc cases
+			} else {
+				// All other keys go to the input field
+				var cmd tea.Cmd
+				m.wizard.input, cmd = m.wizard.input.Update(msg)
+				return m, cmd
+			}
+		} else {
+			// Non-KeyMsg input (like text input events)
+			var cmd tea.Cmd
+			m.wizard.input, cmd = m.wizard.input.Update(msg)
+			return m, cmd
+		}
+	}
+
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
 	}
+
+	// Get current page fields
+	pages := getWizardPages(m.wizard.cfg.dbMode)
+	if m.wizard.currentPage < 0 {
+		m.wizard.currentPage = 0
+	}
+	if m.wizard.currentPage >= len(pages) {
+		m.wizard.currentPage = len(pages) - 1
+	}
+	currentPage := pages[m.wizard.currentPage]
+	isLastPage := m.wizard.currentPage == len(pages)-1
+
+	var visibleFields []int
+	
+	// Add navigation buttons at the top (Next first, then Previous - same order as viewInstallWizard)
+	if !isLastPage {
+		visibleFields = append(visibleFields, wizardFieldNext)
+	} else {
+		visibleFields = append(visibleFields, wizardFieldStartInstall)
+	}
+	if m.wizard.currentPage > 0 {
+		visibleFields = append(visibleFields, wizardFieldPrevious)
+	}
+	visibleFields = append(visibleFields, wizardFieldCancel)
+	
+	// Add page fields after navigation
+	visibleFields = append(visibleFields, currentPage...)
+
+	// Ensure cursor is within bounds
+	if m.wizard.cursor < 0 {
+		m.wizard.cursor = 0
+	}
+	if m.wizard.cursor >= len(visibleFields) {
+		m.wizard.cursor = len(visibleFields) - 1
+	}
+
+	currentField := visibleFields[m.wizard.cursor]
 
 	switch key.String() {
 	case "up", "k":
@@ -505,53 +649,27 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			m.wizard.cursor--
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
-			// Keep cursor within the visible window when scrolling up.
-			windowSize := wizardWindowSizeFor(m.height)
-			if m.wizard.cursor < m.wizard.windowStart {
-				m.wizard.windowStart = m.wizard.cursor
-			} else if m.wizard.cursor >= m.wizard.windowStart+windowSize {
-				m.wizard.windowStart = m.wizard.cursor - windowSize + 1
-			}
 		}
 		return m, nil
 	case "down", "j":
-		if m.wizard.cursor < wizardFieldCount-1 {
+		if m.wizard.cursor < len(visibleFields)-1 {
 			m.wizard.cursor++
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
-			// Keep cursor within the visible window when scrolling down.
-			windowSize := wizardWindowSizeFor(m.height)
-			if m.wizard.cursor < m.wizard.windowStart {
-				m.wizard.windowStart = m.wizard.cursor
-			} else if m.wizard.cursor >= m.wizard.windowStart+windowSize {
-				m.wizard.windowStart = m.wizard.cursor - windowSize + 1
-			}
 		}
 		return m, nil
 	case "tab":
-		m.wizard.cursor = (m.wizard.cursor + 1) % wizardFieldCount
+		m.wizard.cursor = (m.wizard.cursor + 1) % len(visibleFields)
 		m.wizard.editing = false
 		m.wizard.errMsg = ""
-		windowSize := wizardWindowSizeFor(m.height)
-		if m.wizard.cursor < m.wizard.windowStart {
-			m.wizard.windowStart = m.wizard.cursor
-		} else if m.wizard.cursor >= m.wizard.windowStart+windowSize {
-			m.wizard.windowStart = m.wizard.cursor - windowSize + 1
-		}
 		return m, nil
 	case "shift+tab":
 		m.wizard.cursor--
 		if m.wizard.cursor < 0 {
-			m.wizard.cursor = wizardFieldCount - 1
+			m.wizard.cursor = len(visibleFields) - 1
 		}
 		m.wizard.editing = false
 		m.wizard.errMsg = ""
-		windowSize := wizardWindowSizeFor(m.height)
-		if m.wizard.cursor < m.wizard.windowStart {
-			m.wizard.windowStart = m.wizard.cursor
-		} else if m.wizard.cursor >= m.wizard.windowStart+windowSize {
-			m.wizard.windowStart = m.wizard.cursor - windowSize + 1
-		}
 		return m, nil
 	case "esc":
 		if m.wizard.editing {
@@ -568,7 +686,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		// Arrow-left: decrement numeric fields and toggle simple options when not
 		// in edit mode.
 		if !m.wizard.editing {
-			switch m.wizard.cursor {
+			switch currentField {
 			case wizardFieldNumServers:
 				if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil && n > 1 {
 					m.wizard.numServersStr = fmt.Sprintf("%d", n-1)
@@ -596,6 +714,11 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				} else {
 					m.wizard.cfg.dbMode = "external"
 				}
+				// Recalculate pages if DB mode changed
+				pages = getWizardPages(m.wizard.cfg.dbMode)
+				if m.wizard.currentPage >= len(pages) {
+					m.wizard.currentPage = len(pages) - 1
+				}
 				m.wizard.errMsg = ""
 			case wizardFieldMetamod:
 				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
@@ -619,7 +742,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		// Arrow-right: increment numeric fields and toggle simple options when
 		// not in edit mode.
 		if !m.wizard.editing {
-			switch m.wizard.cursor {
+			switch currentField {
 			case wizardFieldNumServers:
 				if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil {
 					m.wizard.numServersStr = fmt.Sprintf("%d", n+1)
@@ -646,6 +769,11 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				} else {
 					m.wizard.cfg.dbMode = "external"
 				}
+				// Recalculate pages if DB mode changed
+				pages = getWizardPages(m.wizard.cfg.dbMode)
+				if m.wizard.currentPage >= len(pages) {
+					m.wizard.currentPage = len(pages) - 1
+				}
 				m.wizard.errMsg = ""
 			case wizardFieldMetamod:
 				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
@@ -665,122 +793,151 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	}
-
-	// When editing a text field, route keys into the shared text input.
-	if m.wizard.editing {
-		switch key.String() {
-		case "enter":
-			// Commit current input into the appropriate field.
-			val := strings.TrimSpace(m.wizard.input.Value())
-			switch m.wizard.cursor {
+	case "enter":
+		if m.wizard.editing {
+			// Commit the current edit.
+			value := strings.TrimSpace(m.wizard.input.Value())
+			
+			switch currentField {
 			case wizardFieldNumServers:
-				m.wizard.numServersStr = val
+				m.wizard.numServersStr = value
 			case wizardFieldBasePort:
-				m.wizard.basePortStr = val
+				m.wizard.basePortStr = value
 			case wizardFieldTVPort:
-				m.wizard.tvPortStr = val
+				m.wizard.tvPortStr = value
 			case wizardFieldHostnamePrefix:
-				m.wizard.cfg.hostnamePrefix = val
+				m.wizard.cfg.hostnamePrefix = value
 			case wizardFieldRCONPassword:
-				m.wizard.cfg.rconPassword = val
+				m.wizard.cfg.rconPassword = value
 			case wizardFieldMaxPlayers:
-				if n, err := strconv.Atoi(val); err == nil && n >= 0 {
+				m.wizard.cfg.maxPlayers = 0
+				if n, err := strconv.Atoi(value); err == nil && n > 0 {
 					m.wizard.cfg.maxPlayers = n
-				} else if val == "" {
-					m.wizard.cfg.maxPlayers = 0
 				}
 			case wizardFieldGSLT:
-				m.wizard.cfg.gslt = val
+				m.wizard.cfg.gslt = value
 			case wizardFieldDBExternalHost:
-				m.wizard.cfg.externalDBHost = val
+				m.wizard.cfg.externalDBHost = value
 			case wizardFieldDBExternalPort:
-				m.wizard.dbPortStr = val
+				m.wizard.dbPortStr = value
 			case wizardFieldDBExternalName:
-				m.wizard.cfg.externalDBName = val
+				m.wizard.cfg.externalDBName = value
 			case wizardFieldDBExternalUser:
-				m.wizard.cfg.externalDBUser = val
+				m.wizard.cfg.externalDBUser = value
 			case wizardFieldDBExternalPassword:
-				m.wizard.cfg.externalDBPassword = val
+				m.wizard.cfg.externalDBPassword = value
+			case wizardFieldCS2User:
+				m.wizard.cfg.cs2User = value
 			}
+
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
 			return m, nil
-		case "ctrl+c":
-			// Let the outer handler deal with quit confirmation.
-			return m, nil
-		default:
-			var cmd tea.Cmd
-			m.wizard.input, cmd = m.wizard.input.Update(key)
-			return m, cmd
 		}
-	}
 
-	// Not currently editing: handle toggles and actions.
-	switch key.String() {
-	case "enter", " ":
-		switch m.wizard.cursor {
-		case wizardFieldDBMode:
-			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				m.wizard.cfg.dbMode = "docker"
-			} else {
-				m.wizard.cfg.dbMode = "external"
+		// Not editing: handle button presses and field activation.
+		switch currentField {
+		case wizardFieldNext:
+			// Move to next page
+			if m.wizard.currentPage < len(pages)-1 {
+				m.wizard.currentPage++
+				m.wizard.cursor = 0
 			}
 			return m, nil
-		case wizardFieldMetamod:
-			m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
+		case wizardFieldPrevious:
+			// Move to previous page
+			if m.wizard.currentPage > 0 {
+				m.wizard.currentPage--
+				m.wizard.cursor = 0
+			}
 			return m, nil
-		case wizardFieldFreshInstall:
-			m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
+		case wizardFieldDBMode, wizardFieldMetamod, wizardFieldFreshInstall,
+			wizardFieldUpdateMaster, wizardFieldUpdatePlugins, wizardFieldInstallMonitor:
+			// Toggle boolean fields or DB mode on Enter
+			switch currentField {
+			case wizardFieldDBMode:
+				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
+					m.wizard.cfg.dbMode = "docker"
+				} else {
+					m.wizard.cfg.dbMode = "external"
+				}
+				// Recalculate pages
+				pages = getWizardPages(m.wizard.cfg.dbMode)
+				if m.wizard.currentPage >= len(pages) {
+					m.wizard.currentPage = len(pages) - 1
+				}
+			case wizardFieldMetamod:
+				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
+			case wizardFieldFreshInstall:
+				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
+			case wizardFieldUpdateMaster:
+				m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
+			case wizardFieldUpdatePlugins:
+				m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
+			case wizardFieldInstallMonitor:
+				m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
+			}
+			m.wizard.errMsg = ""
 			return m, nil
-		case wizardFieldUpdateMaster:
-			m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
-			return m, nil
-		case wizardFieldUpdatePlugins:
-			m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
-			return m, nil
-		case wizardFieldInstallMonitor:
-			m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
-			return m, nil
-		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldHostnamePrefix, wizardFieldRCONPassword,
-			wizardFieldMaxPlayers, wizardFieldGSLT,
-			wizardFieldDBExternalHost, wizardFieldDBExternalPort, wizardFieldDBExternalName,
-			wizardFieldDBExternalUser, wizardFieldDBExternalPassword:
-			// Begin editing the selected text/numeric field.
+		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort,
+			wizardFieldHostnamePrefix, wizardFieldRCONPassword, wizardFieldMaxPlayers,
+			wizardFieldGSLT, wizardFieldDBExternalHost, wizardFieldDBExternalPort,
+			wizardFieldDBExternalName, wizardFieldDBExternalUser, wizardFieldDBExternalPassword,
+			wizardFieldCS2User:
+			// Enter on a text/numeric field: start editing.
 			m.wizard.editing = true
 			m.wizard.errMsg = ""
-			var initial string
-			switch m.wizard.cursor {
+
+			// Populate input with current value
+			var currentValue string
+			switch currentField {
 			case wizardFieldNumServers:
-				initial = m.wizard.numServersStr
+				currentValue = m.wizard.numServersStr
 			case wizardFieldBasePort:
-				initial = m.wizard.basePortStr
+				currentValue = m.wizard.basePortStr
 			case wizardFieldTVPort:
-				initial = m.wizard.tvPortStr
+				currentValue = m.wizard.tvPortStr
 			case wizardFieldHostnamePrefix:
-				initial = m.wizard.cfg.hostnamePrefix
+				currentValue = m.wizard.cfg.hostnamePrefix
 			case wizardFieldRCONPassword:
-				initial = m.wizard.cfg.rconPassword
+				currentValue = m.wizard.cfg.rconPassword
 			case wizardFieldMaxPlayers:
 				if m.wizard.cfg.maxPlayers > 0 {
-					initial = fmt.Sprintf("%d", m.wizard.cfg.maxPlayers)
+					currentValue = fmt.Sprintf("%d", m.wizard.cfg.maxPlayers)
 				}
 			case wizardFieldGSLT:
-				initial = m.wizard.cfg.gslt
+				currentValue = m.wizard.cfg.gslt
 			case wizardFieldDBExternalHost:
-				initial = m.wizard.cfg.externalDBHost
+				currentValue = m.wizard.cfg.externalDBHost
 			case wizardFieldDBExternalPort:
-				initial = m.wizard.dbPortStr
+				currentValue = m.wizard.dbPortStr
 			case wizardFieldDBExternalName:
-				initial = m.wizard.cfg.externalDBName
+				currentValue = m.wizard.cfg.externalDBName
 			case wizardFieldDBExternalUser:
-				initial = m.wizard.cfg.externalDBUser
+				currentValue = m.wizard.cfg.externalDBUser
 			case wizardFieldDBExternalPassword:
-				initial = m.wizard.cfg.externalDBPassword
+				currentValue = m.wizard.cfg.externalDBPassword
+			case wizardFieldCS2User:
+				currentValue = m.wizard.cfg.cs2User
 			}
-			m.wizard.input.SetValue(initial)
-			m.wizard.input.CursorEnd()
-			return m, nil
+
+			m.wizard.input.SetValue(currentValue)
+			m.wizard.input.Focus()
+			if currentField == wizardFieldDBExternalPassword {
+				m.wizard.input.EchoMode = textinput.EchoPassword
+			} else {
+				m.wizard.input.EchoMode = textinput.EchoNormal
+			}
+			m.wizard.input.CharLimit = 0
+			if currentField == wizardFieldMaxPlayers || currentField == wizardFieldNumServers ||
+				currentField == wizardFieldBasePort || currentField == wizardFieldTVPort ||
+				currentField == wizardFieldDBExternalPort {
+				m.wizard.input.Prompt = "> "
+			} else {
+				m.wizard.input.Prompt = "> "
+			}
+
+			return m, textinput.Blink
 		case wizardFieldStartInstall:
 			// Validate before starting the multi-step install.
 			if err := m.wizard.validateAll(); err != nil {
@@ -873,280 +1030,79 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 		start := time.Now()
 		var logs []string
 
+		log := func(format string, args ...any) {
+			msg := fmt.Sprintf(format, args...)
+			logs = append(logs, msg)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var err error
 		switch step {
 		case installStepPlugins:
 			if cfg.updatePlugins {
-				logs = append(logs, "[1/4] Downloading latest plugins...")
-
-				out, err := withPluginsLogTail(func() (string, error) {
-					return csm.UpdatePlugins()
-				})
+				_, err = csm.UpdatePlugins()
 				if err != nil {
-					if out != "" {
-						logs = append(logs, out)
-					}
-					logs = append(logs, fmt.Sprintf("Plugin download failed: %v", err))
-					return installStepMsg{
-						step: installStepPlugins,
-						out:  strings.Join(logs, "\n"),
-						err:  err,
-					}
-				} else if out != "" {
-					logs = append(logs, out)
+					log("Plugin update failed: %v", err)
+				} else {
+					log("Plugin update completed successfully.")
 				}
-				logs = append(logs, "[1/4] Plugin update finished.")
 			} else {
-				logs = append(logs, "[1/4] Skipping plugin download (user disabled update plugins).")
-			}
-			dur := time.Since(start).Round(time.Second)
-			logs = append(logs, fmt.Sprintf("[i] Step 1/4 (plugins) took %s.", dur))
-			appendInstallLog(cfg, installStepPlugins, strings.Join(logs, "\n"))
-			return installStepMsg{
-				step: installStepPlugins,
-				out:  strings.Join(logs, "\n"),
-				err:  nil,
+				log("Plugin update skipped (update plugins disabled).")
 			}
 
 		case installStepBootstrap:
-			if cfg.freshInstall {
-				logs = append(logs,
-					"[2/4] Performing fresh CS2 install (this may take several minutes)...",
-					"  • Run full cleanup (same as Danger zone: remove CS2 user, home, MatchZy DB container/volume)",
-					"  • Recreate CS2 user",
-					"  • Reinstall master via SteamCMD",
-					"  • Provision a clean MatchZy database (Docker mode)",
-					"  • Recreate all servers from the new master",
-				)
-
-				// Run the same cleanup flow as the Danger Zone action so a
-				// fresh install truly wipes the CS2 user, home directory, and
-				// MatchZy resources before we reinstall.
-				cleanupCfg := csm.CleanupConfig{
-					CS2User: cfg.cs2User,
-					// MatchzyContainer/Volume default inside CleanupAll when empty.
-				}
-				if out, err := csm.CleanupAll(cleanupCfg); err != nil {
-					if out != "" {
-						logs = append(logs, out)
-					}
-					logs = append(logs, fmt.Sprintf("Cleanup failed before fresh install: %v", err))
-					return installStepMsg{
-						step: installStepBootstrap,
-						out:  strings.Join(logs, "\n"),
-						err:  err,
-					}
-				}
-
-				// After a full cleanup we no longer need Bootstrap's internal
-				// FRESH_INSTALL semantics; it's effectively a clean install.
-				cfg.freshInstall = false
+			bootstrapCfg := csm.BootstrapConfig{
+				NumServers:     cfg.numServers,
+				BaseGamePort:   cfg.basePort,
+				BaseTVPort:     cfg.tvPort,
+				CS2User:        cfg.cs2User,
+				HostnamePrefix: cfg.hostnamePrefix,
+				EnableMetamod:  cfg.enableMetamod,
+				FreshInstall:   cfg.freshInstall,
+				UpdateMaster:   cfg.updateMaster,
+				RCONPassword:   cfg.rconPassword,
+				MaxPlayers:     cfg.maxPlayers,
+				GSLT:           cfg.gslt,
+			}
+			_, err = csm.BootstrapWithContext(ctx, bootstrapCfg)
+			if err != nil {
+				log("Bootstrap failed: %v", err)
 			} else {
-				logs = append(logs, "[2/4] Setting up CS2 servers (this may take several minutes)...")
-			}
-
-			// Derive MatchZy Docker behaviour from dbMode.
-			cfg.matchzySkipDocker = strings.EqualFold(cfg.dbMode, "external")
-			bcfg := csm.BootstrapConfig{
-				CS2User:         cfg.cs2User,
-				NumServers:      cfg.numServers,
-				BaseGamePort:    cfg.basePort,
-				BaseTVPort:      cfg.tvPort,
-				HostnamePrefix:  cfg.hostnamePrefix,
-				EnableMetamod:   cfg.enableMetamod,
-				FreshInstall:    cfg.freshInstall,
-				UpdateMaster:    cfg.updateMaster,
-				RCONPassword:    cfg.rconPassword,
-				MaxPlayers:      cfg.maxPlayers,
-				GSLT:            cfg.gslt,
-				MatchzySkipDocker: cfg.matchzySkipDocker,
-				DBMode:            cfg.dbMode,
-				ExternalDBHost:    cfg.externalDBHost,
-				ExternalDBPort:    cfg.externalDBPort,
-				ExternalDBName:    cfg.externalDBName,
-				ExternalDBUser:    cfg.externalDBUser,
-				ExternalDBPassword: cfg.externalDBPassword,
-			}
-
-			// Stream bootstrap progress by mirroring logs into a temp file that
-			// a background goroutine tails, sending installLogTickMsg updates.
-			logPath := filepath.Join(os.TempDir(), "csm-bootstrap.log")
-			_ = os.Remove(logPath)
-
-			// Signal goroutine when we're done (success or failure).
-			done := make(chan struct{})
-			defer close(done)
-
-			// Start log tailer in the background.
-			go tailInstallLog(logPath, done)
-
-			// Configure Bootstrap to mirror logs into the temp file.
-			_ = os.Setenv("CSM_BOOTSTRAP_LOG", logPath)
-			defer os.Unsetenv("CSM_BOOTSTRAP_LOG")
-
-			// Use a cancellable context so steamcmd and the rest of bootstrap
-			// are terminated if the user quits the TUI mid-install.
-			ctx, cancel := context.WithCancel(context.Background())
-			SetInstallCancel(cancel)
-			defer CancelInstall()
-
-			if out, err := csm.BootstrapWithContext(ctx, bcfg); err != nil {
-				if out != "" {
-					logs = append(logs, out)
-				}
-				logs = append(logs, fmt.Sprintf("Bootstrap failed: %v", err))
-				return installStepMsg{
-					step: installStepBootstrap,
-					out:  strings.Join(logs, "\n"),
-					err:  err,
-				}
-			} else if out != "" {
-				logs = append(logs, out)
-			}
-			logs = append(logs, "[2/4] CS2 servers setup finished.")
-			dur := time.Since(start).Round(time.Second)
-			logs = append(logs, fmt.Sprintf("[i] Step 2/4 (bootstrap) took %s.", dur))
-			appendInstallLog(cfg, installStepBootstrap, strings.Join(logs, "\n"))
-			return installStepMsg{
-				step: installStepBootstrap,
-				out:  strings.Join(logs, "\n"),
-				err:  nil,
+				log("Bootstrap completed successfully.")
 			}
 
 		case installStepMonitor:
 			if cfg.installMonitor {
-				logs = append(logs, "[3/4] Configuring auto-update monitor (cron job)...")
-				if out, err := csm.InstallAutoUpdateCron(""); err != nil {
-					if out != "" {
-						logs = append(logs, out)
-					}
-					logs = append(logs, fmt.Sprintf("Auto-update monitor setup failed: %v", err))
-					return installStepMsg{
-						step: installStepMonitor,
-						out:  strings.Join(logs, "\n"),
-						err:  err,
-					}
-				} else if out != "" {
-					logs = append(logs, out)
+				_, err = csm.InstallAutoUpdateCronWithContext(ctx, "")
+				if err != nil {
+					log("Monitor installation failed: %v", err)
+				} else {
+					log("Monitor installation completed successfully.")
 				}
-				logs = append(logs, "[3/4] Auto-update monitor configured.")
 			} else {
-				logs = append(logs, "[3/4] Skipping auto-update monitor setup (user disabled it in the wizard).")
-			}
-			dur := time.Since(start).Round(time.Second)
-			logs = append(logs, fmt.Sprintf("[i] Step 3/4 (auto-update monitor) took %s.", dur))
-			appendInstallLog(cfg, installStepMonitor, strings.Join(logs, "\n"))
-			return installStepMsg{
-				step: installStepMonitor,
-				out:  strings.Join(logs, "\n"),
-				err:  nil,
+				log("Monitor installation skipped (install monitor disabled).")
 			}
 
 		case installStepStartServers:
-			logs = append(logs, "[4/4] Starting all servers...")
-			manager, err := csm.NewTmuxManager()
-			if err != nil {
-				logs = append(logs, fmt.Sprintf("Failed to initialize tmux manager: %v", err))
-				return installStepMsg{
-					step: installStepStartServers,
-					out:  strings.Join(logs, "\n"),
-					err:  err,
+			mgr, mgrErr := csm.NewTmuxManager()
+			if mgrErr != nil {
+				err = fmt.Errorf("failed to create tmux manager: %w", mgrErr)
+			} else {
+				startErr := mgr.StartAll()
+				if startErr != nil {
+					err = fmt.Errorf("failed to start servers: %w", startErr)
+				} else {
+					log("All servers started successfully.")
 				}
 			}
-			if err := manager.StartAll(); err != nil {
-				logs = append(logs, fmt.Sprintf("Failed to start servers: %v", err))
-				return installStepMsg{
-					step: installStepStartServers,
-					out:  strings.Join(logs, "\n"),
-					err:  err,
-				}
-			}
-			logs = append(logs, "[4/4] All servers started via tmux.")
-			dur := time.Since(start).Round(time.Second)
-			logs = append(logs, fmt.Sprintf("[i] Step 4/4 (start servers) took %s.", dur))
-			appendInstallLog(cfg, installStepStartServers, strings.Join(logs, "\n"))
-			return installStepMsg{
-				step: installStepStartServers,
-				out:  strings.Join(logs, "\n"),
-				err:  nil,
-			}
 		}
 
-		// Should not happen; treat as no-op.
-		return installStepMsg{
-			step: step,
-			out:  "",
-			err:  nil,
-		}
+		elapsed := time.Since(start)
+		log("Step completed in %v.", elapsed)
+
+		output := strings.Join(logs, "\n")
+		return installStepMsg{step: step, out: output, err: err}
 	}
-}
-
-// tailInstallLog periodically reads a log file and sends the last few lines
-// back into the TUI as installLogTickMsg values so users can see live progress
-// while long-running steps run.
-func tailInstallLog(path string, done <-chan struct{}) {
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-done:
-			return
-		case <-ticker.C:
-			data, err := os.ReadFile(path)
-			if err != nil {
-				continue
-			}
-			if len(data) == 0 {
-				continue
-			}
-
-			// Normalise carriage returns so tools that render progress on a
-			// single line (like rsync --info=PROGRESS2) still produce a useful
-			// multi-line tail in the TUI.
-			text := strings.ReplaceAll(string(data), "\r\n", "\n")
-			text = strings.ReplaceAll(text, "\r", "\n")
-			text = strings.TrimSpace(text)
-			if text == "" {
-				continue
-			}
-
-			lines := strings.Split(text, "\n")
-			// Show a more generous slice of the log so long-running steamcmd
-			// output and rsync progress are visible during the wizard. We
-			// choose a fixed tail of 20 lines here; the final step summary
-			// view already adapts to the full terminal height.
-			if len(lines) > 20 {
-				lines = lines[len(lines)-20:]
-			}
-			send(installLogTickMsg{lines: strings.Join(lines, "\n")})
-		}
-	}
-}
-
-// appendInstallLog writes a copy of each wizard step's logs to a persistent
-// install log on disk so failures can be investigated after the TUI exits.
-// The log is written under the shared CSM log directory (or CSM_INSTALL_LOG if
-// explicitly set).
-func appendInstallLog(cfg installConfig, step installStep, content string) {
-	override := os.Getenv("CSM_INSTALL_LOG")
-
-	timestamp := time.Now().Format(time.RFC3339)
-	var b strings.Builder
-	fmt.Fprintf(&b, "==== CSM install wizard step ====\n")
-	fmt.Fprintf(&b, "Time : %s\n", timestamp)
-	fmt.Fprintf(&b, "Step : %d\n", step)
-	fmt.Fprintf(&b, "User : %s\n", cfg.cs2User)
-	fmt.Fprintf(&b, "Servers: %d (base ports: game %d, GOTV %d)\n", cfg.numServers, cfg.basePort, cfg.tvPort)
-	fmt.Fprintln(&b, "---- Output ----")
-	fmt.Fprintln(&b, content)
-	fmt.Fprintln(&b, "===============================")
-
-	if override != "" {
-		// Backwards-compatible explicit path override.
-		_ = os.MkdirAll(filepath.Dir(override), 0o755)
-		_ = os.WriteFile(override, []byte(b.String()), 0o644)
-		return
-	}
-
-	csm.AppendLog("install.log", b.String())
 }

@@ -490,6 +490,11 @@ func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		return err
 	}
 
+	// Always write shared server config (RCON password, maxplayers) regardless of UpdateMaster/updatePlugins settings
+	if err := writeSharedServerConfig(cfg.CS2User, cfg.RCONPassword, cfg.MaxPlayers); err != nil {
+		return fmt.Errorf("failed to write shared server config: %w", err)
+	}
+
 	// Copy plugin files from game_files/game
 	srcGame := filepath.Join(cfg.GameFilesDir, "game")
 	if fi, err := os.Stat(srcGame); err == nil && fi.IsDir() {
