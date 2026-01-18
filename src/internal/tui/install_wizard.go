@@ -1072,6 +1072,18 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 			}
 
 		case installStepBootstrap:
+			// Stream bootstrap progress by mirroring logs into a temp file that a
+			// background goroutine tails, similar to other long-running operations.
+			logPath := filepath.Join(os.TempDir(), "csm-bootstrap.log")
+			_ = os.Remove(logPath)
+
+			done := make(chan struct{})
+			go tailInstallLog(logPath, done)
+			defer close(done)
+
+			_ = os.Setenv("CSM_BOOTSTRAP_LOG", logPath)
+			defer os.Unsetenv("CSM_BOOTSTRAP_LOG")
+
 			bootstrapCfg := csm.BootstrapConfig{
 				NumServers:     cfg.numServers,
 				BaseGamePort:   cfg.basePort,
