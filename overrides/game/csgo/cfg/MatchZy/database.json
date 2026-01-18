@@ -1,9 +1,10 @@
 {
   "DatabaseType": "MySQL",
-  "MySqlHost": "127.0.0.1",
+  "MySqlHost": "10.2.0.2",
   "MySqlPort": 3306,
   "MySqlDatabase": "matchzy",
   "MySqlUsername": "matchzy",
   "MySqlPassword": "matchzy",
-  "__CSM_NOTE": "This file is managed by CSM's install wizard. Manual edits may be overwritten."
+  "__CSM_NOTE": "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+  "__CSM_DB_MODE": "docker"
 }

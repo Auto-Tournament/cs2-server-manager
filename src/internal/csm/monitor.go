@@ -173,6 +173,37 @@ func InstallAutoUpdateCronWithContext(ctx context.Context, interval string) (str
 	return fmt.Sprintf("Installed auto-update cronjob: %s\n", entry), nil
 }
 
+// RemoveAutoUpdateCron removes the auto-update monitor cron job from root's crontab.
+func RemoveAutoUpdateCron() (string, error) {
+	return RemoveAutoUpdateCronWithContext(context.Background())
+}
+
+// RemoveAutoUpdateCronWithContext is like RemoveAutoUpdateCron but accepts a
+// context for cancellation support.
+func RemoveAutoUpdateCronWithContext(ctx context.Context) (string, error) {
+	if os.Geteuid() != 0 {
+		return "", fmt.Errorf("remove-monitor-cron must be run as root (use sudo)")
+	}
+
+	// Remove any lines containing 'csm monitor' from root's crontab.
+	cmd := exec.CommandContext(ctx, "bash", "-lc",
+		"(crontab -l 2>/dev/null | grep -v 'csm monitor' || true) | crontab -")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return string(out), fmt.Errorf("failed to remove cron entry: %w", err)
+	}
+
+	// Also clean up any state files (per-server state files from the monitor)
+	mgr, err := NewTmuxManager()
+	if err == nil && mgr.NumServers > 0 {
+		for i := 1; i <= mgr.NumServers; i++ {
+			stateFile := fmt.Sprintf("/tmp/cs2_auto_update_server_%s_%d", mgr.CS2User, i)
+			_ = os.Remove(stateFile) // Ignore errors if file doesn't exist
+		}
+	}
+
+	return "Removed auto-update monitor cronjob\n", nil
+}
+
 func writeMonitorLog(content string, err error) error {
 	AppendLog("auto_update_monitor.log", content)
 	return err

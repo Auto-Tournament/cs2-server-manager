@@ -402,6 +402,17 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "remove-monitor-cron":
+			out, err := csm.RemoveAutoUpdateCron()
+			csm.LogAction("cli", "remove-monitor-cron", out, err)
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to remove auto-update cronjob: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		default:
 			fmt.Fprintf(os.Stderr, "Unrecognized command: %q\n\n", args[0])
 			printUsage()
@@ -516,6 +527,7 @@ func printUsage() {
 	fmt.Println("  update-plugins         Update plugins and deploy to servers")
 	fmt.Println("  monitor                Run auto-update monitor loop")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
+	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
 	fmt.Println("  install-deps           Install system dependencies")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")

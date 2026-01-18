@@ -304,9 +304,14 @@ func detectRCONPassword(user string) string {
 	return ""
 }
 
-// detectHostnamePrefix reads server-1's hostname and derives the base prefix so
+// DetectHostnamePrefix reads server-1's hostname and derives the base prefix so
 // that newly added servers follow the same naming pattern. When parsing fails,
 // it falls back to a neutral default.
+func DetectHostnamePrefix(user string) string {
+	return detectHostnamePrefix(user)
+}
+
+// detectHostnamePrefix is the internal implementation.
 func detectHostnamePrefix(user string) string {
 	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
 	data, err := os.ReadFile(cfg)
@@ -334,8 +339,13 @@ func detectHostnamePrefix(user string) string {
 	return "CS2 Server"
 }
 
-// detectMetamodEnabled inspects server-1's gameinfo.gi to see whether the
+// DetectMetamodEnabled inspects server-1's gameinfo.gi to see whether the
 // Metamod line is present. New servers follow the same setting.
+func DetectMetamodEnabled(user string) bool {
+	return detectMetamodEnabled(user)
+}
+
+// detectMetamodEnabled is the internal implementation.
 func detectMetamodEnabled(user string) bool {
 	gameinfo := filepath.Join("/home", user, "server-1", "game", "csgo", "gameinfo.gi")
 	data, err := os.ReadFile(gameinfo)
@@ -401,9 +411,14 @@ func detectGSLT(user string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// detectServerPorts reads the autoexec.cfg for a given server and extracts the
+// DetectServerPorts reads the autoexec.cfg for a given server and extracts the
 // "Port: Game X, TV Y" line. When parsing fails, it falls back to the default
 // port pattern based on the server index.
+func DetectServerPorts(user string, server int) (gamePort, tvPort int) {
+	return detectServerPorts(user, server)
+}
+
+// detectServerPorts is the internal implementation.
 func detectServerPorts(user string, server int) (gamePort, tvPort int) {
 	autoexec := filepath.Join("/home", user, fmt.Sprintf("server-%d", server), "game", "csgo", "cfg", "autoexec.cfg")
 	data, err := os.ReadFile(autoexec)

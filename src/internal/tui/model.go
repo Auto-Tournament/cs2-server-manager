@@ -447,6 +447,7 @@ func buildItemsForTab(t tab) []menuItem {
 }
 
 func (m *model) initWizardDefaults() {
+	// Start with defaults
 	cfg := installConfig{
 		dbMode:         "docker",
 		numServers:     csm.DefaultNumServers,
@@ -470,6 +471,39 @@ func (m *model) initWizardDefaults() {
 		externalDBName:     "matchzy",
 		externalDBUser:     "matchzy",
 		externalDBPassword: "matchzy",
+	}
+
+	// Try to detect existing configuration from installed servers
+	mgr, err := csm.NewTmuxManager()
+	if err == nil && mgr.NumServers > 0 {
+		user := mgr.CS2User
+		
+		// Detect numServers
+		cfg.numServers = mgr.NumServers
+		
+		// Detect ports from server-1
+		if cfg.numServers >= 1 {
+			gamePort, tvPort := csm.DetectServerPorts(user, 1)
+			if gamePort > 0 {
+				cfg.basePort = gamePort
+			}
+			if tvPort > 0 {
+				cfg.tvPort = tvPort
+			}
+		}
+		
+		// Detect other config values
+		cfg.cs2User = user
+		cfg.hostnamePrefix = csm.DetectHostnamePrefix(user)
+		cfg.enableMetamod = csm.DetectMetamodEnabled(user)
+		cfg.rconPassword = csm.DetectRCONPassword(user)
+		maxPlayers := csm.DetectMaxPlayers(user)
+		if maxPlayers > 0 {
+			cfg.maxPlayers = maxPlayers
+		} else {
+			cfg.maxPlayers = 15 // Default if not detected
+		}
+		cfg.gslt = csm.DetectGSLT(user)
 	}
 
 	ti := textinput.New()
@@ -1550,9 +1584,10 @@ func (m model) View() string {
 		fmt.Fprintln(&b)
 	}
 
-	// Version / update banner: only on the main menu (viewMain) and Install tab. 
+	// Version / update banner: only on the main menu (viewMain) and Install tab, 
+	// and only when not running any operations (to avoid showing it during installation, etc).
 	// Other views and tabs don't show this banner.
-	if m.view == viewMain && m.tab == tabInstall {
+	if m.view == viewMain && m.tab == tabInstall && !m.running {
 		if !m.updateChecked {
 			fmt.Fprintln(&b, subtleStyle.Render("Checking for updates..."))
 		} else if m.updateAvailable && m.latestVersion != "" {
