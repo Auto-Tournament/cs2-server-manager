@@ -56,14 +56,16 @@ func main() {
 				// Prefer the same dedicated service user as the TUI install
 				// wizard so CLI bootstrap and interactive installs remain in
 				// sync by default.
-				CS2User:           getenvDefault("CS2_USER", csm.DefaultCS2User),
-				NumServers:        intFromEnv("NUM_SERVERS", csm.DefaultNumServers),
-				BaseGamePort:      intFromEnv("BASE_GAME_PORT", csm.DefaultBaseGamePort),
-				BaseTVPort:        intFromEnv("BASE_TV_PORT", csm.DefaultBaseTVPort),
-				EnableMetamod:     intFromEnv("ENABLE_METAMOD", 1) != 0,
-				FreshInstall:      intFromEnv("FRESH_INSTALL", 0) != 0,
-				UpdateMaster:      intFromEnv("UPDATE_MASTER", 1) != 0,
-				RCONPassword:      getenvDefault("RCON_PASSWORD", csm.DefaultRCONPassword),
+				CS2User:        getenvDefault("CS2_USER", csm.DefaultCS2User),
+				NumServers:     intFromEnv("NUM_SERVERS", csm.DefaultNumServers),
+				BaseGamePort:   intFromEnv("BASE_GAME_PORT", csm.DefaultBaseGamePort),
+				BaseTVPort:     intFromEnv("BASE_TV_PORT", csm.DefaultBaseTVPort),
+				HostnamePrefix: getenvDefault("HOSTNAME_PREFIX", "CS2 Server"),
+				EnableMetamod:  intFromEnv("ENABLE_METAMOD", 1) != 0,
+				FreshInstall:   intFromEnv("FRESH_INSTALL", 0) != 0,
+				UpdateMaster:   intFromEnv("UPDATE_MASTER", 1) != 0,
+				RCONPassword:   getenvDefault("RCON_PASSWORD", csm.DefaultRCONPassword),
+
 				MatchzySkipDocker: intFromEnv("MATCHZY_SKIP_DOCKER", 0) != 0,
 				GameFilesDir:      getenvDefault("GAME_FILES_DIR", ""),
 				OverridesDir:      getenvDefault("OVERRIDES_DIR", ""),
@@ -400,6 +402,17 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "remove-monitor-cron":
+			out, err := csm.RemoveAutoUpdateCron()
+			csm.LogAction("cli", "remove-monitor-cron", out, err)
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to remove auto-update cronjob: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		default:
 			fmt.Fprintf(os.Stderr, "Unrecognized command: %q\n\n", args[0])
 			printUsage()
@@ -514,6 +527,7 @@ func printUsage() {
 	fmt.Println("  update-plugins         Update plugins and deploy to servers")
 	fmt.Println("  monitor                Run auto-update monitor loop")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
+	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
 	fmt.Println("  install-deps           Install system dependencies")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")

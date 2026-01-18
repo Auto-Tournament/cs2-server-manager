@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -40,9 +42,7 @@ func (m model) viewViewport() string {
 	fmt.Fprintln(&b)
 
 	statusText := m.status
-	if strings.TrimSpace(statusText) != "" {
-		fmt.Fprintln(&b, statusBarStyle.Render(statusText))
-	}
+	fmt.Fprintln(&b, statusBarStyle.Render(statusText))
 
 	return b.String()
 }
@@ -149,7 +149,7 @@ func (m model) updateLogsPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 		m.status = fmt.Sprintf("Loading logs for server %s...", value)
 		m.lastOutput = ""
 		// Use 200 lines as a reasonable default.
-		cmd := runTmuxLogsDetail(value, 200)
+		cmd := runTmuxLogsViewport(value, 200)
 		return m, tea.Batch(cmd, m.spin.Tick)
 	}
 
@@ -177,33 +177,6 @@ func (m model) viewAddServersPrompt() string {
 		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
 	} else {
 		fmt.Fprintln(&b, "Press Enter to add servers, Esc to cancel.")
-	}
-
-	// Rough disk space estimate for adding N additional servers, based on the
-	// same per-server footprint used by the install wizard's disk estimate.
-	value := strings.TrimSpace(m.wizard.input.Value())
-	if n, err := strconv.Atoi(value); err == nil && n > 0 {
-		const perServerGB = csm.DefaultPerServerDiskGB
-		additionalGB := perServerGB * float64(n)
-
-		// Derive the CS2 user from the tmux manager so we match the actual
-		// install layout on disk.
-		if mgr, err := csm.NewTmuxManager(); err == nil {
-			_, freeGB, ok := estimateDiskSpace(mgr.CS2User)
-			if ok {
-				afterGB := freeGB - additionalGB
-				fmt.Fprintln(&b)
-				summary := fmt.Sprintf(
-					"Disk: adding %d server(s) will use ~%.1f GB; currently ~%.1f GB free, ~%.1f GB free after add.",
-					n, additionalGB, freeGB, afterGB,
-				)
-				if afterGB < 0 {
-					fmt.Fprintln(&b, warningStyle.Render(summary))
-				} else {
-					fmt.Fprintln(&b, subtleStyle.Render(summary))
-				}
-			}
-		}
 	}
 
 	return b.String()
@@ -267,33 +240,6 @@ func (m model) viewRemoveServersPrompt() string {
 		fmt.Fprintln(&b, "Press Enter to remove servers, Esc to cancel.")
 	}
 
-	// Rough disk space estimate for removing N servers. This mirrors the wizard
-	// disk estimate style but focuses on space freed instead of required.
-	value := strings.TrimSpace(m.wizard.input.Value())
-	if n, err := strconv.Atoi(value); err == nil && n > 0 {
-		if mgr, err := csm.NewTmuxManager(); err == nil && mgr.NumServers > 0 {
-			// Clamp to the number of existing servers so the estimate remains
-			// realistic even if the user types a larger number.
-			if n > mgr.NumServers {
-				n = mgr.NumServers
-			}
-
-			const perServerGB = csm.DefaultPerServerDiskGB
-			freedGB := perServerGB * float64(n)
-
-			_, freeGB, ok := estimateDiskSpace(mgr.CS2User)
-			if ok {
-				afterGB := freeGB + freedGB
-				fmt.Fprintln(&b)
-				summary := fmt.Sprintf(
-					"Disk: removing %d server(s) will free ~%.1f GB; currently ~%.1f GB free, ~%.1f GB free after removal.",
-					n, freedGB, freeGB, afterGB,
-				)
-				fmt.Fprintln(&b, subtleStyle.Render(summary))
-			}
-		}
-	}
-
 	return b.String()
 }
 
@@ -334,9 +280,160 @@ func (m model) updateRemoveServersPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 	return m, cmd
 }
 
-// Note: the old scrollable logs viewport has been replaced with a simpler
-// non-scrollable detail view (see runTmuxLogsDetail in commands.go) to avoid
-// nested scrolling complexity in the TUI.
+func (m model) viewServerConfigPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("View server.cfg")) +
+		"\n" +
+		headerBorderStyle.Render("Enter server number to view server.cfg")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Server number:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, "Press Enter to view config, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateServerConfigPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter a server number."
+			return m, nil
+		}
+		if _, err := strconv.Atoi(value); err != nil {
+			m.wizard.errMsg = "Server number must be an integer."
+			return m, nil
+		}
+
+		m.running = true
+		m.status = fmt.Sprintf("Loading server.cfg for server %s...", value)
+		m.lastOutput = ""
+		cmd := runViewServerConfigViewport(value)
+		return m, tea.Batch(cmd, m.spin.Tick)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
+func runTmuxStatusViewport() tea.Cmd {
+	return func() tea.Msg {
+		manager, err := csm.NewTmuxManager()
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   "Servers dashboard",
+				content: fmt.Sprintf("Failed to load tmux status: %v\n\nIf you haven't installed servers yet, run the install wizard first from the Setup tab.", err),
+				err:     err,
+			}
+		}
+		out, err := manager.Status()
+		return viewportFinishedMsg{
+			title:   "Servers dashboard",
+			content: out,
+			err:     err,
+		}
+	}
+}
+
+func runTmuxLogsViewport(server string, lines int) tea.Cmd {
+	return func() tea.Msg {
+		manager, err := csm.NewTmuxManager()
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   fmt.Sprintf("Server %s logs", server),
+				content: "",
+				err:     err,
+			}
+		}
+
+		n, err := strconv.Atoi(server)
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   fmt.Sprintf("Server %s logs", server),
+				content: "",
+				err:     fmt.Errorf("invalid server number %q", server),
+			}
+		}
+
+		out, err := manager.Logs(n, lines)
+		logPath := manager.ServerLogPath(n)
+		if strings.TrimSpace(logPath) != "" {
+			header := fmt.Sprintf("Underlying log file: %s\n\n", logPath)
+			out = header + out
+		}
+		return viewportFinishedMsg{
+			title:   fmt.Sprintf("Server %d logs", n),
+			content: out,
+			err:     err,
+		}
+	}
+}
+
+func runViewServerConfigViewport(server string) tea.Cmd {
+	return func() tea.Msg {
+		manager, err := csm.NewTmuxManager()
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   fmt.Sprintf("Server %s server.cfg", server),
+				content: fmt.Sprintf("Failed to load tmux manager: %v", err),
+				err:     err,
+			}
+		}
+
+		n, err := strconv.Atoi(server)
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   fmt.Sprintf("Server %s server.cfg", server),
+				content: "",
+				err:     fmt.Errorf("invalid server number %q", server),
+			}
+		}
+
+		// Construct path to server.cfg
+		user := manager.CS2User
+		cfgPath := filepath.Join("/home", user, fmt.Sprintf("server-%d", n), "game", "csgo", "cfg", "server.cfg")
+
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   fmt.Sprintf("Server %d server.cfg", n),
+				content: fmt.Sprintf("Failed to read server.cfg from %s: %v\n\nIf the server hasn't been installed yet, run the install wizard first.", cfgPath, err),
+				err:     err,
+			}
+		}
+
+		content := string(data)
+		if strings.TrimSpace(content) == "" {
+			content = "(server.cfg is empty)"
+		}
+
+		header := fmt.Sprintf("File: %s\n\n", cfgPath)
+		return viewportFinishedMsg{
+			title:   fmt.Sprintf("Server %d server.cfg", n),
+			content: header + content,
+			err:     nil,
+		}
+	}
+}
 
 // Debugging servers is only supported via the CLI (csm debug <server>) to
 // avoid conflicts with the TUI's own terminal control.

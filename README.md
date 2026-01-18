@@ -92,6 +92,7 @@ sudo csm logs 1 100      # View last 100 lines of server 1 logs
 - [Troubleshooting](docs/guides/troubleshooting.md) – common issues and fixes.
 - [MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy-Enhanced)
 - [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)
+- [Project Roadmap & Status](https://kan.sivert.io/MAT) – kanban board (auto-updates from GitHub issues)
 
 ---
 

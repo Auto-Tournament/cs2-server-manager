@@ -50,19 +50,18 @@ func RunAutoUpdateMonitor() error {
 
 	log("Detected %d CS2 servers for user %s", mgr.NumServers, mgr.CS2User)
 
-	// Step 1: For each server, inspect the tmux log for MatchZy auto-update
-	// markers. While the session is running we only record that an update is
-	// pending; once the server is stopped and a shutdown marker is present we
-	// run the actual game update for that specific server.
-	const (
-		matchzyAvailableMarker = "[MATCHZY_UPDATE_AVAILABLE]"
-		matchzyShutdownMarker  = "[MATCHZY_UPDATE_SHUTDOWN]"
-	)
+	// Step 1: For each server, if its tmux session is NOT running, inspect the
+	// corresponding tmux log for the AutoUpdater shutdown marker. This allows
+	// per-server updates without requiring all servers to be down at once.
+	const shutdownMarker = "plugin:AutoUpdater Shutting the server down due to the new game update"
 
 	for i := 1; i <= mgr.NumServers; i++ {
 		session := mgr.sessionName(i)
 		cmd := mgr.runAsCS2User("tmux has-session -t " + session)
-		running := cmd.Run() == nil
+		if err := cmd.Run(); err == nil {
+			// Session still running; skip this server for now.
+			continue
+		}
 
 		logPath := mgr.ServerLogPath(i)
 		if strings.TrimSpace(logPath) == "" {
@@ -70,24 +69,7 @@ func RunAutoUpdateMonitor() error {
 			continue
 		}
 
-		// While the server is running, only record that an update is pending
-		// so operators and dashboards can see why a restart will happen later.
-		if running {
-			if found, version, err := findMatchzyUpdateMarker(logPath, matchzyAvailableMarker, 64*1024); err == nil && found {
-				if version != "" {
-					log("Server-%d: MatchZy reports a pending CS2 update (required_version=%s); waiting for a safe shutdown before applying.", i, version)
-				} else {
-					log("Server-%d: MatchZy reports a pending CS2 update; waiting for a safe shutdown before applying.", i)
-				}
-			}
-			// Do not attempt updates while matches are live; MatchZy will
-			// trigger a clean shutdown once it is safe.
-			continue
-		}
-
-		// When the server is stopped, look for the MatchZy shutdown marker to
-		// distinguish intentional update restarts from crashes.
-		found, version, err := findMatchzyUpdateMarker(logPath, matchzyShutdownMarker, 64*1024)
+		found, err := tailContains(logPath, shutdownMarker, 64*1024)
 		if err != nil {
 			log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
 			continue
@@ -96,11 +78,7 @@ func RunAutoUpdateMonitor() error {
 			continue
 		}
 
-		if version != "" {
-			log("Server-%d: MatchZy shutdown marker found in tmux log (%s), required_version=%s.", i, logPath, version)
-		} else {
-			log("Server-%d: MatchZy shutdown marker found in tmux log (%s).", i, logPath)
-		}
+		log("Server-%d: AutoUpdater shutdown marker found in tmux log (%s).", i, logPath)
 
 		info, err := os.Stat(logPath)
 		if err != nil {
@@ -195,26 +173,54 @@ func InstallAutoUpdateCronWithContext(ctx context.Context, interval string) (str
 	return fmt.Sprintf("Installed auto-update cronjob: %s\n", entry), nil
 }
 
+// RemoveAutoUpdateCron removes the auto-update monitor cron job from root's crontab.
+func RemoveAutoUpdateCron() (string, error) {
+	return RemoveAutoUpdateCronWithContext(context.Background())
+}
+
+// RemoveAutoUpdateCronWithContext is like RemoveAutoUpdateCron but accepts a
+// context for cancellation support.
+func RemoveAutoUpdateCronWithContext(ctx context.Context) (string, error) {
+	if os.Geteuid() != 0 {
+		return "", fmt.Errorf("remove-monitor-cron must be run as root (use sudo)")
+	}
+
+	// Remove any lines containing 'csm monitor' from root's crontab.
+	cmd := exec.CommandContext(ctx, "bash", "-lc",
+		"(crontab -l 2>/dev/null | grep -v 'csm monitor' || true) | crontab -")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return string(out), fmt.Errorf("failed to remove cron entry: %w", err)
+	}
+
+	// Also clean up any state files (per-server state files from the monitor)
+	mgr, err := NewTmuxManager()
+	if err == nil && mgr.NumServers > 0 {
+		for i := 1; i <= mgr.NumServers; i++ {
+			stateFile := fmt.Sprintf("/tmp/cs2_auto_update_server_%s_%d", mgr.CS2User, i)
+			_ = os.Remove(stateFile) // Ignore errors if file doesn't exist
+		}
+	}
+
+	return "Removed auto-update monitor cronjob\n", nil
+}
+
 func writeMonitorLog(content string, err error) error {
 	AppendLog("auto_update_monitor.log", content)
 	return err
 }
 
-// findMatchzyUpdateMarker scans up to maxBytes from the end of the given log
-// file looking for the last occurrence of a MatchZy auto-update marker line
-// and, when found, attempts to parse the required_version=<number> token.
-// It returns whether the marker was found at all, the parsed version string
-// (which may be empty on parse failure) and any I/O error encountered.
-func findMatchzyUpdateMarker(path, marker string, maxBytes int64) (bool, string, error) {
+// tailContains checks whether the last up-to-maxBytes contents of path contain
+// the given substring. It avoids reading the entire file when logs grow large.
+func tailContains(path, substr string, maxBytes int64) (bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return false, "", err
+		return false, err
 	}
 	defer f.Close()
 
 	info, err := f.Stat()
 	if err != nil {
-		return false, "", err
+		return false, err
 	}
 
 	size := info.Size()
@@ -223,33 +229,15 @@ func findMatchzyUpdateMarker(path, marker string, maxBytes int64) (bool, string,
 		start = size - maxBytes
 	}
 	if _, err := f.Seek(start, 0); err != nil {
-		return false, "", err
+		return false, err
 	}
 
 	buf := make([]byte, size-start)
 	if _, err := f.Read(buf); err != nil {
-		return false, "", err
+		return false, err
 	}
 
-	text := string(buf)
-	if !strings.Contains(text, marker) {
-		return false, "", nil
-	}
-
-	lines := strings.Split(text, "\n")
-	re := regexp.MustCompile(`\[MATCHZY_UPDATE_(AVAILABLE|SHUTDOWN)\]\s+required_version=(\d+)`)
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" || !strings.Contains(line, marker) {
-			continue
-		}
-		if m := re.FindStringSubmatch(line); len(m) == 3 {
-			return true, m[2], nil
-		}
-	}
-
-	// Marker was present in the tail, but we couldn't parse a version token.
-	return true, "", nil
+	return strings.Contains(string(buf), substr), nil
 }
 
 // shouldProcessUpdate enforces a simple cooldown based on a timestamp file on

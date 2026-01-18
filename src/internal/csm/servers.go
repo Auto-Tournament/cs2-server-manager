@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -91,7 +91,10 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 	tvPortNew := tvPortLast + 10
 
 	rcon := detectRCONPassword(user)
+	hostnamePrefix := detectHostnamePrefix(user)
 	enableMetamod := detectMetamodEnabled(user)
+	maxPlayers := detectMaxPlayers(user)
+	gslt := detectGSLT(user)
 
 	var buf bytes.Buffer
 	log := func(format string, args ...any) {
@@ -125,19 +128,20 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
-	if err := customizeServerCfgGo(&buf, user, newIdx, rcon, gamePortNew, tvPortNew); err != nil {
+	if err := customizeServerCfgGo(&buf, user, newIdx, rcon, hostnamePrefix, gamePortNew, tvPortNew, maxPlayers); err != nil {
 		log("  [!] Customize server.cfg for server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
 		return buf.String(), err
 	}
 
-	log("  [✓] Server-%d ready (game %d, TV %d)", newIdx, gamePortNew, tvPortNew)
+	// Store GSLT token if one was detected
+	if gslt != "" {
+		if err := storeGSLTGo(&buf, user, newIdx, gslt); err != nil {
+			log("  [!] Failed to store GSLT for server-%d: %v", newIdx, err)
+		}
+	}
 
-	// As a final safety net, ensure the CS2 user owns everything under its home
-	// directory so the newly created server files are writable by that user.
-	homeDir := filepath.Join("/home", user)
-	log("  [i] Ensuring ownership of %s for user %s", homeDir, user)
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", user, user), homeDir).Run()
+	log("  [✓] Server-%d ready (game %d, TV %d)", newIdx, gamePortNew, tvPortNew)
 
 	// Automatically start the new server so scale-up feels complete without
 	// requiring a separate "start" action.
@@ -259,17 +263,32 @@ func RemoveLastServerInstance() (string, error) {
 	return buf.String(), nil
 }
 
-// detectRCONPassword best-effort reads the RCON password from an existing
+// DetectRCONPassword best-effort reads the RCON password from an existing
 // server-1 config so new servers reuse the same password. Falls back to the
 // default if parsing fails.
+func DetectRCONPassword(user string) string {
+	return detectRCONPassword(user)
+}
+
+// sharedConfigPath returns the path to the shared server.cfg in cs2-config
+func sharedConfigPath(user string) string {
+	return filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg", "server.cfg")
+}
+
+// detectRCONPassword is the internal implementation.
+// Reads from the shared cs2-config/server.cfg (applies to all servers)
 func detectRCONPassword(user string) string {
-	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
+	cfg := sharedConfigPath(user)
 	data, err := os.ReadFile(cfg)
 	if err != nil {
-		return "changeme"
+		return ""
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
 		if !strings.HasPrefix(line, "rcon_password") {
 			continue
 		}
@@ -282,11 +301,51 @@ func detectRCONPassword(user string) string {
 			}
 		}
 	}
-	return "changeme"
+	return ""
 }
 
-// detectMetamodEnabled inspects server-1's gameinfo.gi to see whether the
+// DetectHostnamePrefix reads server-1's hostname and derives the base prefix so
+// that newly added servers follow the same naming pattern. When parsing fails,
+// it falls back to a neutral default.
+func DetectHostnamePrefix(user string) string {
+	return detectHostnamePrefix(user)
+}
+
+// detectHostnamePrefix is the internal implementation.
+func detectHostnamePrefix(user string) string {
+	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		return "CS2 Server"
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "hostname ") {
+			continue
+		}
+		// Expect formats like:
+		//   hostname "My CS2 Server #1"
+		//   hostname "My CS2 Server"
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "hostname"))
+		rest = strings.Trim(rest, `"`)
+		if rest == "" {
+			continue
+		}
+		if strings.HasSuffix(rest, " #1") {
+			return strings.TrimSuffix(rest, " #1")
+		}
+		return rest
+	}
+	return "CS2 Server"
+}
+
+// DetectMetamodEnabled inspects server-1's gameinfo.gi to see whether the
 // Metamod line is present. New servers follow the same setting.
+func DetectMetamodEnabled(user string) bool {
+	return detectMetamodEnabled(user)
+}
+
+// detectMetamodEnabled is the internal implementation.
 func detectMetamodEnabled(user string) bool {
 	gameinfo := filepath.Join("/home", user, "server-1", "game", "csgo", "gameinfo.gi")
 	data, err := os.ReadFile(gameinfo)
@@ -296,9 +355,70 @@ func detectMetamodEnabled(user string) bool {
 	return strings.Contains(string(data), "csgo/addons/metamod")
 }
 
-// detectServerPorts reads the autoexec.cfg for a given server and extracts the
+// DetectMaxPlayers reads server-1's server.cfg and extracts the maxplayers value.
+// When parsing fails, it returns 0 (which means use default).
+func DetectMaxPlayers(user string) int {
+	return detectMaxPlayers(user)
+}
+
+// detectMaxPlayers is the internal implementation.
+// Reads from the shared cs2-config/server.cfg (applies to all servers)
+func detectMaxPlayers(user string) int {
+	cfg := sharedConfigPath(user)
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		// Check for maxplayers or sv_maxplayers
+		if !strings.HasPrefix(line, "maxplayers") && !strings.HasPrefix(line, "sv_maxplayers") {
+			continue
+		}
+		// Expect formats like: maxplayers 10 or sv_maxplayers 10
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			if val, err := strconv.Atoi(parts[1]); err == nil && val > 0 {
+				return val
+			}
+		}
+	}
+	return 0
+}
+
+// DetectGSLT reads the GSLT token from server-1's config file.
+func DetectGSLT(user string) string {
+	return detectGSLT(user)
+}
+
+// sharedGSLTPath returns the path to the shared GSLT file in cs2-config
+func sharedGSLTPath(user string) string {
+	return filepath.Join("/home", user, "cs2-config", "server.gslt")
+}
+
+// detectGSLT is the internal implementation.
+// Reads from the shared cs2-config/server.gslt (applies to all servers)
+func detectGSLT(user string) string {
+	gsltFile := sharedGSLTPath(user)
+	data, err := os.ReadFile(gsltFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// DetectServerPorts reads the autoexec.cfg for a given server and extracts the
 // "Port: Game X, TV Y" line. When parsing fails, it falls back to the default
 // port pattern based on the server index.
+func DetectServerPorts(user string, server int) (gamePort, tvPort int) {
+	return detectServerPorts(user, server)
+}
+
+// detectServerPorts is the internal implementation.
 func detectServerPorts(user string, server int) (gamePort, tvPort int) {
 	autoexec := filepath.Join("/home", user, fmt.Sprintf("server-%d", server), "game", "csgo", "cfg", "autoexec.cfg")
 	data, err := os.ReadFile(autoexec)

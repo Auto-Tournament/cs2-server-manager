@@ -3,11 +3,11 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
@@ -132,54 +132,6 @@ func runInstallMonitorGo() tea.Cmd {
 	}
 }
 
-// runTmuxLogsDetail loads tmux logs for a specific server and shows them on a
-// simple action-result page instead of a scrollable viewport. Output is
-// truncated by the generic detail view logic to keep it readable.
-func runTmuxLogsDetail(server string, lines int) tea.Cmd {
-	return func() tea.Msg {
-		mgr, err := csm.NewTmuxManager()
-		title := fmt.Sprintf("Server %s logs", server)
-		if err != nil {
-			return commandFinishedMsg{
-				item: menuItem{
-					title: title,
-					kind:  itemLogsViewport,
-				},
-				output: "",
-				err:    err,
-			}
-		}
-
-		n, err := strconv.Atoi(server)
-		if err != nil {
-			return commandFinishedMsg{
-				item: menuItem{
-					title: title,
-					kind:  itemLogsViewport,
-				},
-				output: "",
-				err:    fmt.Errorf("invalid server number %q", server),
-			}
-		}
-
-		out, err := mgr.Logs(n, lines)
-		logPath := mgr.ServerLogPath(n)
-		if strings.TrimSpace(logPath) != "" {
-			header := fmt.Sprintf("Underlying log file: %s\n\n", logPath)
-			out = header + out
-		}
-
-		return commandFinishedMsg{
-			item: menuItem{
-				title: fmt.Sprintf("Server %d logs", n),
-				kind:  itemLogsViewport,
-			},
-			output: out,
-			err:    err,
-		}
-	}
-}
-
 // runStartAllServers starts all servers via the Go tmux manager.
 func runStartAllServers() tea.Cmd {
 	return func() tea.Msg {
@@ -192,26 +144,9 @@ func runStartAllServers() tea.Cmd {
 			}
 		}
 		err = mgr.StartAll()
-
-		// On failure, surface any captured tmux/cs2 output into the TUI detail
-		// page so the user can immediately see why startup failed instead of
-		// only "exit status 1".
 		out := ""
 		if err == nil {
 			out = fmt.Sprintf("Started %d server(s) via tmux.\n\nUse the Servers dashboard or `csm attach <n>` to inspect them.", mgr.NumServers)
-		} else {
-			if se, ok := err.(*csm.TmuxStartError); ok {
-				trimmed := strings.TrimSpace(se.Output)
-				if trimmed != "" {
-					lines := strings.Split(trimmed, "\n")
-					// Show only the last N lines to keep the detail view readable.
-					const maxLines = 40
-					if len(lines) > maxLines {
-						lines = lines[len(lines)-maxLines:]
-					}
-					out = strings.Join(lines, "\n")
-				}
-			}
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Start all servers", kind: itemStartAllGo},
@@ -260,49 +195,9 @@ func runRestartAllServers() tea.Cmd {
 		out := ""
 		if err == nil {
 			out = fmt.Sprintf("Restarted %d server(s) via tmux.", mgr.NumServers)
-		} else {
-			if se, ok := err.(*csm.TmuxStartError); ok {
-				trimmed := strings.TrimSpace(se.Output)
-				if trimmed != "" {
-					lines := strings.Split(trimmed, "\n")
-					const maxLines = 40
-					if len(lines) > maxLines {
-						lines = lines[len(lines)-maxLines:]
-					}
-					out = strings.Join(lines, "\n")
-				}
-			}
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Restart all servers", kind: itemRestartAllGo},
-			output: out,
-			err:    err,
-		}
-	}
-}
-
-// runTmuxStatusDetail loads the tmux-based servers dashboard and presents it
-// as a simple, non-scrollable detail page instead of a nested scrollable
-// viewport. The content is typically short and fits on a single screen.
-func runTmuxStatusDetail() tea.Cmd {
-	return func() tea.Msg {
-		mgr, err := csm.NewTmuxManager()
-		if err != nil {
-			return commandFinishedMsg{
-				item: menuItem{
-					title: "Servers dashboard",
-					kind:  itemServersStatusViewport,
-				},
-				output: "",
-				err:    err,
-			}
-		}
-		out, err := mgr.Status()
-		return commandFinishedMsg{
-			item: menuItem{
-				title: "Servers dashboard",
-				kind:  itemServersStatusViewport,
-			},
 			output: out,
 			err:    err,
 		}
@@ -354,6 +249,26 @@ func runAddServersGo(n int) tea.Cmd {
 			item: menuItem{
 				title: "Add servers",
 				kind:  itemAddServerGo,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
+// runUpdateServerConfigsGoWithConfig updates server configurations with specific values.
+// This is called from the config editor after the user edits values.
+func runUpdateServerConfigsGoWithConfig(cfg csm.UpdateServerConfigsConfig) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithCancel(context.Background())
+		SetInstallCancel(cancel)
+		defer CancelInstall()
+
+		out, err := csm.UpdateServerConfigsWithContext(ctx, cfg)
+		return commandFinishedMsg{
+			item: menuItem{
+				title: "Update server configs",
+				kind:  itemUpdateServerConfigs,
 			},
 			output: out,
 			err:    err,
@@ -557,4 +472,38 @@ func withEnvLogTail(envKey, tempName string, run func() (string, error)) (string
 	defer os.Unsetenv(envKey)
 
 	return run()
+}
+
+// tailInstallLog runs in a background goroutine and periodically reads the log
+// file at logPath, sending installLogTickMsg messages to the TUI program.
+// It stops when the done channel is closed.
+func tailInstallLog(logPath string, done <-chan struct{}) {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastPos int64 = 0
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			f, err := os.Open(logPath)
+			if err != nil {
+				continue // File might not exist yet
+			}
+
+			// Seek to last known position
+			if lastPos > 0 {
+				f.Seek(lastPos, 0)
+			}
+
+			// Read new content
+			data, err := io.ReadAll(f)
+			if err == nil && len(data) > 0 {
+				send(installLogTickMsg{lines: string(data)})
+				lastPos, _ = f.Seek(0, io.SeekCurrent)
+			}
+			f.Close()
+		}
+	}
 }

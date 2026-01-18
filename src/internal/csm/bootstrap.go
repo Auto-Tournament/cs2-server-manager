@@ -18,17 +18,17 @@ import (
 // BootstrapConfig mirrors the high-level options used by the original
 // bootstrap_cs2.sh script.
 type BootstrapConfig struct {
-	CS2User       string
-	NumServers    int
-	BaseGamePort  int
-	BaseTVPort    int
-	EnableMetamod bool
-	FreshInstall  bool
-	// UpdateMaster controls how the master CS2 install is handled:
-	//   - true  → run SteamCMD to install or update the master (fresh or in-place)
-	//   - false → reuse an existing master if present; fail if missing
+	CS2User           string
+	NumServers        int
+	BaseGamePort      int
+	BaseTVPort        int
+	HostnamePrefix    string
+	EnableMetamod     bool
+	FreshInstall      bool
 	UpdateMaster      bool
 	RCONPassword      string
+	MaxPlayers        int // 0 means use default
+	GSLT              string // Game Server Login Token (optional)
 	MatchzySkipDocker bool
 	GameFilesDir      string // typically <root>/game_files
 	OverridesDir      string // typically <root>/overrides
@@ -44,15 +44,6 @@ type BootstrapConfig struct {
 	ExternalDBName     string
 	ExternalDBUser     string
 	ExternalDBPassword string
-
-	// Optional MatchZy config overrides driven by the install wizard. When the
-	// wizard populates MatchzyChatPrefix, Bootstrap will patch the overrides
-	// MatchZy/config.cfg so these values take effect across all servers.
-	MatchzyChatPrefix             string
-	MatchzyAdminChatPrefix        string
-	MatchzyChatMessagesTimerDelay int
-	MatchzyWhitelistDefault       bool
-	MatchzyMinimumReadyRequired   int
 }
 
 // Bootstrap installs or redeploys the CS2 servers, performing roughly the
@@ -112,6 +103,9 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if cfg.BaseTVPort == 0 {
 		cfg.BaseTVPort = DefaultBaseTVPort
 	}
+	if strings.TrimSpace(cfg.HostnamePrefix) == "" {
+		cfg.HostnamePrefix = "CS2 Server"
+	}
 	if cfg.RCONPassword == "" {
 		// Use a neutral fallback rather than an event-specific password; the
 		// install wizard will normally require users to set this explicitly.
@@ -119,11 +113,27 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		cfg.RCONPassword = DefaultRCONPassword
 	}
 
-	// Determine the project root for game_files/ and overrides/. Callers can
-	// override these explicitly via cfg.GameFilesDir / cfg.OverridesDir; when
-	// those are empty we fall back to ResolveRoot, which honours CSM_ROOT and
-	// otherwise uses a sensible default like /opt/cs2-server-manager.
-	root := ResolveRoot()
+	// Determine the project root for game_files/ and overrides/.
+	// Priority:
+	//   1) Explicit cfg.GameFilesDir / cfg.OverridesDir (from CLI env or caller)
+	//   2) CSM_ROOT environment variable, if set
+	//   3) Directory of the CSM executable
+	//   4) Current working directory
+	root := ""
+	if v, ok := os.LookupEnv("CSM_ROOT"); ok && v != "" {
+		root = v
+	} else if exe, err := os.Executable(); err == nil && exe != "" {
+		if dir := filepath.Dir(exe); dir != "" {
+			root = dir
+		}
+	}
+	if root == "" {
+		if wd, err := os.Getwd(); err == nil && wd != "" {
+			root = wd
+		} else {
+			root = "."
+		}
+	}
 	if cfg.GameFilesDir == "" {
 		cfg.GameFilesDir = filepath.Join(root, "game_files")
 	}
@@ -167,14 +177,6 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	}
 	log("")
 
-	// Apply any MatchZy config overrides from the install wizard into the
-	// overrides MatchZy/config.cfg before we build the shared config tree.
-	if strings.TrimSpace(cfg.MatchzyChatPrefix) != "" {
-		if err := applyMatchZyConfigOverridesGo(&buf, cfg); err != nil {
-			log("  [!] Failed to apply MatchZy config overrides: %v", err)
-		}
-	}
-
 	log("[5/5] Setting up shared configuration...")
 	if err := setupSharedConfigGo(&buf, cfg); err != nil {
 		log("  [!] Failed to set up shared config: %v", err)
@@ -208,11 +210,6 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		}
 	}
 
-	// Start servers as soon as each instance is fully provisioned so large
-	// installs become usable incrementally instead of waiting for all N
-	// servers to be ready.
-	mgr := &TmuxManager{CS2User: cfg.CS2User}
-
 	for i := 1; i <= cfg.NumServers; i++ {
 		gamePort := cfg.BaseGamePort + (i-1)*10
 		tvPort := cfg.BaseTVPort + (i-1)*10
@@ -235,29 +232,20 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 			log("  [!] Configure Metamod for server-%d failed: %v", i, err)
 		}
 
-		if err := customizeServerCfgGo(&buf, cfg.CS2User, i, cfg.RCONPassword, gamePort, tvPort); err != nil {
+		if err := customizeServerCfgGo(&buf, cfg.CS2User, i, cfg.RCONPassword, cfg.HostnamePrefix, gamePort, tvPort, cfg.MaxPlayers); err != nil {
 			log("  [!] Customize server.cfg for server-%d failed: %v", i, err)
 		}
 
-		log("  [✓] Server-%d ready (port %d, TV %d)", i, gamePort, tvPort)
-
-		// Start this server immediately after it is ready so users can begin
-		// using early servers while later ones are still provisioning.
-		if err := mgr.Start(i); err != nil {
-			log("  [!] Failed to start server-%d via tmux: %v", i, err)
-		} else {
-			log("  [✓] Server-%d started via tmux", i)
+		// Store GSLT token if provided
+		if cfg.GSLT != "" {
+			if err := storeGSLTGo(&buf, cfg.CS2User, i, cfg.GSLT); err != nil {
+				log("  [!] Failed to store GSLT for server-%d: %v", i, err)
+			}
 		}
+
+		log("  [✓] Server-%d ready (port %d, TV %d)", i, gamePort, tvPort)
 		log("")
 	}
-
-	// As a final safety net, ensure the CS2 user owns everything under its home
-	// directory. Most paths are created with the correct ownership as we go,
-	// but recursive chown here avoids subtle permission issues (for example,
-	// plugin files or gameinfo.gi being left as root-owned).
-	homeDir := filepath.Join("/home", cfg.CS2User)
-	log("[i] Ensuring ownership of %s for user %s", homeDir, cfg.CS2User)
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), homeDir).Run()
 
 	log("=== Setup Complete ===")
 	log("User              : %s", cfg.CS2User)
@@ -318,26 +306,6 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 	masterDir := filepath.Join(homeDir, "master-install")
 	gameinfo := filepath.Join(masterDir, "game", "csgo", "gameinfo.gi")
 
-	masterExists := false
-	if _, err := os.Stat(gameinfo); err == nil {
-		masterExists = true
-	}
-
-	// When UPDATE_MASTER is disabled, never attempt to create or update the
-	// master via SteamCMD. If the master exists, reuse it as-is; if it does
-	// not exist, abort so the user can install it manually or rerun the
-	// wizard/CLI with UPDATE_MASTER enabled.
-	if !cfg.UpdateMaster {
-		if cfg.FreshInstall {
-			return fmt.Errorf("cannot use FreshInstall with UPDATE_MASTER=0; enable master download/update for a fresh install")
-		}
-		if masterExists {
-			fmt.Fprintln(w, "  [i] Master install exists and UPDATE_MASTER=0; reusing without SteamCMD")
-			return nil
-		}
-		return fmt.Errorf("master install not found at %s and UPDATE_MASTER=0; install master manually or enable master download/update", masterDir)
-	}
-
 	if cfg.FreshInstall {
 		if _, err := os.Stat(masterDir); err == nil {
 			fmt.Fprintln(w, "  [*] FRESH_INSTALL=1: Deleting existing master install")
@@ -354,7 +322,7 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		}
 	}
 
-	if masterExists && !cfg.UpdateMaster {
+	if _, err := os.Stat(gameinfo); err == nil && !cfg.UpdateMaster {
 		fmt.Fprintln(w, "  [i] Master install exists and UPDATE_MASTER=0, skipping")
 		return nil
 	}
@@ -522,6 +490,11 @@ func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		return err
 	}
 
+	// Always write shared server config (RCON password, maxplayers) regardless of UpdateMaster/updatePlugins settings
+	if err := writeSharedServerConfig(cfg.CS2User, cfg.RCONPassword, cfg.MaxPlayers); err != nil {
+		return fmt.Errorf("failed to write shared server config: %w", err)
+	}
+
 	// Copy plugin files from game_files/game
 	srcGame := filepath.Join(cfg.GameFilesDir, "game")
 	if fi, err := os.Stat(srcGame); err == nil && fi.IsDir() {
@@ -660,7 +633,51 @@ func configureMetamodGo(w *bytes.Buffer, user string, serverNum int, enable bool
 	return nil
 }
 
-func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon string, gamePort, tvPort int) error {
+// writeSharedServerConfig writes RCON password and maxplayers to the shared cs2-config/server.cfg
+func writeSharedServerConfig(user string, rcon string, maxPlayers int) error {
+	sharedCfgDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg")
+	if err := os.MkdirAll(sharedCfgDir, 0o755); err != nil {
+		return err
+	}
+	sharedCfg := filepath.Join(sharedCfgDir, "server.cfg")
+
+	// Read existing shared config if it exists to preserve other settings
+	var existingLines []string
+	if data, err := os.ReadFile(sharedCfg); err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			// Skip RCON and maxplayers lines - we'll add them fresh
+			if strings.HasPrefix(trimmed, "rcon_password") ||
+				strings.HasPrefix(trimmed, "maxplayers") ||
+				strings.HasPrefix(trimmed, "sv_maxplayers") {
+				continue
+			}
+			existingLines = append(existingLines, line)
+		}
+	}
+
+	// Build new config with shared values at the top
+	var out []string
+	out = append(out, fmt.Sprintf(`rcon_password "%s"`, rcon))
+	if maxPlayers > 0 {
+		out = append(out, fmt.Sprintf("maxplayers %d", maxPlayers))
+	}
+	out = append(out, "")
+	out = append(out, existingLines...)
+
+	if err := os.WriteFile(sharedCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
+func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hostnamePrefix string, gamePort, tvPort int, maxPlayers int) error {
+	// Write shared config (RCON, maxplayers) to cs2-config first
+	if err := writeSharedServerConfig(user, rcon, maxPlayers); err != nil {
+		return fmt.Errorf("failed to write shared config: %w", err)
+	}
+
 	cfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
@@ -670,29 +687,49 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon stri
 
 	fmt.Fprintf(w, "  [*] Customizing configs for server-%d\n", serverNum)
 
+	if strings.TrimSpace(hostnamePrefix) == "" {
+		hostnamePrefix = "CS2 Server"
+	}
+	fullName := fmt.Sprintf(`hostname "%s #%d"`, hostnamePrefix, serverNum)
+
 	if data, err := os.ReadFile(serverCfg); err == nil {
 		// Update existing server.cfg
 		lines := strings.Split(string(data), "\n")
 		var out []string
 		for _, line := range lines {
-			if strings.HasPrefix(strings.TrimSpace(line), "hostname ") {
-				out = append(out, fmt.Sprintf(`hostname "CS2 Server #%d"`, serverNum))
+			trimmed := strings.TrimSpace(line)
+			// Skip commented lines
+			if strings.HasPrefix(trimmed, "//") {
+				out = append(out, line)
 				continue
 			}
-			if strings.HasPrefix(strings.TrimSpace(line), "rcon_password") {
+			if strings.HasPrefix(trimmed, "hostname ") {
+				out = append(out, fullName)
 				continue
 			}
-			if strings.HasPrefix(strings.TrimSpace(line), "tv_enable") ||
-				strings.HasPrefix(strings.TrimSpace(line), "tv_delay") ||
-				strings.HasPrefix(strings.TrimSpace(line), "tv_port") {
+			if strings.HasPrefix(trimmed, "rcon_password") {
+				// Remove old rcon_password line
+				continue
+			}
+			if strings.HasPrefix(trimmed, "maxplayers") ||
+				strings.HasPrefix(trimmed, "sv_maxplayers") {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "tv_enable") ||
+				strings.HasPrefix(trimmed, "tv_delay") ||
+				strings.HasPrefix(trimmed, "tv_port") {
 				continue
 			}
 			out = append(out, line)
 		}
-		// Prepend rcon_password
+		// Prepend rcon_password (must be first, before any other config)
 		out = append([]string{
 			fmt.Sprintf(`rcon_password "%s"`, rcon),
 		}, out...)
+		// Add maxplayers if specified
+		if maxPlayers > 0 {
+			out = append(out, fmt.Sprintf("maxplayers %d", maxPlayers))
+		}
 		// Append GOTV settings
 		out = append(out, "",
 			"// ========================================",
@@ -707,6 +744,10 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon stri
 		}
 	} else {
 		// Create new server.cfg
+		maxPlayersLine := ""
+		if maxPlayers > 0 {
+			maxPlayersLine = fmt.Sprintf("maxplayers %d\n", maxPlayers)
+		}
 		content := fmt.Sprintf(`// ======================================== 
 // RCON Configuration
 // ========================================
@@ -716,9 +757,9 @@ ip "0.0.0.0"
 // ========================================
 // Server Identity
 // ========================================
-hostname "CS2 Server #%d"
+%s
 
-// ========================================
+%s// ========================================
 // Logging
 // ========================================
 log on
@@ -748,7 +789,7 @@ sv_minrate 196608
 sv_maxcmdrate 128
 sv_mincmdrate 64
 sv_hibernate_when_empty 0
-`, rcon, serverNum, tvPort)
+`, rcon, fullName, maxPlayersLine, tvPort)
 		if err := os.WriteFile(serverCfg, []byte(content), 0o644); err != nil {
 			return err
 		}
@@ -764,22 +805,37 @@ rcon_password "%s"
 ip "0.0.0.0"
 
 // Server Identity
-hostname "CS2 Server #%d"
+%s
 
 // Start warmup mode
 startwarmup
 
 // Startup message
 echo "==========================================="
-echo " CS2 Server #%d"
+echo " %s"
 echo " Port: Game %d, TV %d"
 echo " RCON: Enabled on port %d (TCP)"
 echo " RCON Password: %s"
 echo "==========================================="
-`, rcon, serverNum, serverNum, gamePort, tvPort, gamePort, rcon)
+`, rcon, fullName, fullName, gamePort, tvPort, gamePort, rcon)
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
+	return nil
+}
+
+// storeGSLTGo writes the GSLT token to the shared cs2-config location.
+// The serverNum parameter is kept for compatibility but all servers share the same GSLT.
+func storeGSLTGo(w *bytes.Buffer, user string, serverNum int, gslt string) error {
+	configDir := filepath.Join("/home", user, "cs2-config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return err
+	}
+	gsltFile := filepath.Join(configDir, "server.gslt")
+	if err := os.WriteFile(gsltFile, []byte(gslt), 0o600); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "  [*] Stored shared GSLT token (applies to all servers)\n")
 	return nil
 }
 
@@ -840,12 +896,17 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 			dbCfg.MySQLUsername = user
 			dbCfg.MySQLPassword = pass
 
+			// Persist wizard-managed external DB config with an explicit mode
+			// marker so tools like VerifyMatchzyDB can detect that Docker
+			// provisioning should be skipped even outside the install wizard.
 			onDisk := struct {
 				matchzyDBConfig
 				CSMNote string `json:"__CSM_NOTE,omitempty"`
+				DBMode  string `json:"__CSM_DB_MODE,omitempty"`
 			}{
 				matchzyDBConfig: dbCfg,
 				CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+				DBMode:          "external",
 			}
 
 			data, _ := json.MarshalIndent(onDisk, "", "  ")
@@ -870,9 +931,11 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		onDisk := struct {
 			matchzyDBConfig
 			CSMNote string `json:"__CSM_NOTE,omitempty"`
+			DBMode  string `json:"__CSM_DB_MODE,omitempty"`
 		}{
 			matchzyDBConfig: dbCfg,
 			CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+			DBMode:          "docker",
 		}
 
 		data, _ := json.MarshalIndent(onDisk, "", "  ")
@@ -978,24 +1041,19 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		}
 	}
 
-	// Do not auto-detect and overwrite the MySQL host with the primary/wireguard
-	// IP. That broke setups where the game server cannot reach that IP (e.g.
-	// WireGuard-only addresses). Instead, honor any existing MySQLHost value
-	// from database.json and only default to 127.0.0.1 if it's empty. This plays
-	// nicely with both Docker-managed installs (default localhost) and
-	// external DB mode where the wizard has already populated a specific host.
-	if strings.TrimSpace(dbCfg.MySQLHost) == "" {
-		dbCfg.MySQLHost = "127.0.0.1"
-	}
+	hostIP := detectPrimaryIPGo()
+	dbCfg.MySQLHost = hostIP
 
 	// Update database.json with host/port/db/user/pass, preserving the
 	// wizard-management note so users know manual edits may be overwritten.
 	onDisk := struct {
 		matchzyDBConfig
 		CSMNote string `json:"__CSM_NOTE,omitempty"`
+		DBMode  string `json:"__CSM_DB_MODE,omitempty"`
 	}{
 		matchzyDBConfig: dbCfg,
 		CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+		DBMode:          "docker",
 	}
 
 	data, _ = json.MarshalIndent(onDisk, "", "  ")
@@ -1051,7 +1109,7 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	}
 
 	if ready {
-		fmt.Fprintf(w, "  [✓] MatchZy database is ready at %s:%d\n", dbCfg.MySQLHost, dbCfg.MySQLPort)
+		fmt.Fprintf(w, "  [✓] MatchZy database is ready at %s:%d\n", hostIP, dbCfg.MySQLPort)
 		if err := ensureMatchZyDatabaseExistsGo(w, containerName, dbCfg, rootPass); err != nil {
 			return err
 		}
@@ -1059,88 +1117,6 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		fmt.Fprintln(w, "  [i] MatchZy database is starting up (Docker container is running)")
 	}
 
-	return nil
-}
-
-// applyMatchZyConfigOverridesGo patches (or creates) the overrides
-// MatchZy/config.cfg based on the values supplied by the install wizard. Only
-// a small subset of cvars are managed here; all other settings are preserved
-// so manual tweaks remain intact.
-func applyMatchZyConfigOverridesGo(w *bytes.Buffer, cfg BootstrapConfig) error {
-	if strings.TrimSpace(cfg.OverridesDir) == "" {
-		return nil
-	}
-
-	matchzyDir := filepath.Join(cfg.OverridesDir, "game", "csgo", "cfg", "MatchZy")
-	if err := os.MkdirAll(matchzyDir, 0o755); err != nil {
-		return err
-	}
-	cfgPath := filepath.Join(matchzyDir, "config.cfg")
-
-	var lines []string
-	if data, err := os.ReadFile(cfgPath); err == nil {
-		lines = strings.Split(string(data), "\n")
-	} else {
-		// Start from a minimal header when no existing overrides are present.
-		lines = []string{
-			"// MatchZy config overrides generated by CS2 Server Manager install wizard.",
-			"// Manual edits to the managed cvars below may be overwritten on future installs.",
-			"",
-		}
-	}
-
-	desired := map[string]string{
-		"matchzy_whitelist_enabled_default": func() string {
-			if cfg.MatchzyWhitelistDefault {
-				return "true"
-			}
-			return "false"
-		}(),
-		"matchzy_minimum_ready_required": func() string {
-			// Allow 0 to mean "all connected players".
-			return strconv.Itoa(cfg.MatchzyMinimumReadyRequired)
-		}(),
-		"matchzy_chat_prefix": func() string {
-			return cfg.MatchzyChatPrefix
-		}(),
-		"matchzy_admin_chat_prefix": func() string {
-			return cfg.MatchzyAdminChatPrefix
-		}(),
-		"matchzy_chat_messages_timer_delay": func() string {
-			if cfg.MatchzyChatMessagesTimerDelay <= 0 {
-				return ""
-			}
-			return strconv.Itoa(cfg.MatchzyChatMessagesTimerDelay)
-		}(),
-	}
-
-	seen := map[string]bool{}
-	for i, line := range lines {
-		trim := strings.TrimSpace(line)
-		for key, val := range desired {
-			if val == "" {
-				continue
-			}
-			if strings.HasPrefix(trim, key) {
-				lines[i] = key + " " + val
-				seen[key] = true
-			}
-		}
-	}
-
-	for key, val := range desired {
-		if val == "" || seen[key] {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("%s %s", key, val))
-	}
-
-	out := strings.Join(lines, "\n")
-	if err := os.WriteFile(cfgPath, []byte(out), 0o644); err != nil {
-		return err
-	}
-
-	fmt.Fprintf(w, "  [✓] Applied MatchZy config overrides at %s\n", cfgPath)
 	return nil
 }
 

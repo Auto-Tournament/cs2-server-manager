@@ -28,6 +28,8 @@ const (
 	viewLogsPrompt
 	viewAddServersPrompt
 	viewRemoveServersPrompt
+	viewEditServerConfigs
+	viewServerConfigPrompt
 )
 
 type itemKind int
@@ -52,6 +54,8 @@ const (
 	itemCleanupAllGo
 	itemAddServerGo
 	itemRemoveServerGo
+	itemUpdateServerConfigs
+	itemViewServerConfig
 	itemCLIHelp
 )
 
@@ -59,9 +63,10 @@ const (
 type tab int
 
 const (
-	tabSetup tab = iota
+	tabInstall tab = iota
+	tabUpdates
 	tabServers
-	tabAdvanced
+	tabTools
 )
 
 // menuItem represents a single entry in the main menu.
@@ -90,10 +95,13 @@ type installConfig struct {
 	basePort           int
 	tvPort             int
 	cs2User            string
+	hostnamePrefix     string
 	enableMetamod      bool
 	freshInstall       bool
 	updateMaster       bool
 	rconPassword       string
+	maxPlayers         int    // 0 means use default
+	gslt               string // Game Server Login Token
 	updatePlugins      bool
 	installMonitor     bool
 	matchzySkipDocker  bool
@@ -102,15 +110,6 @@ type installConfig struct {
 	externalDBName     string
 	externalDBUser     string
 	externalDBPassword string
-
-	// MatchZy config options managed by the install wizard. These are used to
-	// generate/patch overrides for MatchZy/config.cfg so events can brand chat
-	// and tweak ready/whitelist behaviour without hand-editing configs.
-	matchzyChatPrefix             string
-	matchzyAdminChatPrefix        string
-	matchzyChatMessagesTimerDelay int
-	matchzyWhitelistDefault       bool
-	matchzyMinimumReadyRequired   int
 }
 
 type installWizard struct {
@@ -118,17 +117,15 @@ type installWizard struct {
 	cfg    installConfig
 
 	// Numeric fields bound to the form as strings; parsed into cfg on submit.
-	numServersStr      string
-	basePortStr        string
-	tvPortStr          string
-	dbPortStr          string
-	matchzyDelayStr    string
-	matchzyMinReadyStr string
+	numServersStr string
+	basePortStr   string
+	tvPortStr     string
+	dbPortStr     string
 
-	// Cursor + editing/scroll state for the one-page wizard view.
+	// Cursor + editing/page state for the multi-step wizard view.
 	cursor      int
 	editing     bool
-	windowStart int
+	currentPage int // Current page number (0-indexed)
 
 	// Shared text input + error message used for the server logs prompt.
 	input            textinput.Model
@@ -182,12 +179,11 @@ type model struct {
 	running    bool
 	spin       spinner.Model
 
-	wizard installWizard
+	wizard       installWizard
+	configEditor configEditorState
 
-	vp             viewport.Model
-	vpTitle        string
-	vpRawContent   string
-	vpContentLines int
+	vp      viewport.Model
+	vpTitle string
 
 	version         string
 	latestVersion   string
@@ -210,11 +206,9 @@ type model struct {
 	logProgress progress.Model
 	logPercent  int
 
-	// Terminal size (rows/cols), captured from Bubble Tea's WindowSizeMsg so we
-	// can size scrollable views (like the install wizard and viewports)
-	// dynamically.
+	// Terminal height (rows), captured from Bubble Tea's WindowSizeMsg so we
+	// can size scrollable views (like the install wizard) dynamically.
 	height int
-	width  int
 
 	// menuWindowStart controls which slice of m.items is visible in the main
 	// menu so that the list feels scrollable on smaller terminals.
@@ -263,7 +257,7 @@ func initialModel() model {
 
 	m := model{
 		view:           viewMain,
-		tab:            tabSetup,
+		tab:            tabInstall,
 		items:          nil, // will be set by initWizardDefaults + rebuildItems
 		status:         "",
 		spin:           spin,
@@ -283,10 +277,10 @@ func initialModel() model {
 func (m *model) rebuildItems() {
 	items := buildItemsForTab(m.tab)
 
-	// Append self-update item at the bottom of the Setup tab when an update is
+	// Append self-update item at the bottom of the Install tab when an update is
 	// available. This keeps the main actions visually grouped and the update
 	// affordance easy to discover without dominating the menu.
-	if m.tab == tabSetup && m.updateAvailable && m.latestVersion != "" {
+	if m.tab == tabInstall && m.updateAvailable && m.latestVersion != "" {
 		updateItem := menuItem{
 			title:       fmt.Sprintf("Update CSM to %s now", m.latestVersion),
 			description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s).", m.version, m.latestVersion),
@@ -307,7 +301,7 @@ func (m *model) rebuildItems() {
 
 	// Ensure the menu window start keeps the cursor visible when the visible
 	// window is smaller than the full list.
-	windowSize := wizardWindowSizeFor(m.height)
+	windowSize := menuWindowSizeFor(m.height)
 	if windowSize <= 0 {
 		windowSize = len(m.items)
 	}
@@ -318,10 +312,24 @@ func (m *model) rebuildItems() {
 	}
 }
 
+// menuWindowSizeFor computes how many menu items to show based on terminal height.
+func menuWindowSizeFor(height int) int {
+	const defaultSize = 10
+	if height <= 0 {
+		return defaultSize
+	}
+	// Reserve space for header, status, etc.
+	rowsForItems := (height - 8) / 2
+	if rowsForItems < 4 {
+		return 4
+	}
+	return rowsForItems
+}
+
 // buildItemsForTab returns the menu items for a given top-level tab.
 func buildItemsForTab(t tab) []menuItem {
 	switch t {
-	case tabSetup:
+	case tabInstall:
 		return []menuItem{
 			{
 				title:       "Install system dependencies",
@@ -338,6 +346,9 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "",
 				kind:        itemInstallMonitorGo,
 			},
+		}
+	case tabUpdates:
+		return []menuItem{
 			{
 				title:       "Update CS2 after Valve update",
 				description: "Run SteamCMD on the master install and sync updated game files to all servers.",
@@ -345,18 +356,13 @@ func buildItemsForTab(t tab) []menuItem {
 			},
 			{
 				title:       "Update plugins on all servers",
-				description: "Download the latest plugin bundle and redeploy it to all servers (replaces addon files).",
+				description: "Sync plugins from game_files/ and overrides/ to every server instance.",
 				kind:        itemDeployPluginsGo,
 			},
 			{
-				title:       "MatchZy DB: verify/repair",
-				description: "Verify MatchZy database setup and repair in a scrollable view.",
-				kind:        itemMatchzyDBViewport,
-			},
-			{
-				title:       "Extract map thumbnails",
-				description: "",
-				kind:        itemExtractThumbnailsGo,
+				title:       "Update server configs",
+				description: "Update RCON password, maxplayers, GSLT token for all servers.",
+				kind:        itemUpdateServerConfigs,
 			},
 		}
 	case tabServers:
@@ -370,6 +376,11 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "Server logs (scrollable)",
 				description: "",
 				kind:        itemLogsViewport,
+			},
+			{
+				title:       "View server.cfg",
+				description: "",
+				kind:        itemViewServerConfig,
 			},
 			{
 				title:       "Start all servers",
@@ -397,8 +408,18 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemRemoveServerGo,
 			},
 		}
-	case tabAdvanced:
+	case tabTools:
 		return []menuItem{
+			{
+				title:       "MatchZy DB: verify/repair",
+				description: "Verify MatchZy database setup and repair in a scrollable view.",
+				kind:        itemMatchzyDBViewport,
+			},
+			{
+				title:       "Extract map thumbnails",
+				description: "",
+				kind:        itemExtractThumbnailsGo,
+			},
 			{
 				title:       "Show public IP",
 				description: "",
@@ -426,45 +447,63 @@ func buildItemsForTab(t tab) []menuItem {
 }
 
 func (m *model) initWizardDefaults() {
-	// Start from global defaults.
+	// Start with defaults
 	cfg := installConfig{
-		dbMode:        "docker",
-		numServers:    csm.DefaultNumServers,
-		basePort:      csm.DefaultBaseGamePort,
-		tvPort:        csm.DefaultBaseTVPort,
-		cs2User:       csm.DefaultCS2User,
-		enableMetamod: true,
-		freshInstall:  false,
-		updateMaster:  true,
+		dbMode:         "docker",
+		numServers:     csm.DefaultNumServers,
+		basePort:       csm.DefaultBaseGamePort,
+		tvPort:         csm.DefaultBaseTVPort,
+		cs2User:        csm.DefaultCS2User,
+		hostnamePrefix: "CS2 Server",
+		enableMetamod:  true,
+		freshInstall:   false,
+		updateMaster:   true,
 		// Leave RCON password empty by default so the wizard can require the
 		// user to set a value explicitly instead of relying on a baked-in
 		// event-specific default.
-		rconPassword:      "",
-		updatePlugins:     true,
-		installMonitor:    true,
-		matchzySkipDocker: false,
-		externalDBHost:    "127.0.0.1",
-		externalDBPort:    3306,
-		externalDBName:    "matchzy",
-		externalDBUser:    "matchzy",
+		rconPassword:       "",
+		maxPlayers:         15, // Default max players per server
+		updatePlugins:      true,
+		installMonitor:     true,
+		matchzySkipDocker:  false,
+		externalDBHost:     "127.0.0.1",
+		externalDBPort:     3306,
+		externalDBName:     "matchzy",
+		externalDBUser:     "matchzy",
 		externalDBPassword: "matchzy",
-
-		// MatchZy defaults mirrored from the built-in config.cfg so events can
-		// tweak them without losing sensible base behaviour.
-		matchzyChatPrefix:             "[{LightBlue}MAT{Default}]",
-		matchzyAdminChatPrefix:        "[{Red}ADMIN{Default}]",
-		matchzyChatMessagesTimerDelay: 13,
-		matchzyWhitelistDefault:       false,
-		matchzyMinimumReadyRequired:   2,
 	}
 
-	// If there's already an install for the target CS2 user, auto-detect how
-	// many server-* directories exist and use that as the default "Number of
-	// servers" in the wizard instead of the global default (3). This makes
-	// redeploys and repairs match the existing layout without forcing the user
-	// to re-enter the server count manually.
-	if _, existing := existingInstallLayout(cfg.cs2User); existing > 0 {
-		cfg.numServers = existing
+	// Try to detect existing configuration from installed servers
+	mgr, err := csm.NewTmuxManager()
+	if err == nil && mgr.NumServers > 0 {
+		user := mgr.CS2User
+		
+		// Detect numServers
+		cfg.numServers = mgr.NumServers
+		
+		// Detect ports from server-1
+		if cfg.numServers >= 1 {
+			gamePort, tvPort := csm.DetectServerPorts(user, 1)
+			if gamePort > 0 {
+				cfg.basePort = gamePort
+			}
+			if tvPort > 0 {
+				cfg.tvPort = tvPort
+			}
+		}
+		
+		// Detect other config values
+		cfg.cs2User = user
+		cfg.hostnamePrefix = csm.DetectHostnamePrefix(user)
+		cfg.enableMetamod = csm.DetectMetamodEnabled(user)
+		cfg.rconPassword = csm.DetectRCONPassword(user)
+		maxPlayers := csm.DetectMaxPlayers(user)
+		if maxPlayers > 0 {
+			cfg.maxPlayers = maxPlayers
+		} else {
+			cfg.maxPlayers = 15 // Default if not detected
+		}
+		cfg.gslt = csm.DetectGSLT(user)
 	}
 
 	ti := textinput.New()
@@ -472,17 +511,15 @@ func (m *model) initWizardDefaults() {
 	ti.Focus()
 
 	m.wizard = installWizard{
-		active:             false,
-		cfg:                cfg,
-		numServersStr:      fmt.Sprintf("%d", cfg.numServers),
-		basePortStr:        fmt.Sprintf("%d", cfg.basePort),
-		tvPortStr:          fmt.Sprintf("%d", cfg.tvPort),
-		dbPortStr:          fmt.Sprintf("%d", cfg.externalDBPort),
-		matchzyDelayStr:    fmt.Sprintf("%d", cfg.matchzyChatMessagesTimerDelay),
-		matchzyMinReadyStr: fmt.Sprintf("%d", cfg.matchzyMinimumReadyRequired),
-		cursor:             0,
-		windowStart:        0,
-		input:              ti,
+		active:        false,
+		cfg:           cfg,
+		numServersStr: fmt.Sprintf("%d", cfg.numServers),
+		basePortStr:   fmt.Sprintf("%d", cfg.basePort),
+		tvPortStr:     fmt.Sprintf("%d", cfg.tvPort),
+		dbPortStr:     fmt.Sprintf("%d", cfg.externalDBPort),
+		cursor:        0,
+		currentPage:   0,
+		input:         ti,
 	}
 
 	// Ensure the menu reflects any existing update state.
@@ -511,16 +548,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		// Track terminal size so scrollable views (like the install wizard and
-		// scrollable viewports) can adapt their layout dynamically.
+		// Track terminal height so scrollable views (like the install wizard
+		// and scrollable viewports) can adapt their visible window dynamically.
 		m.height = msg.Height
-		m.width = msg.Width
 
-		// When a viewport is active, reflow its content to the new width and
-		// clamp the height so we don't render a huge block of empty space or
-		// push the header off-screen.
-		if m.view == viewViewport && m.vp.Width != 0 && m.vp.Height != 0 {
-			m.layoutViewport()
+		// Resize the viewport height to make better use of the available space.
+		if m.vp.Width != 0 {
+			h := msg.Height - 8
+			if h < 8 {
+				h = 8
+			}
+			m.vp.Height = h
 		}
 		return m, tea.Batch(cmds...)
 
@@ -635,6 +673,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		if m.view == viewServerConfigPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateServerConfigPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		if m.view == viewEditServerConfigs {
+			var cmd tea.Cmd
+			m, cmd = m.updateEditServerConfigs(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 		// While in a scrollable viewport (servers dashboard, logs, MatchZy DB,
 		// etc.), delegate navigation keys to the viewport component and use
 		// Enter/q/Esc to return to the main menu.
@@ -741,7 +793,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 
 		case "left", "h":
-			if m.view == viewMain && m.tab > tabSetup {
+			if m.view == viewMain && m.tab > tabInstall {
 				m.tab--
 				m.rebuildItems()
 				m.cursor = 0
@@ -755,7 +807,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "right", "l":
-			if m.view == viewMain && m.tab < tabAdvanced {
+			if m.view == viewMain && m.tab < tabTools {
 				m.tab++
 				m.rebuildItems()
 				m.cursor = 0
@@ -774,7 +826,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = ""
 
 				// Keep cursor within the visible window when scrolling up.
-				windowSize := wizardWindowSizeFor(m.height)
+				windowSize := menuWindowSizeFor(m.height)
 				if m.cursor < m.menuWindowStart {
 					m.menuWindowStart = m.cursor
 				} else if m.cursor >= m.menuWindowStart+windowSize {
@@ -789,7 +841,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = ""
 
 				// Keep cursor within the visible window when scrolling down.
-				windowSize := wizardWindowSizeFor(m.height)
+				windowSize := menuWindowSizeFor(m.height)
 				if m.cursor < m.menuWindowStart {
 					m.menuWindowStart = m.cursor
 				} else if m.cursor >= m.menuWindowStart+windowSize {
@@ -835,17 +887,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Reset wizard navigation/editing state; keep existing config
 				// values so users can reopen and adjust.
 				m.wizard.cursor = 0
-				m.wizard.windowStart = 0
+				m.wizard.currentPage = 0
 				m.wizard.editing = false
 				m.wizard.errMsg = ""
 				m.status = "Install wizard: configure your servers, then choose Start install."
 			case itemServersStatusViewport:
-				// Load the tmux-based servers dashboard and show it as a simple
-				// detail page (no nested scrolling).
 				m.running = true
 				m.status = "Loading server status (checking for tmux sessions and installed servers)..."
 				m.lastOutput = ""
-				cmds = append(cmds, runTmuxStatusDetail(), m.spin.Tick)
+				cmds = append(cmds, runTmuxStatusViewport(), m.spin.Tick)
 			case itemMatchzyDBViewport:
 				m.running = true
 				m.status = "Verifying MatchZy database..."
@@ -858,6 +908,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.wizard.input.SetValue("")
 				m.wizard.input.Focus()
 				cmds = append(cmds, textinput.Blink)
+			case itemViewServerConfig:
+				m.view = viewServerConfigPrompt
+				m.status = "View server.cfg: enter server number."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
 			case itemUpdateGameGo:
 				m.running = true
 				m.status = "Updating CS2 game files on all servers (Go)..."
@@ -865,7 +922,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmds = append(cmds, runUpdateGameGo(), m.spin.Tick)
 			case itemDeployPluginsGo:
 				m.running = true
-				m.status = "Updating plugins on all servers (download + deploy, replaces existing addon files)..."
+				m.status = "Updating plugins on all servers (download + deploy)..."
 				m.lastOutput = ""
 				cmds = append(cmds, runDeployPluginsGo(), m.spin.Tick)
 			case itemInstallMonitorGo:
@@ -905,6 +962,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.wizard.errMsg = ""
 				m.wizard.input.SetValue("")
 				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
+			case itemUpdateServerConfigs:
+				// Initialize config editor with current values
+				m.initConfigEditor()
+				m.view = viewEditServerConfigs
+				m.status = "Edit server configurations"
+				m.configEditor.errMsg = ""
+				m.configEditor.input.Focus()
 				cmds = append(cmds, textinput.Blink)
 			case itemPublicIPGo:
 				m.running = true
@@ -954,7 +1019,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					"      Update CS2 game files after a Valve update.",
 					"",
 					"  sudo csm update-plugins",
-					"      Download and deploy the latest plugin bundle (replaces addon files on all servers).",
+					"      Download and deploy the latest plugin bundle.",
 					"",
 					"For a full list of commands and which require sudo, run:",
 					"",
@@ -1172,10 +1237,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.currentInstallStep = installStepStartServers
 			m.installStepStart = time.Now()
-			// Step 4 starts any remaining stopped servers; most servers will
-			// already be running from the bootstrap step, so emphasise that
-			// we're just ensuring everything is up.
-			m.installStatusBase = "Step 4/4: Ensuring all servers are running..."
+			m.installStatusBase = "Step 4/4: Starting all servers..."
 			m.installExpected = "~10–60 seconds"
 			m.status = m.installStatusBase
 			return m, tea.Batch(append(cmds,
@@ -1367,15 +1429,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.view = viewViewport
 		m.vpTitle = msg.title
-		m.vpRawContent = msg.content
 
-		// Lazily initialize the viewport with a sensible default size; the
-		// layoutViewport helper will adjust height and reflow content based on
-		// the current terminal size.
+		// Lazily initialize the viewport with a sensible default size, then
+		// resize it based on the current terminal height if known.
 		if m.vp.Width == 0 || m.vp.Height == 0 {
-			m.vp = viewport.New(80, 20)
+			h := 20
+			if m.height > 0 {
+				h = m.height - 8
+				if h < 8 {
+					h = 8
+				}
+			}
+			m.vp = viewport.New(80, h)
+		} else if m.height > 0 {
+			h := m.height - 8
+			if h < 8 {
+				h = 8
+			}
+			m.vp.Height = h
 		}
-		m.layoutViewport()
+		m.vp.SetContent(msg.content)
+
+		// If the content is shorter than the available viewport height, shrink
+		// the viewport so we don't render a huge block of empty space.
+		if m.height > 0 {
+			contentLines := strings.Count(msg.content, "\n") + 1
+			maxH := m.height - 8
+			if maxH < 4 {
+				maxH = 4
+			}
+			if contentLines < maxH {
+				if contentLines < 4 {
+					contentLines = 4
+				}
+				m.vp.Height = contentLines
+			}
+		}
 
 		if msg.err != nil && strings.TrimSpace(msg.content) == "" {
 			m.status = fmt.Sprintf("Error: %v", msg.err)
@@ -1462,6 +1551,10 @@ func (m model) View() string {
 		return m.viewAddServersPrompt()
 	case viewRemoveServersPrompt:
 		return m.viewRemoveServersPrompt()
+	case viewServerConfigPrompt:
+		return m.viewServerConfigPrompt()
+	case viewEditServerConfigs:
+		return m.viewEditServerConfigs()
 	}
 
 	var b strings.Builder
@@ -1476,7 +1569,7 @@ func (m model) View() string {
 	// Tab bar. While a long-running command is active, we hide the tabs to
 	// reduce visual clutter and focus attention on the status/output.
 	if !m.running {
-		tabs := []string{"Setup", "Servers", "Advanced"}
+		tabs := []string{"Install", "Updates", "Servers", "Tools"}
 		var tabParts []string
 		for i, name := range tabs {
 			style := tabInactiveStyle
@@ -1491,9 +1584,10 @@ func (m model) View() string {
 		fmt.Fprintln(&b)
 	}
 
-	// Version / update banner: only on the main Setup tab. Other tabs focus on
-	// their own content without the global banner noise.
-	if m.tab == tabSetup {
+	// Version / update banner: only on the main menu (viewMain) and Install tab, 
+	// and only when not running any operations (to avoid showing it during installation, etc).
+	// Other views and tabs don't show this banner.
+	if m.view == viewMain && m.tab == tabInstall && !m.running {
 		if !m.updateChecked {
 			fmt.Fprintln(&b, subtleStyle.Render("Checking for updates..."))
 		} else if m.updateAvailable && m.latestVersion != "" {
@@ -1514,7 +1608,7 @@ func (m model) View() string {
 		if start < 0 {
 			start = 0
 		}
-		windowSize := wizardWindowSizeFor(m.height)
+		windowSize := menuWindowSizeFor(m.height)
 		if windowSize <= 0 {
 			windowSize = len(m.items)
 		}
@@ -1569,13 +1663,15 @@ func (m model) View() string {
 		case itemRestartAllGo:
 			desc = "Restart all CS2 servers via tmux."
 		case itemAddServerGo:
-			desc = "Add N new CS2 servers based on the existing setup without stopping other servers."
+			desc = "Add N new CS2 servers based on the existing setup."
 		case itemRemoveServerGo:
-			desc = "Stop and delete the highest-numbered N servers (server-M downwards) while keeping other servers running."
+			desc = "Stop and delete the highest-numbered N servers (server-M downwards) to scale down."
+		case itemUpdateServerConfigs:
+			desc = "Update RCON password, maxplayers, and GSLT token for all servers without reinstalling."
 		case itemUpdateGameGo:
 			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:
-			desc = "Download the latest plugin bundle, then sync plugins/configs to all servers (replaces addon files)."
+			desc = "Download the latest plugin bundle, then sync plugins/configs to all servers."
 		case itemMatchzyDBViewport:
 			desc = "Verify and (if needed) repair the MatchZy MySQL database in a scrollable view."
 		case itemPublicIPGo:

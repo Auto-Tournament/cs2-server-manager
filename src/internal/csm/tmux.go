@@ -126,6 +126,21 @@ func (m *TmuxManager) serverStatusFile(server int) string {
 	return filepath.Join("/home", m.CS2User, "logs", fmt.Sprintf("server-%d.status", server))
 }
 
+// serverGSLTFile returns the path to the shared GSLT file (all servers use the same token).
+func (m *TmuxManager) serverGSLTFile(server int) string {
+	return filepath.Join("/home", m.CS2User, "cs2-config", "server.gslt")
+}
+
+// getGSLT reads the GSLT token for a server from its config file.
+func (m *TmuxManager) getGSLT(server int) string {
+	gsltFile := m.serverGSLTFile(server)
+	data, err := os.ReadFile(gsltFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // ServerLogPath exposes the underlying log file path for a given server.
 // This is used by CLI/TUI helpers so users can discover or tail logs directly.
 func (m *TmuxManager) ServerLogPath(server int) string {
@@ -190,30 +205,6 @@ func (m *TmuxManager) Status() (string, error) {
 	return buf.String(), nil
 }
 
-// StartMissing starts any servers that are currently stopped, leaving already
-// running tmux sessions untouched. This is used by flows like the install
-// wizard that may start servers incrementally during provisioning and only
-// need a final "ensure everything is running" pass.
-func (m *TmuxManager) StartMissing() error {
-	if m.NumServers <= 0 {
-		log.Printf("[tmux] StartMissing: no servers to start (NumServers=0, user=%q)", m.CS2User)
-		return fmt.Errorf("no CS2 servers found; run the install wizard first")
-	}
-	log.Printf("[tmux] StartMissing: ensuring %d server(s) are running for user=%q", m.NumServers, m.CS2User)
-	for i := 1; i <= m.NumServers; i++ {
-		session := m.sessionName(i)
-		cmd := m.runAsCS2User("tmux has-session -t " + session)
-		if err := cmd.Run(); err == nil {
-			// Session already exists and is running; skip.
-			continue
-		}
-		if err := m.Start(i); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // StartAll starts all servers (creating tmux sessions if needed).
 func (m *TmuxManager) StartAll() error {
 	if m.NumServers <= 0 {
@@ -236,80 +227,32 @@ func (m *TmuxManager) Start(server int) error {
 	gameDir := filepath.Join(serverDir, "game")
 	logFile := m.serverLogFile(server)
 
-	// Clear any existing persistent log so each start gets a fresh log file and
-	// old logs do not grow without bound. The next tmux/tee invocation will
-	// recreate the file as needed.
-	if err := os.Remove(logFile); err != nil && !os.IsNotExist(err) {
-		log.Printf("[tmux] Start: failed to remove existing log file %q: %v", logFile, err)
-	}
-
-	// Derive game/TV ports from the server's autoexec.cfg so tmux launches
-	// servers with the same port layout the installer configured. This mirrors
-	// the original cs2_tmux.sh behaviour which always passed -port/+tv_port
-	// on the command line.
-	gamePort, tvPort := detectServerPorts(m.CS2User, server)
-
 	// Kill any existing session first to ensure a clean log/console.
 	_ = m.runAsCS2User("tmux kill-session -t " + session).Run()
 
+	// Build command line with optional GSLT token
+	gslt := m.getGSLT(server)
+	gsltArg := ""
+	if gslt != "" {
+		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
+	}
+
 	// Use the Valve cs2.sh script from the game directory and tee output into
-	// a persistent per-server log file so logs survive tmux restarts. Keep the
-	// legacy launch flags (+map, -port, +tv_port, +maxplayers, -usercon) so
-	// multiple servers bind to distinct ports just like the old scripts.
+	// a persistent per-server log file so logs survive tmux restarts.
 	cmdline := fmt.Sprintf(
-		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers 10 -usercon 2>&1 | tee -a %s'",
+		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon%s 2>&1 | tee -a %s'",
 		filepath.Dir(logFile),
 		gameDir,
 		session,
-		gamePort,
-		tvPort,
+		gsltArg,
 		logFile,
 	)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
-
-	// Capture tmux/shell stderr so we can see *why* startup failed in csm.log
-	// and in the TUI detail page instead of just getting "exit status 1" with
-	// no context.
-	cmd := m.runAsCS2User(cmdline)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("[tmux] Start: failed to start server %d: %v\nOutput:\n%s", server, err, string(out))
-		output := string(out)
-		if strings.TrimSpace(output) != "" {
-			LogAction("tmux", fmt.Sprintf("start server-%d", server), output, err)
-		} else {
-			LogAction("tmux", fmt.Sprintf("start server-%d", server), "", err)
-		}
-		return &TmuxStartError{
-			Server: server,
-			Err:    err,
-			Output: output,
-		}
+	if err := m.runAsCS2User(cmdline).Run(); err != nil {
+		log.Printf("[tmux] Start: failed to start server %d: %v", server, err)
+		return fmt.Errorf("failed to start server %d in tmux: %w", server, err)
 	}
 	return nil
-}
-
-// TmuxStartError wraps a tmux/server startup failure with the server index and
-// the captured command output so callers (like the TUI) can display more
-// helpful diagnostics than just "exit status 1".
-type TmuxStartError struct {
-	Server int
-	Err    error
-	Output string
-}
-
-func (e *TmuxStartError) Error() string {
-	if e == nil {
-		return ""
-	}
-	return fmt.Sprintf("failed to start server %d in tmux: %v", e.Server, e.Err)
-}
-
-func (e *TmuxStartError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Err
 }
 
 // StopAll stops all servers by killing their tmux sessions.
@@ -422,13 +365,12 @@ func (m *TmuxManager) ListSessions() (string, error) {
 func (m *TmuxManager) Debug(server int) error {
 	serverDir := m.serverDir(server)
 	gameDir := filepath.Join(serverDir, "game")
-	gamePort, tvPort := detectServerPorts(m.CS2User, server)
-	cmd := m.runAsCS2User(fmt.Sprintf(
-		"cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers 10 -usercon",
-		gameDir,
-		gamePort,
-		tvPort,
-	))
+	gslt := m.getGSLT(server)
+	gsltArg := ""
+	if gslt != "" {
+		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
+	}
+	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 -usercon%s", gameDir, gsltArg))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
