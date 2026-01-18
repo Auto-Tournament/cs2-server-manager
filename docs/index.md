@@ -62,6 +62,10 @@ See:
 - [Discussions](https://github.com/sivert-io/cs2-server-manager/discussions) – ask questions and share ideas.
 - [Discord Community](https://discord.gg/n7gHYau7aW) – real-time support and chat with other hosts.
 
+## Project Status
+
+- [Roadmap & Kanban Board](https://kan.sivert.io/MAT) – view project status, roadmap, and current work (auto-updates from GitHub issues).
+
 ## Related projects
 
 - [CS2 Server Manager](https://sivert-io.github.io/cs2-server-manager/) – multi-server CS2 deployment and management.

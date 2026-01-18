@@ -179,15 +179,24 @@ if [[ "$CSM_DRY_RUN" == "true" ]]; then
   echo "  - ${DIST_DIR}/csm-linux-amd64"
   echo "  - ${DIST_DIR}/csm-linux-arm64"
 else
-  echo "[csm] Creating GitHub release ${TAG}..."
+  # Check if release already exists
+  if gh release view "${TAG}" >/dev/null 2>&1; then
+    echo "[csm] GitHub release ${TAG} already exists; skipping creation."
+    echo "[csm] If you want to update it, delete it first with: gh release delete ${TAG}"
+  else
+    echo "[csm] Creating GitHub release ${TAG}..."
 
-  gh release create "${TAG}" \
-    "${DIST_DIR}/csm-linux-amd64" \
-    "${DIST_DIR}/csm-linux-arm64" \
-    --title "CSM ${TAG}" \
-    --notes "CS2 Server Manager (CSM) release ${TAG}"
-
-  echo "[csm] Release ${TAG} created with assets in ${DIST_DIR}"
+    if gh release create "${TAG}" \
+      "${DIST_DIR}/csm-linux-amd64" \
+      "${DIST_DIR}/csm-linux-arm64" \
+      --title "CSM ${TAG}" \
+      --notes "CS2 Server Manager (CSM) release ${TAG}"; then
+      echo "[csm] Release ${TAG} created with assets in ${DIST_DIR}"
+    else
+      echo "[csm] Warning: Failed to create GitHub release ${TAG}."
+      exit 1
+    fi
+  fi
 fi
 
 # Optional Discord webhook notification via scripts/discord-webhook.sh.
