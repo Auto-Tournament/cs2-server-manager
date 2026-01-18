@@ -254,21 +254,14 @@ func runAddServersGo(n int) tea.Cmd {
 	}
 }
 
-// runUpdateServerConfigsGo updates server configurations (RCON password,
-// maxplayers, GSLT) for all servers without requiring a full reinstall.
-func runUpdateServerConfigsGo() tea.Cmd {
+// runUpdateServerConfigsGoWithConfig updates server configurations with specific values.
+// This is called from the config editor after the user edits values.
+func runUpdateServerConfigsGoWithConfig(cfg csm.UpdateServerConfigsConfig) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithCancel(context.Background())
 		SetInstallCancel(cancel)
 		defer CancelInstall()
 
-		cfg := csm.UpdateServerConfigsConfig{
-			// Empty values will cause detection from existing servers
-			CS2User:      "",
-			RCONPassword: "",
-			MaxPlayers:   0,
-			GSLT:         "",
-		}
 		out, err := csm.UpdateServerConfigsWithContext(ctx, cfg)
 		return commandFinishedMsg{
 			item: menuItem{

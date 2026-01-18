@@ -64,9 +64,10 @@ func UpdateServerConfigsWithContext(ctx context.Context, cfg UpdateServerConfigs
 	rcon := cfg.RCONPassword
 	if rcon == "" {
 		rcon = detectRCONPassword(user)
-		if rcon == "" {
-			rcon = "changeme" // fallback
-		}
+	}
+	// Validate RCON password is set
+	if rcon == "" {
+		return "", fmt.Errorf("RCON password is required")
 	}
 
 	maxPlayers := cfg.MaxPlayers

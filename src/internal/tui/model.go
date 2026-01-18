@@ -28,6 +28,7 @@ const (
 	viewLogsPrompt
 	viewAddServersPrompt
 	viewRemoveServersPrompt
+	viewEditServerConfigs
 )
 
 type itemKind int
@@ -60,9 +61,10 @@ const (
 type tab int
 
 const (
-	tabSetup tab = iota
+	tabInstall tab = iota
+	tabUpdates
 	tabServers
-	tabAdvanced
+	tabTools
 )
 
 // menuItem represents a single entry in the main menu.
@@ -175,7 +177,8 @@ type model struct {
 	running    bool
 	spin       spinner.Model
 
-	wizard installWizard
+	wizard       installWizard
+	configEditor configEditorState
 
 	vp      viewport.Model
 	vpTitle string
@@ -252,7 +255,7 @@ func initialModel() model {
 
 	m := model{
 		view:           viewMain,
-		tab:            tabSetup,
+		tab:            tabInstall,
 		items:          nil, // will be set by initWizardDefaults + rebuildItems
 		status:         "",
 		spin:           spin,
@@ -272,10 +275,10 @@ func initialModel() model {
 func (m *model) rebuildItems() {
 	items := buildItemsForTab(m.tab)
 
-	// Append self-update item at the bottom of the Setup tab when an update is
+	// Append self-update item at the bottom of the Install tab when an update is
 	// available. This keeps the main actions visually grouped and the update
 	// affordance easy to discover without dominating the menu.
-	if m.tab == tabSetup && m.updateAvailable && m.latestVersion != "" {
+	if m.tab == tabInstall && m.updateAvailable && m.latestVersion != "" {
 		updateItem := menuItem{
 			title:       fmt.Sprintf("Update CSM to %s now", m.latestVersion),
 			description: fmt.Sprintf("Download and replace the current CSM binary (%s → %s).", m.version, m.latestVersion),
@@ -310,7 +313,7 @@ func (m *model) rebuildItems() {
 // buildItemsForTab returns the menu items for a given top-level tab.
 func buildItemsForTab(t tab) []menuItem {
 	switch t {
-	case tabSetup:
+	case tabInstall:
 		return []menuItem{
 			{
 				title:       "Install system dependencies",
@@ -327,6 +330,9 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "",
 				kind:        itemInstallMonitorGo,
 			},
+		}
+	case tabUpdates:
+		return []menuItem{
 			{
 				title:       "Update CS2 after Valve update",
 				description: "Run SteamCMD on the master install and sync updated game files to all servers.",
@@ -338,14 +344,9 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemDeployPluginsGo,
 			},
 			{
-				title:       "MatchZy DB: verify/repair",
-				description: "Verify MatchZy database setup and repair in a scrollable view.",
-				kind:        itemMatchzyDBViewport,
-			},
-			{
-				title:       "Extract map thumbnails",
-				description: "",
-				kind:        itemExtractThumbnailsGo,
+				title:       "Update server configs",
+				description: "Update RCON password, maxplayers, GSLT token for all servers.",
+				kind:        itemUpdateServerConfigs,
 			},
 		}
 	case tabServers:
@@ -385,14 +386,19 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "",
 				kind:        itemRemoveServerGo,
 			},
-			{
-				title:       "Update server configs",
-				description: "Update RCON password, maxplayers, GSLT token for all servers.",
-				kind:        itemUpdateServerConfigs,
-			},
 		}
-	case tabAdvanced:
+	case tabTools:
 		return []menuItem{
+			{
+				title:       "MatchZy DB: verify/repair",
+				description: "Verify MatchZy database setup and repair in a scrollable view.",
+				kind:        itemMatchzyDBViewport,
+			},
+			{
+				title:       "Extract map thumbnails",
+				description: "",
+				kind:        itemExtractThumbnailsGo,
+			},
 			{
 				title:       "Show public IP",
 				description: "",
@@ -611,6 +617,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		if m.view == viewEditServerConfigs {
+			var cmd tea.Cmd
+			m, cmd = m.updateEditServerConfigs(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 		// While in a scrollable viewport (servers dashboard, logs, MatchZy DB,
 		// etc.), delegate navigation keys to the viewport component and use
 		// Enter/q/Esc to return to the main menu.
@@ -717,7 +730,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 
 		case "left", "h":
-			if m.view == viewMain && m.tab > tabSetup {
+			if m.view == viewMain && m.tab > tabInstall {
 				m.tab--
 				m.rebuildItems()
 				m.cursor = 0
@@ -731,7 +744,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "right", "l":
-			if m.view == viewMain && m.tab < tabAdvanced {
+			if m.view == viewMain && m.tab < tabTools {
 				m.tab++
 				m.rebuildItems()
 				m.cursor = 0
@@ -881,10 +894,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.wizard.input.Focus()
 				cmds = append(cmds, textinput.Blink)
 			case itemUpdateServerConfigs:
-				m.running = true
-				m.status = "Updating server configurations..."
-				m.lastOutput = ""
-				cmds = append(cmds, runUpdateServerConfigsGo(), m.spin.Tick)
+				// Initialize config editor with current values
+				m.initConfigEditor()
+				m.view = viewEditServerConfigs
+				m.status = "Edit server configurations"
+				m.configEditor.errMsg = ""
+				m.configEditor.input.Focus()
+				cmds = append(cmds, textinput.Blink)
 			case itemPublicIPGo:
 				m.running = true
 				m.status = "Resolving public IP..."
@@ -1465,6 +1481,8 @@ func (m model) View() string {
 		return m.viewAddServersPrompt()
 	case viewRemoveServersPrompt:
 		return m.viewRemoveServersPrompt()
+	case viewEditServerConfigs:
+		return m.viewEditServerConfigs()
 	}
 
 	var b strings.Builder
@@ -1479,7 +1497,7 @@ func (m model) View() string {
 	// Tab bar. While a long-running command is active, we hide the tabs to
 	// reduce visual clutter and focus attention on the status/output.
 	if !m.running {
-		tabs := []string{"Setup", "Servers", "Advanced"}
+		tabs := []string{"Install", "Updates", "Servers", "Tools"}
 		var tabParts []string
 		for i, name := range tabs {
 			style := tabInactiveStyle
@@ -1494,9 +1512,9 @@ func (m model) View() string {
 		fmt.Fprintln(&b)
 	}
 
-	// Version / update banner: only on the main Setup tab. Other tabs focus on
+	// Version / update banner: only on the main Install tab. Other tabs focus on
 	// their own content without the global banner noise.
-	if m.tab == tabSetup {
+	if m.tab == tabInstall {
 		if !m.updateChecked {
 			fmt.Fprintln(&b, subtleStyle.Render("Checking for updates..."))
 		} else if m.updateAvailable && m.latestVersion != "" {

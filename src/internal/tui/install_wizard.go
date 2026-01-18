@@ -185,7 +185,7 @@ func (w *installWizard) validateAll() error {
 func (m model) viewInstallWizard() string {
 	var b strings.Builder
 
-	header := headerBorderStyle.Render(titleStyle.Render("Install / redeploy servers")) +
+	header := headerBorderStyle.Render(titleStyle.Render("Install or redeploy servers")) +
 		"\n" +
 		headerBorderStyle.Render("Configure your servers, then choose Start install.")
 

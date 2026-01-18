@@ -263,14 +263,19 @@ func RemoveLastServerInstance() (string, error) {
 	return buf.String(), nil
 }
 
-// detectRCONPassword best-effort reads the RCON password from an existing
+// DetectRCONPassword best-effort reads the RCON password from an existing
 // server-1 config so new servers reuse the same password. Falls back to the
 // default if parsing fails.
+func DetectRCONPassword(user string) string {
+	return detectRCONPassword(user)
+}
+
+// detectRCONPassword is the internal implementation.
 func detectRCONPassword(user string) string {
 	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
 	data, err := os.ReadFile(cfg)
 	if err != nil {
-		return "changeme"
+		return ""
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -286,7 +291,7 @@ func detectRCONPassword(user string) string {
 			}
 		}
 	}
-	return "changeme"
+	return ""
 }
 
 // detectHostnamePrefix reads server-1's hostname and derives the base prefix so
@@ -330,8 +335,13 @@ func detectMetamodEnabled(user string) bool {
 	return strings.Contains(string(data), "csgo/addons/metamod")
 }
 
-// detectMaxPlayers reads server-1's server.cfg and extracts the maxplayers value.
+// DetectMaxPlayers reads server-1's server.cfg and extracts the maxplayers value.
 // When parsing fails, it returns 0 (which means use default).
+func DetectMaxPlayers(user string) int {
+	return detectMaxPlayers(user)
+}
+
+// detectMaxPlayers is the internal implementation.
 func detectMaxPlayers(user string) int {
 	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
 	data, err := os.ReadFile(cfg)
@@ -340,6 +350,11 @@ func detectMaxPlayers(user string) int {
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		// Check for maxplayers or sv_maxplayers
 		if !strings.HasPrefix(line, "maxplayers") && !strings.HasPrefix(line, "sv_maxplayers") {
 			continue
 		}
@@ -354,7 +369,12 @@ func detectMaxPlayers(user string) int {
 	return 0
 }
 
-// detectGSLT reads the GSLT token from server-1's config file.
+// DetectGSLT reads the GSLT token from server-1's config file.
+func DetectGSLT(user string) string {
+	return detectGSLT(user)
+}
+
+// detectGSLT is the internal implementation.
 func detectGSLT(user string) string {
 	gsltFile := filepath.Join("/home", user, "logs", "server-1.gslt")
 	data, err := os.ReadFile(gsltFile)
