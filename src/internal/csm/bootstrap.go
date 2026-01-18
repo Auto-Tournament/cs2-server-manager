@@ -143,9 +143,20 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	}
 
 	// If no overrides directory exists yet, seed it with the built-in defaults.
-	if err := ensureDefaultOverrides(cfg.OverridesDir); err != nil {
+	var createdOverrideFiles []string
+	if err := ensureDefaultOverridesWithTracking(cfg.OverridesDir, &createdOverrideFiles); err != nil {
 		log("  [!] Failed to write default overrides to %s: %v", cfg.OverridesDir, err)
 	}
+	
+	// Defer cleanup of overrides directory on cancellation
+	// If the install is cancelled, remove the entire overrides directory to ensure clean state
+	defer func() {
+		// Check if context was cancelled
+		if ctx.Err() != nil {
+			// Always remove overrides directory on cancellation - it was created/modified during install
+			_ = os.RemoveAll(cfg.OverridesDir)
+		}
+	}()
 
 	log("[*] Setting up %d CS2 servers...", cfg.NumServers)
 	log("")
@@ -172,6 +183,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("")
 
 	log("[4/5] Provisioning MatchZy database (Docker)...")
+	
 	if err := setupMatchZyDatabaseGo(&buf, cfg); err != nil {
 		log("  [!] MatchZy database provisioning skipped or failed: %v", err)
 		log("      Install Docker and rerun bootstrap if you need the built-in database.")

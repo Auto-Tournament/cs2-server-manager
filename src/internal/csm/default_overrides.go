@@ -22,6 +22,12 @@ var defaultOverridesFS embed.FS
 // user-provided overrides are never overwritten; the embedded files are only
 // written when the target path does not already exist.
 func ensureDefaultOverrides(overridesDir string) error {
+	return ensureDefaultOverridesWithTracking(overridesDir, nil)
+}
+
+// ensureDefaultOverridesWithTracking is like ensureDefaultOverrides but tracks
+// which files were created for cleanup on cancellation.
+func ensureDefaultOverridesWithTracking(overridesDir string, createdFiles *[]string) error {
 	if overridesDir == "" {
 		return nil
 	}
@@ -59,6 +65,15 @@ func ensureDefaultOverrides(overridesDir string) error {
 			return err
 		}
 
-		return os.WriteFile(outPath, data, 0o644)
+		if err := os.WriteFile(outPath, data, 0o644); err != nil {
+			return err
+		}
+
+		// Track this file as created if tracking is enabled
+		if createdFiles != nil {
+			*createdFiles = append(*createdFiles, outPath)
+		}
+
+		return nil
 	})
 }
