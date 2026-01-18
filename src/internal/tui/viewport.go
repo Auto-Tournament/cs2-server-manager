@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -278,6 +280,61 @@ func (m model) updateRemoveServersPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) viewServerConfigPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("View server.cfg")) +
+		"\n" +
+		headerBorderStyle.Render("Enter server number to view server.cfg")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Server number:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, "Press Enter to view config, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateServerConfigPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter a server number."
+			return m, nil
+		}
+		if _, err := strconv.Atoi(value); err != nil {
+			m.wizard.errMsg = "Server number must be an integer."
+			return m, nil
+		}
+
+		m.running = true
+		m.status = fmt.Sprintf("Loading server.cfg for server %s...", value)
+		m.lastOutput = ""
+		cmd := runViewServerConfigViewport(value)
+		return m, tea.Batch(cmd, m.spin.Tick)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
 func runTmuxStatusViewport() tea.Cmd {
 	return func() tea.Msg {
 		manager, err := csm.NewTmuxManager()
@@ -327,6 +384,53 @@ func runTmuxLogsViewport(server string, lines int) tea.Cmd {
 			title:   fmt.Sprintf("Server %d logs", n),
 			content: out,
 			err:     err,
+		}
+	}
+}
+
+func runViewServerConfigViewport(server string) tea.Cmd {
+	return func() tea.Msg {
+		manager, err := csm.NewTmuxManager()
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   fmt.Sprintf("Server %s server.cfg", server),
+				content: fmt.Sprintf("Failed to load tmux manager: %v", err),
+				err:     err,
+			}
+		}
+
+		n, err := strconv.Atoi(server)
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   fmt.Sprintf("Server %s server.cfg", server),
+				content: "",
+				err:     fmt.Errorf("invalid server number %q", server),
+			}
+		}
+
+		// Construct path to server.cfg
+		user := manager.CS2User
+		cfgPath := filepath.Join("/home", user, fmt.Sprintf("server-%d", n), "game", "csgo", "cfg", "server.cfg")
+
+		data, err := os.ReadFile(cfgPath)
+		if err != nil {
+			return viewportFinishedMsg{
+				title:   fmt.Sprintf("Server %d server.cfg", n),
+				content: fmt.Sprintf("Failed to read server.cfg from %s: %v\n\nIf the server hasn't been installed yet, run the install wizard first.", cfgPath, err),
+				err:     err,
+			}
+		}
+
+		content := string(data)
+		if strings.TrimSpace(content) == "" {
+			content = "(server.cfg is empty)"
+		}
+
+		header := fmt.Sprintf("File: %s\n\n", cfgPath)
+		return viewportFinishedMsg{
+			title:   fmt.Sprintf("Server %d server.cfg", n),
+			content: header + content,
+			err:     nil,
 		}
 	}
 }

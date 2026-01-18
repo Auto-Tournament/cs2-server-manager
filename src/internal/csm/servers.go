@@ -270,15 +270,25 @@ func DetectRCONPassword(user string) string {
 	return detectRCONPassword(user)
 }
 
+// sharedConfigPath returns the path to the shared server.cfg in cs2-config
+func sharedConfigPath(user string) string {
+	return filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg", "server.cfg")
+}
+
 // detectRCONPassword is the internal implementation.
+// Reads from the shared cs2-config/server.cfg (applies to all servers)
 func detectRCONPassword(user string) string {
-	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
+	cfg := sharedConfigPath(user)
 	data, err := os.ReadFile(cfg)
 	if err != nil {
 		return ""
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
 		if !strings.HasPrefix(line, "rcon_password") {
 			continue
 		}
@@ -342,8 +352,9 @@ func DetectMaxPlayers(user string) int {
 }
 
 // detectMaxPlayers is the internal implementation.
+// Reads from the shared cs2-config/server.cfg (applies to all servers)
 func detectMaxPlayers(user string) int {
-	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
+	cfg := sharedConfigPath(user)
 	data, err := os.ReadFile(cfg)
 	if err != nil {
 		return 0
@@ -374,9 +385,15 @@ func DetectGSLT(user string) string {
 	return detectGSLT(user)
 }
 
+// sharedGSLTPath returns the path to the shared GSLT file in cs2-config
+func sharedGSLTPath(user string) string {
+	return filepath.Join("/home", user, "cs2-config", "server.gslt")
+}
+
 // detectGSLT is the internal implementation.
+// Reads from the shared cs2-config/server.gslt (applies to all servers)
 func detectGSLT(user string) string {
-	gsltFile := filepath.Join("/home", user, "logs", "server-1.gslt")
+	gsltFile := sharedGSLTPath(user)
 	data, err := os.ReadFile(gsltFile)
 	if err != nil {
 		return ""

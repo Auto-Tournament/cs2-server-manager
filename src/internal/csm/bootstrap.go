@@ -628,7 +628,51 @@ func configureMetamodGo(w *bytes.Buffer, user string, serverNum int, enable bool
 	return nil
 }
 
+// writeSharedServerConfig writes RCON password and maxplayers to the shared cs2-config/server.cfg
+func writeSharedServerConfig(user string, rcon string, maxPlayers int) error {
+	sharedCfgDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg")
+	if err := os.MkdirAll(sharedCfgDir, 0o755); err != nil {
+		return err
+	}
+	sharedCfg := filepath.Join(sharedCfgDir, "server.cfg")
+
+	// Read existing shared config if it exists to preserve other settings
+	var existingLines []string
+	if data, err := os.ReadFile(sharedCfg); err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			// Skip RCON and maxplayers lines - we'll add them fresh
+			if strings.HasPrefix(trimmed, "rcon_password") ||
+				strings.HasPrefix(trimmed, "maxplayers") ||
+				strings.HasPrefix(trimmed, "sv_maxplayers") {
+				continue
+			}
+			existingLines = append(existingLines, line)
+		}
+	}
+
+	// Build new config with shared values at the top
+	var out []string
+	out = append(out, fmt.Sprintf(`rcon_password "%s"`, rcon))
+	if maxPlayers > 0 {
+		out = append(out, fmt.Sprintf("maxplayers %d", maxPlayers))
+	}
+	out = append(out, "")
+	out = append(out, existingLines...)
+
+	if err := os.WriteFile(sharedCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
+		return err
+	}
+	return nil
+}
+
 func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hostnamePrefix string, gamePort, tvPort int, maxPlayers int) error {
+	// Write shared config (RCON, maxplayers) to cs2-config first
+	if err := writeSharedServerConfig(user, rcon, maxPlayers); err != nil {
+		return fmt.Errorf("failed to write shared config: %w", err)
+	}
+
 	cfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
@@ -648,25 +692,32 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hos
 		lines := strings.Split(string(data), "\n")
 		var out []string
 		for _, line := range lines {
-			if strings.HasPrefix(strings.TrimSpace(line), "hostname ") {
+			trimmed := strings.TrimSpace(line)
+			// Skip commented lines
+			if strings.HasPrefix(trimmed, "//") {
+				out = append(out, line)
+				continue
+			}
+			if strings.HasPrefix(trimmed, "hostname ") {
 				out = append(out, fullName)
 				continue
 			}
-			if strings.HasPrefix(strings.TrimSpace(line), "rcon_password") {
+			if strings.HasPrefix(trimmed, "rcon_password") {
+				// Remove old rcon_password line
 				continue
 			}
-			if strings.HasPrefix(strings.TrimSpace(line), "maxplayers") ||
-				strings.HasPrefix(strings.TrimSpace(line), "sv_maxplayers") {
+			if strings.HasPrefix(trimmed, "maxplayers") ||
+				strings.HasPrefix(trimmed, "sv_maxplayers") {
 				continue
 			}
-			if strings.HasPrefix(strings.TrimSpace(line), "tv_enable") ||
-				strings.HasPrefix(strings.TrimSpace(line), "tv_delay") ||
-				strings.HasPrefix(strings.TrimSpace(line), "tv_port") {
+			if strings.HasPrefix(trimmed, "tv_enable") ||
+				strings.HasPrefix(trimmed, "tv_delay") ||
+				strings.HasPrefix(trimmed, "tv_port") {
 				continue
 			}
 			out = append(out, line)
 		}
-		// Prepend rcon_password
+		// Prepend rcon_password (must be first, before any other config)
 		out = append([]string{
 			fmt.Sprintf(`rcon_password "%s"`, rcon),
 		}, out...)
@@ -756,29 +807,30 @@ startwarmup
 
 // Startup message
 echo "==========================================="
-echo " %s #%d"
+echo " %s"
 echo " Port: Game %d, TV %d"
 echo " RCON: Enabled on port %d (TCP)"
 echo " RCON Password: %s"
 echo "==========================================="
-`, rcon, fullName, serverNum, gamePort, tvPort, gamePort, rcon)
+`, rcon, fullName, fullName, gamePort, tvPort, gamePort, rcon)
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
 	return nil
 }
 
-// storeGSLTGo writes the GSLT token to a config file for a given server.
+// storeGSLTGo writes the GSLT token to the shared cs2-config location.
+// The serverNum parameter is kept for compatibility but all servers share the same GSLT.
 func storeGSLTGo(w *bytes.Buffer, user string, serverNum int, gslt string) error {
-	logDir := filepath.Join("/home", user, "logs")
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	configDir := filepath.Join("/home", user, "cs2-config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return err
 	}
-	gsltFile := filepath.Join(logDir, fmt.Sprintf("server-%d.gslt", serverNum))
+	gsltFile := filepath.Join(configDir, "server.gslt")
 	if err := os.WriteFile(gsltFile, []byte(gslt), 0o600); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "  [*] Stored GSLT token for server-%d\n", serverNum)
+	fmt.Fprintf(w, "  [*] Stored shared GSLT token (applies to all servers)\n")
 	return nil
 }
 

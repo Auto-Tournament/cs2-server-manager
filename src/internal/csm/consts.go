@@ -18,7 +18,7 @@ const (
 
 	// DefaultRCONPassword is the fallback when no RCON password is supplied.
 	// The install wizard encourages users to override this.
-	DefaultRCONPassword = "ntlan2025"
+	DefaultRCONPassword = ""
 
 	// DefaultMasterDiskGB and DefaultPerServerDiskGB drive the install
 	// wizard's disk space estimate and low-space confirmation. The server

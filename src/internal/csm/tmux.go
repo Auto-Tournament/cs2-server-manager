@@ -126,9 +126,9 @@ func (m *TmuxManager) serverStatusFile(server int) string {
 	return filepath.Join("/home", m.CS2User, "logs", fmt.Sprintf("server-%d.status", server))
 }
 
-// serverGSLTFile returns the path to a file storing the GSLT token for a given server.
+// serverGSLTFile returns the path to the shared GSLT file (all servers use the same token).
 func (m *TmuxManager) serverGSLTFile(server int) string {
-	return filepath.Join("/home", m.CS2User, "logs", fmt.Sprintf("server-%d.gslt", server))
+	return filepath.Join("/home", m.CS2User, "cs2-config", "server.gslt")
 }
 
 // getGSLT reads the GSLT token for a server from its config file.

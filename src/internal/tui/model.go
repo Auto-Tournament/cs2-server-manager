@@ -29,6 +29,7 @@ const (
 	viewAddServersPrompt
 	viewRemoveServersPrompt
 	viewEditServerConfigs
+	viewServerConfigPrompt
 )
 
 type itemKind int
@@ -54,6 +55,7 @@ const (
 	itemAddServerGo
 	itemRemoveServerGo
 	itemUpdateServerConfigs
+	itemViewServerConfig
 	itemCLIHelp
 )
 
@@ -362,6 +364,11 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemLogsViewport,
 			},
 			{
+				title:       "View server.cfg",
+				description: "",
+				kind:        itemViewServerConfig,
+			},
+			{
 				title:       "Start all servers",
 				description: "",
 				kind:        itemStartAllGo,
@@ -617,6 +624,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		if m.view == viewServerConfigPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateServerConfigPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 		if m.view == viewEditServerConfigs {
 			var cmd tea.Cmd
 			m, cmd = m.updateEditServerConfigs(msg)
@@ -841,6 +855,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case itemLogsViewport:
 				m.view = viewLogsPrompt
 				m.status = "Logs: enter server number."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
+			case itemViewServerConfig:
+				m.view = viewServerConfigPrompt
+				m.status = "View server.cfg: enter server number."
 				m.wizard.errMsg = ""
 				m.wizard.input.SetValue("")
 				m.wizard.input.Focus()
@@ -1481,6 +1502,8 @@ func (m model) View() string {
 		return m.viewAddServersPrompt()
 	case viewRemoveServersPrompt:
 		return m.viewRemoveServersPrompt()
+	case viewServerConfigPrompt:
+		return m.viewServerConfigPrompt()
 	case viewEditServerConfigs:
 		return m.viewEditServerConfigs()
 	}
