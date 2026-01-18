@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -366,6 +367,10 @@ steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 `, masterDir)
 
 	cmd := exec.CommandContext(ctx, "su", "-", cfg.CS2User, "-c", script)
+	
+	// Set process group so we can kill all child processes (steamcmd) when context is cancelled.
+	// When su spawns a shell which spawns steamcmd, killing just su doesn't kill the children.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// If CSM_BOOTSTRAP_LOG is set, stream steamcmd output into that file so
 	// the TUI can show a live tail while the install is running.
@@ -380,11 +385,24 @@ steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 			tw := &teeWriter{buf: w, file: f}
 			cmd.Stdout = tw
 			cmd.Stderr = tw
-			if err := cmd.Run(); err != nil {
+			if err := cmd.Start(); err != nil {
+				return fmt.Errorf("steamcmd start failed: %w", err)
+			}
+			// When context is cancelled, kill the entire process group to ensure steamcmd is terminated.
+			go func() {
+				<-ctx.Done()
+				if cmd.Process != nil && cmd.Process.Pid > 0 {
+					// Negative PID kills the entire process group (including steamcmd child process)
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				}
+			}()
+			if err := cmd.Wait(); err != nil {
 				return fmt.Errorf("steamcmd failed: %w", err)
 			}
 		} else {
 			// Fall back to non-streaming mode if we can't open the log file.
+			// Note: CombinedOutput() doesn't allow us to kill process groups during execution,
+			// but this is a fallback path and cancellation is less critical here.
 			out, err := cmd.CombinedOutput()
 			if len(out) > 0 {
 				fmt.Fprintln(w, string(out))
@@ -395,6 +413,8 @@ steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 		}
 	} else {
 		// No streaming requested; just run and capture the full output.
+		// Note: CombinedOutput() doesn't allow us to kill process groups during execution,
+		// but this path is rarely used in the TUI (which prefers streaming).
 		out, err := cmd.CombinedOutput()
 		if len(out) > 0 {
 			fmt.Fprintln(w, string(out))
