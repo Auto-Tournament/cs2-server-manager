@@ -607,12 +607,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// kill long-running installs or updates.
 				if !m.confirmQuit {
 					m.confirmQuit = true
-					m.status = "Press Q again to abort the current operation and exit, or press C to stay in CSM."
+					if !m.installStepStart.IsZero() {
+						m.status = "Press Q again to cancel installation and return to wizard, or press C to continue."
+					} else {
+						m.status = "Press Q again to abort the current operation and exit, or press C to stay in CSM."
+					}
 					return m, tea.Batch(cmds...)
 				}
-				// Second Q (or ctrl+c twice): cancel and quit.
+				// Second Q (or ctrl+c twice): cancel and return to wizard instead of quitting
 				CancelInstall()
-				// Clean up install state before quitting
+				// Clean up install state and return to wizard
 				if !m.installStepStart.IsZero() {
 					m.currentInstallStep = 0
 					m.installStepStart = time.Time{}
@@ -621,7 +625,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.installElapsedLine = ""
 					m.wizard.active = false
 				}
-				return m, tea.Quit
+				m.running = false
+				m.confirmQuit = false
+				m.view = viewInstallWizard
+				m.wizard.active = true
+				m.status = "Install wizard cancelled. You can adjust settings and try again."
+				m.lastOutput = ""
+				return m, nil
 			case "c", "C":
 				// Best-effort cancel without quitting the TUI. For scaling and
 				// install/update flows we have explicit cancellation hooks; for
@@ -639,14 +649,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if installCancel != nil {
 					CancelInstall()
 					if !m.installStepStart.IsZero() {
-						// Reset install wizard state when canceling
+						// Reset install wizard state and return to wizard when canceling
 						m.currentInstallStep = 0
 						m.installStepStart = time.Time{}
 						m.installStatusBase = ""
 						m.installExpected = ""
 						m.installElapsedLine = ""
 						m.wizard.active = false
-						m.status = "Cancelling install wizard (this may take a moment)..."
+						m.running = false
+						m.view = viewInstallWizard
+						m.wizard.active = true
+						m.status = "Install wizard cancelled. You can adjust settings and try again."
+						m.lastOutput = ""
 					} else {
 						m.status = "Cancelling operation (this may take a moment)..."
 					}

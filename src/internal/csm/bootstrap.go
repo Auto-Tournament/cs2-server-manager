@@ -361,9 +361,14 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), steamDir).Run()
 
 	// Run steamcmd as CS2 user
+	// Use a trap to ensure steamcmd is killed when the script receives SIGTERM/SIGKILL
+	// This is necessary because su->shell->steamcmd chain doesn't automatically kill children
 	script := fmt.Sprintf(`
 set -e
-steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
+trap 'if [ -n "$STEAMCMD_PID" ]; then kill -TERM "$STEAMCMD_PID" 2>/dev/null; wait "$STEAMCMD_PID" 2>/dev/null; fi; exit' TERM INT EXIT
+steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit &
+STEAMCMD_PID=$!
+wait $STEAMCMD_PID
 `, masterDir)
 
 	cmd := exec.CommandContext(ctx, "su", "-", cfg.CS2User, "-c", script)
@@ -388,13 +393,26 @@ steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit
 			if err := cmd.Start(); err != nil {
 				return fmt.Errorf("steamcmd start failed: %w", err)
 			}
-			// When context is cancelled, kill the entire process group to ensure steamcmd is terminated.
+			// When context is cancelled, kill all steamcmd processes related to master-install
+			// This is more reliable than trying to manage process groups with su->shell->steamcmd chain
 			go func() {
 				<-ctx.Done()
+				// Kill the main process first
 				if cmd.Process != nil && cmd.Process.Pid > 0 {
-					// Negative PID kills the entire process group (including steamcmd child process)
-					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+					_ = cmd.Process.Kill()
 				}
+				// Then kill any remaining steamcmd processes for master-install
+				// Bootstrap runs as root (checked at start), so we can kill processes directly
+				// Use pkill as root to find and kill all steamcmd processes
+				var pkillCmd *exec.Cmd
+				if os.Geteuid() == 0 {
+					// Already running as root, don't need sudo
+					pkillCmd = exec.Command("pkill", "-9", "-f", "steamcmd.*master-install")
+				} else {
+					// Fallback to sudo (may prompt for password)
+					pkillCmd = exec.Command("sudo", "pkill", "-9", "-f", "steamcmd.*master-install")
+				}
+				pkillCmd.Run() // Best effort, ignore errors
 			}()
 			if err := cmd.Wait(); err != nil {
 				return fmt.Errorf("steamcmd failed: %w", err)
