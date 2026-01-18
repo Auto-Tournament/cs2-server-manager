@@ -126,6 +126,21 @@ func (m *TmuxManager) serverStatusFile(server int) string {
 	return filepath.Join("/home", m.CS2User, "logs", fmt.Sprintf("server-%d.status", server))
 }
 
+// serverGSLTFile returns the path to a file storing the GSLT token for a given server.
+func (m *TmuxManager) serverGSLTFile(server int) string {
+	return filepath.Join("/home", m.CS2User, "logs", fmt.Sprintf("server-%d.gslt", server))
+}
+
+// getGSLT reads the GSLT token for a server from its config file.
+func (m *TmuxManager) getGSLT(server int) string {
+	gsltFile := m.serverGSLTFile(server)
+	data, err := os.ReadFile(gsltFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // ServerLogPath exposes the underlying log file path for a given server.
 // This is used by CLI/TUI helpers so users can discover or tail logs directly.
 func (m *TmuxManager) ServerLogPath(server int) string {
@@ -215,13 +230,21 @@ func (m *TmuxManager) Start(server int) error {
 	// Kill any existing session first to ensure a clean log/console.
 	_ = m.runAsCS2User("tmux kill-session -t " + session).Run()
 
+	// Build command line with optional GSLT token
+	gslt := m.getGSLT(server)
+	gsltArg := ""
+	if gslt != "" {
+		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
+	}
+
 	// Use the Valve cs2.sh script from the game directory and tee output into
 	// a persistent per-server log file so logs survive tmux restarts.
 	cmdline := fmt.Sprintf(
-		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon 2>&1 | tee -a %s'",
+		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon%s 2>&1 | tee -a %s'",
 		filepath.Dir(logFile),
 		gameDir,
 		session,
+		gsltArg,
 		logFile,
 	)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
@@ -342,7 +365,12 @@ func (m *TmuxManager) ListSessions() (string, error) {
 func (m *TmuxManager) Debug(server int) error {
 	serverDir := m.serverDir(server)
 	gameDir := filepath.Join(serverDir, "game")
-	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 -usercon", gameDir))
+	gslt := m.getGSLT(server)
+	gsltArg := ""
+	if gslt != "" {
+		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
+	}
+	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 -usercon%s", gameDir, gsltArg))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

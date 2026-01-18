@@ -52,6 +52,7 @@ const (
 	itemCleanupAllGo
 	itemAddServerGo
 	itemRemoveServerGo
+	itemUpdateServerConfigs
 	itemCLIHelp
 )
 
@@ -95,6 +96,8 @@ type installConfig struct {
 	freshInstall       bool
 	updateMaster       bool
 	rconPassword       string
+	maxPlayers         int    // 0 means use default
+	gslt               string // Game Server Login Token
 	updatePlugins      bool
 	installMonitor     bool
 	matchzySkipDocker  bool
@@ -381,6 +384,11 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "Remove servers",
 				description: "",
 				kind:        itemRemoveServerGo,
+			},
+			{
+				title:       "Update server configs",
+				description: "Update RCON password, maxplayers, GSLT token for all servers.",
+				kind:        itemUpdateServerConfigs,
 			},
 		}
 	case tabAdvanced:
@@ -872,6 +880,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.wizard.input.SetValue("")
 				m.wizard.input.Focus()
 				cmds = append(cmds, textinput.Blink)
+			case itemUpdateServerConfigs:
+				m.running = true
+				m.status = "Updating server configurations..."
+				m.lastOutput = ""
+				cmds = append(cmds, runUpdateServerConfigsGo(), m.spin.Tick)
 			case itemPublicIPGo:
 				m.running = true
 				m.status = "Resolving public IP..."
@@ -1562,6 +1575,8 @@ func (m model) View() string {
 			desc = "Add N new CS2 servers based on the existing setup."
 		case itemRemoveServerGo:
 			desc = "Stop and delete the highest-numbered N servers (server-M downwards) to scale down."
+		case itemUpdateServerConfigs:
+			desc = "Update RCON password, maxplayers, and GSLT token for all servers without reinstalling."
 		case itemUpdateGameGo:
 			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:

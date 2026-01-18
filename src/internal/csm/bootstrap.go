@@ -27,6 +27,8 @@ type BootstrapConfig struct {
 	FreshInstall      bool
 	UpdateMaster      bool
 	RCONPassword      string
+	MaxPlayers        int // 0 means use default
+	GSLT              string // Game Server Login Token (optional)
 	MatchzySkipDocker bool
 	GameFilesDir      string // typically <root>/game_files
 	OverridesDir      string // typically <root>/overrides
@@ -230,8 +232,15 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 			log("  [!] Configure Metamod for server-%d failed: %v", i, err)
 		}
 
-		if err := customizeServerCfgGo(&buf, cfg.CS2User, i, cfg.RCONPassword, cfg.HostnamePrefix, gamePort, tvPort); err != nil {
+		if err := customizeServerCfgGo(&buf, cfg.CS2User, i, cfg.RCONPassword, cfg.HostnamePrefix, gamePort, tvPort, cfg.MaxPlayers); err != nil {
 			log("  [!] Customize server.cfg for server-%d failed: %v", i, err)
+		}
+
+		// Store GSLT token if provided
+		if cfg.GSLT != "" {
+			if err := storeGSLTGo(&buf, cfg.CS2User, i, cfg.GSLT); err != nil {
+				log("  [!] Failed to store GSLT for server-%d: %v", i, err)
+			}
 		}
 
 		log("  [✓] Server-%d ready (port %d, TV %d)", i, gamePort, tvPort)
@@ -619,7 +628,7 @@ func configureMetamodGo(w *bytes.Buffer, user string, serverNum int, enable bool
 	return nil
 }
 
-func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hostnamePrefix string, gamePort, tvPort int) error {
+func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hostnamePrefix string, gamePort, tvPort int, maxPlayers int) error {
 	cfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
@@ -646,6 +655,10 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hos
 			if strings.HasPrefix(strings.TrimSpace(line), "rcon_password") {
 				continue
 			}
+			if strings.HasPrefix(strings.TrimSpace(line), "maxplayers") ||
+				strings.HasPrefix(strings.TrimSpace(line), "sv_maxplayers") {
+				continue
+			}
 			if strings.HasPrefix(strings.TrimSpace(line), "tv_enable") ||
 				strings.HasPrefix(strings.TrimSpace(line), "tv_delay") ||
 				strings.HasPrefix(strings.TrimSpace(line), "tv_port") {
@@ -657,6 +670,10 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hos
 		out = append([]string{
 			fmt.Sprintf(`rcon_password "%s"`, rcon),
 		}, out...)
+		// Add maxplayers if specified
+		if maxPlayers > 0 {
+			out = append(out, fmt.Sprintf("maxplayers %d", maxPlayers))
+		}
 		// Append GOTV settings
 		out = append(out, "",
 			"// ========================================",
@@ -671,6 +688,10 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hos
 		}
 	} else {
 		// Create new server.cfg
+		maxPlayersLine := ""
+		if maxPlayers > 0 {
+			maxPlayersLine = fmt.Sprintf("maxplayers %d\n", maxPlayers)
+		}
 		content := fmt.Sprintf(`// ======================================== 
 // RCON Configuration
 // ========================================
@@ -682,7 +703,7 @@ ip "0.0.0.0"
 // ========================================
 %s
 
-// ========================================
+%s// ========================================
 // Logging
 // ========================================
 log on
@@ -712,7 +733,7 @@ sv_minrate 196608
 sv_maxcmdrate 128
 sv_mincmdrate 64
 sv_hibernate_when_empty 0
-`, rcon, fullName, tvPort)
+`, rcon, fullName, maxPlayersLine, tvPort)
 		if err := os.WriteFile(serverCfg, []byte(content), 0o644); err != nil {
 			return err
 		}
@@ -744,6 +765,20 @@ echo "==========================================="
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
+	return nil
+}
+
+// storeGSLTGo writes the GSLT token to a config file for a given server.
+func storeGSLTGo(w *bytes.Buffer, user string, serverNum int, gslt string) error {
+	logDir := filepath.Join("/home", user, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return err
+	}
+	gsltFile := filepath.Join(logDir, fmt.Sprintf("server-%d.gslt", serverNum))
+	if err := os.WriteFile(gsltFile, []byte(gslt), 0o600); err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "  [*] Stored GSLT token for server-%d\n", serverNum)
 	return nil
 }
 

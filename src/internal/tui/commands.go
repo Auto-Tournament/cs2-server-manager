@@ -254,6 +254,33 @@ func runAddServersGo(n int) tea.Cmd {
 	}
 }
 
+// runUpdateServerConfigsGo updates server configurations (RCON password,
+// maxplayers, GSLT) for all servers without requiring a full reinstall.
+func runUpdateServerConfigsGo() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithCancel(context.Background())
+		SetInstallCancel(cancel)
+		defer CancelInstall()
+
+		cfg := csm.UpdateServerConfigsConfig{
+			// Empty values will cause detection from existing servers
+			CS2User:      "",
+			RCONPassword: "",
+			MaxPlayers:   0,
+			GSLT:         "",
+		}
+		out, err := csm.UpdateServerConfigsWithContext(ctx, cfg)
+		return commandFinishedMsg{
+			item: menuItem{
+				title: "Update server configs",
+				kind:  itemUpdateServerConfigs,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
 // runRemoveServersGo scales down by stopping and deleting the highest-numbered
 // N server-* directories so NewTmuxManager will subsequently report fewer
 // servers.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -92,6 +93,8 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 	rcon := detectRCONPassword(user)
 	hostnamePrefix := detectHostnamePrefix(user)
 	enableMetamod := detectMetamodEnabled(user)
+	maxPlayers := detectMaxPlayers(user)
+	gslt := detectGSLT(user)
 
 	var buf bytes.Buffer
 	log := func(format string, args ...any) {
@@ -125,10 +128,17 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
-	if err := customizeServerCfgGo(&buf, user, newIdx, rcon, hostnamePrefix, gamePortNew, tvPortNew); err != nil {
+	if err := customizeServerCfgGo(&buf, user, newIdx, rcon, hostnamePrefix, gamePortNew, tvPortNew, maxPlayers); err != nil {
 		log("  [!] Customize server.cfg for server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
 		return buf.String(), err
+	}
+
+	// Store GSLT token if one was detected
+	if gslt != "" {
+		if err := storeGSLTGo(&buf, user, newIdx, gslt); err != nil {
+			log("  [!] Failed to store GSLT for server-%d: %v", newIdx, err)
+		}
 	}
 
 	log("  [✓] Server-%d ready (game %d, TV %d)", newIdx, gamePortNew, tvPortNew)
@@ -318,6 +328,40 @@ func detectMetamodEnabled(user string) bool {
 		return true
 	}
 	return strings.Contains(string(data), "csgo/addons/metamod")
+}
+
+// detectMaxPlayers reads server-1's server.cfg and extracts the maxplayers value.
+// When parsing fails, it returns 0 (which means use default).
+func detectMaxPlayers(user string) int {
+	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "maxplayers") && !strings.HasPrefix(line, "sv_maxplayers") {
+			continue
+		}
+		// Expect formats like: maxplayers 10 or sv_maxplayers 10
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			if val, err := strconv.Atoi(parts[1]); err == nil && val > 0 {
+				return val
+			}
+		}
+	}
+	return 0
+}
+
+// detectGSLT reads the GSLT token from server-1's config file.
+func detectGSLT(user string) string {
+	gsltFile := filepath.Join("/home", user, "logs", "server-1.gslt")
+	data, err := os.ReadFile(gsltFile)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // detectServerPorts reads the autoexec.cfg for a given server and extracts the

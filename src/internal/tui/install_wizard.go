@@ -45,6 +45,8 @@ const (
 	wizardFieldUpdatePlugins
 	wizardFieldInstallMonitor
 	wizardFieldRCONPassword
+	wizardFieldMaxPlayers
+	wizardFieldGSLT
 	wizardFieldDBExternalHost
 	wizardFieldDBExternalPort
 	wizardFieldDBExternalName
@@ -288,6 +290,23 @@ func (m model) viewInstallWizard() string {
 	}
 	renderRow(wizardFieldRCONPassword, "RCON password:", rconVal)
 
+	// Max players row
+	maxPlayersStr := ""
+	if m.wizard.cfg.maxPlayers > 0 {
+		maxPlayersStr = fmt.Sprintf("%d", m.wizard.cfg.maxPlayers)
+	}
+	if m.wizard.cursor == wizardFieldMaxPlayers && m.wizard.editing {
+		maxPlayersStr = m.wizard.input.View()
+	}
+	renderRow(wizardFieldMaxPlayers, "Max players:", maxPlayersStr)
+
+	// GSLT token row
+	gsltVal := m.wizard.cfg.gslt
+	if m.wizard.cursor == wizardFieldGSLT && m.wizard.editing {
+		gsltVal = m.wizard.input.View()
+	}
+	renderRow(wizardFieldGSLT, "GSLT token (optional):", gsltVal)
+
 	// External DB configuration (used when MatchZy DB is set to external).
 	if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
 		dbHostVal := m.wizard.cfg.externalDBHost
@@ -361,6 +380,10 @@ func (m model) viewInstallWizard() string {
 		desc = "Install a cron-based auto-update monitor that keeps servers up to date when the AutoUpdater plugin shuts them down."
 	case wizardFieldRCONPassword:
 		desc = "Password applied to all servers (you can change per-server later)."
+	case wizardFieldMaxPlayers:
+		desc = "Maximum number of players (0 or empty = use CS2 default, typically 10)."
+	case wizardFieldGSLT:
+		desc = "Steam Game Server Login Token (GSLT) for server authentication. Optional but recommended for public servers."
 	case wizardFieldDBExternalHost:
 		if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
 			desc = "External MySQL host for MatchZy (used when MatchZy DB is set to external)."
@@ -661,6 +684,14 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.cfg.hostnamePrefix = val
 			case wizardFieldRCONPassword:
 				m.wizard.cfg.rconPassword = val
+			case wizardFieldMaxPlayers:
+				if n, err := strconv.Atoi(val); err == nil && n >= 0 {
+					m.wizard.cfg.maxPlayers = n
+				} else if val == "" {
+					m.wizard.cfg.maxPlayers = 0
+				}
+			case wizardFieldGSLT:
+				m.wizard.cfg.gslt = val
 			case wizardFieldDBExternalHost:
 				m.wizard.cfg.externalDBHost = val
 			case wizardFieldDBExternalPort:
@@ -712,6 +743,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
 			return m, nil
 		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort, wizardFieldHostnamePrefix, wizardFieldRCONPassword,
+			wizardFieldMaxPlayers, wizardFieldGSLT,
 			wizardFieldDBExternalHost, wizardFieldDBExternalPort, wizardFieldDBExternalName,
 			wizardFieldDBExternalUser, wizardFieldDBExternalPassword:
 			// Begin editing the selected text/numeric field.
@@ -729,6 +761,12 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				initial = m.wizard.cfg.hostnamePrefix
 			case wizardFieldRCONPassword:
 				initial = m.wizard.cfg.rconPassword
+			case wizardFieldMaxPlayers:
+				if m.wizard.cfg.maxPlayers > 0 {
+					initial = fmt.Sprintf("%d", m.wizard.cfg.maxPlayers)
+				}
+			case wizardFieldGSLT:
+				initial = m.wizard.cfg.gslt
 			case wizardFieldDBExternalHost:
 				initial = m.wizard.cfg.externalDBHost
 			case wizardFieldDBExternalPort:
@@ -918,6 +956,8 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				FreshInstall:    cfg.freshInstall,
 				UpdateMaster:    cfg.updateMaster,
 				RCONPassword:    cfg.rconPassword,
+				MaxPlayers:      cfg.maxPlayers,
+				GSLT:            cfg.gslt,
 				MatchzySkipDocker: cfg.matchzySkipDocker,
 				DBMode:            cfg.dbMode,
 				ExternalDBHost:    cfg.externalDBHost,
