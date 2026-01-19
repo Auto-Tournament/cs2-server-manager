@@ -10,7 +10,7 @@ repo_name: sivert-io/cs2-server-manager
 repo_url: https://github.com/sivert-io/cs2-server-manager
 
 # Copyright
-copyright: Copyright &copy; 2025 Sivert Gullberg Hansen
+copyright: Copyright &copy; 2026 Sivert Gullberg Hansen
 
 # Directory configuration (config is inside docs/, so use current dir)
 docs_dir: .
