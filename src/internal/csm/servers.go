@@ -302,6 +302,14 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 	enableMetamod := detectMetamodEnabled(user)
 	maxPlayers := detectMaxPlayers(user)
 	gslt := detectGSLT(user)
+	
+	// Debug output
+	fmt.Printf("[DEBUG] Detected settings:\n")
+	fmt.Printf("  Metamod enabled: %v\n", enableMetamod)
+	fmt.Printf("  RCON password: %s\n", rcon)
+	fmt.Printf("  Hostname prefix: %s\n", hostnamePrefix)
+	fmt.Printf("  Max players: %d\n", maxPlayers)
+	fmt.Printf("  Ports: Game=%d, TV=%d\n", gamePort, tvPort)
 
 	var buf bytes.Buffer
 	var logFile *os.File
@@ -514,12 +522,20 @@ func DetectMetamodEnabled(user string) bool {
 
 // detectMetamodEnabled is the internal implementation.
 func detectMetamodEnabled(user string) bool {
-	gameinfo := filepath.Join("/home", user, "server-1", "game", "csgo", "gameinfo.gi")
+	// Check master-install instead of server-1 to avoid chicken-and-egg problem
+	// where server-1 is broken and we're trying to detect if we should fix it
+	gameinfo := filepath.Join("/home", user, "master-install", "game", "csgo", "gameinfo.gi")
 	data, err := os.ReadFile(gameinfo)
 	if err != nil {
+		// If master doesn't exist or can't be read, default to enabled
 		return true
 	}
-	return strings.Contains(string(data), "csgo/addons/metamod")
+	metamodEnabled := strings.Contains(string(data), "csgo/addons/metamod")
+	// If not in master, still default to true (metamod should be enabled)
+	if !metamodEnabled {
+		return true
+	}
+	return metamodEnabled
 }
 
 // DetectMaxPlayers reads server-1's server.cfg and extracts the maxplayers value.
