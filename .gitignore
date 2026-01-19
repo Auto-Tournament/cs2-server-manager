@@ -39,3 +39,5 @@ extracted_csgo/
 .env
 cs2-tui
 csm
+
+overrides/
