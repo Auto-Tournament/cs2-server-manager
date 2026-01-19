@@ -320,15 +320,23 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 	}
 
 	log := func(format string, args ...any) {
-		fmt.Fprintf(&buf, format, args...)
-		if !strings.HasSuffix(format, "\n") {
-			buf.WriteByte('\n')
+		line := fmt.Sprintf(format, args...)
+		if !strings.HasSuffix(line, "\n") {
+			line += "\n"
 		}
+		
+		// Write to buffer for return value
+		buf.WriteString(line)
+		
+		// Write to TUI log file if set
 		if logFile != nil {
-			fmt.Fprintf(logFile, format, args...)
-			if !strings.HasSuffix(format, "\n") {
-				_, _ = logFile.Write([]byte{'\n'})
-			}
+			_, _ = logFile.WriteString(line)
+		}
+		
+		// If NOT running in TUI mode (no CSM_REINSTALL_LOG), print to stdout
+		// for real-time CLI feedback
+		if logFile == nil {
+			fmt.Print(line)
 		}
 	}
 
