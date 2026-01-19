@@ -18,4 +18,5 @@ echo "[cs2-server-manager] Building CSM (CS2 Server Manager CLI)..."
 go build -o "${BUILD_DIR}/csm" ./src/cmd/cs2-tui
 
 echo "[cs2-server-manager] Launching CSM with DEBUG logging enabled..."
-CSM_ROOT="$PWD" DEBUG=1 exec "${BUILD_DIR}/csm"
+# Ensure stdin is available for the TUI by explicitly redirecting from the terminal
+CSM_ROOT="$PWD" DEBUG=1 exec "${BUILD_DIR}/csm" < /dev/tty

@@ -16,6 +16,28 @@ import (
 	"time"
 )
 
+// fixServerOwnership ensures all files in the cs2servermanager home directory
+// are owned by the correct user. This is called at the end of all major
+// operations (bootstrap, reinstall, add server, update plugins) to prevent
+// ownership issues that can break server functionality.
+func fixServerOwnership(user string) error {
+	homeDir := filepath.Join("/home", user)
+	
+	// Check if home directory exists
+	if _, err := os.Stat(homeDir); os.IsNotExist(err) {
+		// Nothing to fix if home doesn't exist yet
+		return nil
+	}
+	
+	// Run chown recursively on the entire home directory
+	cmd := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", user, user), homeDir)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to fix ownership of %s: %w", homeDir, err)
+	}
+	
+	return nil
+}
+
 // BootstrapConfig mirrors the high-level options used by the original
 // bootstrap_cs2.sh script.
 type BootstrapConfig struct {
@@ -287,6 +309,16 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("Plugin source : %s/game -> /home/%s/cs2-config/game", cfg.GameFilesDir, cfg.CS2User)
 	log("Custom configs: %s/game -> /home/%s/cs2-config/game", cfg.OverridesDir, cfg.CS2User)
 	log("Metamod       : %v", cfg.EnableMetamod)
+
+	// Fix ownership of all server files to ensure everything is owned by cs2servermanager
+	log("")
+	log("[*] Fixing file ownership...")
+	if err := fixServerOwnership(cfg.CS2User); err != nil {
+		log("[!] Warning: Failed to fix ownership: %v", err)
+		log("[!] You may need to manually run: sudo chown -R %s:%s /home/%s", cfg.CS2User, cfg.CS2User, cfg.CS2User)
+	} else {
+		log("[✓] File ownership fixed")
+	}
 
 	bootstrapSucceeded = true
 	return buf.String(), nil
@@ -790,43 +822,55 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hos
 	fullName := fmt.Sprintf(`hostname "%s #%d"`, hostnamePrefix, serverNum)
 
 	if data, err := os.ReadFile(serverCfg); err == nil {
-		// Update existing server.cfg
+		// Update existing server.cfg - but be conservative and only update
+		// specific values we need to change (hostname, ports, RCON). Keep all
+		// other configuration intact to avoid breaking custom settings.
 		lines := strings.Split(string(data), "\n")
 		var out []string
+		updatedHostname := false
+		
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
-			// Skip commented lines
-			if strings.HasPrefix(trimmed, "//") {
-				out = append(out, line)
-				continue
-			}
+			
+			// Update hostname if found
 			if strings.HasPrefix(trimmed, "hostname ") {
 				out = append(out, fullName)
+				updatedHostname = true
 				continue
 			}
+			
+			// Update or remove old rcon_password (we'll add it at the start)
 			if strings.HasPrefix(trimmed, "rcon_password") {
-				// Remove old rcon_password line
 				continue
 			}
+			
+			// Remove old maxplayers/tv settings (we'll add them at the end)
 			if strings.HasPrefix(trimmed, "maxplayers") ||
-				strings.HasPrefix(trimmed, "sv_maxplayers") {
-				continue
-			}
-			if strings.HasPrefix(trimmed, "tv_enable") ||
+				strings.HasPrefix(trimmed, "sv_maxplayers") ||
+				strings.HasPrefix(trimmed, "tv_enable") ||
 				strings.HasPrefix(trimmed, "tv_delay") ||
 				strings.HasPrefix(trimmed, "tv_port") {
 				continue
 			}
+			
 			out = append(out, line)
 		}
-		// Prepend rcon_password (must be first, before any other config)
+		
+		// Prepend rcon_password (must be first)
 		out = append([]string{
 			fmt.Sprintf(`rcon_password "%s"`, rcon),
 		}, out...)
+		
+		// Add hostname if it wasn't in the file
+		if !updatedHostname {
+			out = append(out, "", fullName)
+		}
+		
 		// Add maxplayers if specified
 		if maxPlayers > 0 {
-			out = append(out, fmt.Sprintf("maxplayers %d", maxPlayers))
+			out = append(out, "", fmt.Sprintf("maxplayers %d", maxPlayers))
 		}
+		
 		// Append GOTV settings
 		out = append(out, "",
 			"// ========================================",
@@ -836,6 +880,7 @@ func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hos
 			"tv_delay 90",
 			fmt.Sprintf("tv_port %d", tvPort),
 		)
+		
 		if err := os.WriteFile(serverCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 			return err
 		}
@@ -918,6 +963,10 @@ echo "==========================================="
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
+	
+	// Note: Ownership of cfg directory (and all other files) is fixed by the
+	// comprehensive fixServerOwnership call at the end of bootstrap/reinstall.
+	
 	return nil
 }
 

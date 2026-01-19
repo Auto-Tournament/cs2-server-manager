@@ -343,6 +343,62 @@ func (m model) updateReinstallServerPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) viewAttachServerPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("Attach to server console")) +
+		"\n" +
+		headerBorderStyle.Render("Enter server number to attach to tmux console")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Server number:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, subtleStyle.Render("The TUI will exit and attach to the server console."))
+		fmt.Fprintln(&b, subtleStyle.Render("Press Ctrl+B then D to detach and return to your shell."))
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Press Enter to attach, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateAttachServerPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter a server number."
+			return m, nil
+		}
+		n, err := strconv.Atoi(value)
+		if err != nil || n <= 0 {
+			m.wizard.errMsg = "Server number must be a positive integer."
+			return m, nil
+		}
+
+		// Attach needs to quit the TUI and take over the terminal
+		return m, runAttachServer(n)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
 func (m model) viewServerConfigPrompt() string {
 	var b strings.Builder
 

@@ -276,6 +276,36 @@ func runUpdateServerConfigsGoWithConfig(cfg csm.UpdateServerConfigsConfig) tea.C
 	}
 }
 
+// runAttachServer quits the TUI and attaches to a server's tmux console.
+// This returns a tea.Quit command along with executing the attach, allowing
+// the terminal to be taken over by tmux.
+func runAttachServer(serverNum int) tea.Cmd {
+	return func() tea.Msg {
+		mgr, err := csm.NewTmuxManager()
+		if err != nil {
+			// Can't attach, show error and quit
+			fmt.Fprintf(os.Stderr, "Failed to attach: %v\n", err)
+			return tea.Quit()
+		}
+
+		// Quit the TUI first
+		fmt.Printf("\nAttaching to server %d console...\n", serverNum)
+		fmt.Println("Press Ctrl+B then D to detach and return to your shell.")
+		fmt.Println()
+
+		// Give user a moment to read the message
+		time.Sleep(1 * time.Second)
+
+		// Attach will take over the terminal
+		if err := mgr.Attach(serverNum); err != nil {
+			fmt.Fprintf(os.Stderr, "Attach failed: %v\n", err)
+		}
+
+		// After detaching, exit (don't return to TUI)
+		return tea.Quit()
+	}
+}
+
 // runReinstallServerGo completely rebuilds a single server from the master
 // installation. This is useful when a server's game files are corrupted.
 func runReinstallServerGo(serverNum int) tea.Cmd {

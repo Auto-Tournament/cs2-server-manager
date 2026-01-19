@@ -29,6 +29,7 @@ const (
 	viewAddServersPrompt
 	viewRemoveServersPrompt
 	viewReinstallServerPrompt
+	viewAttachServerPrompt
 	viewEditServerConfigs
 	viewServerConfigPrompt
 )
@@ -56,6 +57,7 @@ const (
 	itemAddServerGo
 	itemRemoveServerGo
 	itemReinstallServerGo
+	itemAttachServerGo
 	itemUpdateServerConfigs
 	itemViewServerConfig
 	itemCLIHelp
@@ -378,6 +380,11 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "Server logs (scrollable)",
 				description: "",
 				kind:        itemLogsViewport,
+			},
+			{
+				title:       "Attach to server console",
+				description: "",
+				kind:        itemAttachServerGo,
 			},
 			{
 				title:       "View server.cfg",
@@ -717,6 +724,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		if m.view == viewAttachServerPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateAttachServerPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 		if m.view == viewServerConfigPrompt {
 			var cmd tea.Cmd
 			m, cmd = m.updateServerConfigPromptKey(msg)
@@ -1011,6 +1025,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Prompt for which server to reinstall
 				m.view = viewReinstallServerPrompt
 				m.status = "Reinstall server: enter server number to reinstall."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
+			case itemAttachServerGo:
+				// Prompt for which server to attach to
+				m.view = viewAttachServerPrompt
+				m.status = "Attach to server: enter server number."
 				m.wizard.errMsg = ""
 				m.wizard.input.SetValue("")
 				m.wizard.input.Focus()
@@ -1605,6 +1627,8 @@ func (m model) View() string {
 		return m.viewRemoveServersPrompt()
 	case viewReinstallServerPrompt:
 		return m.viewReinstallServerPrompt()
+	case viewAttachServerPrompt:
+		return m.viewAttachServerPrompt()
 	case viewServerConfigPrompt:
 		return m.viewServerConfigPrompt()
 	case viewEditServerConfigs:
@@ -1722,6 +1746,8 @@ func (m model) View() string {
 			desc = "Stop and delete the highest-numbered N servers (server-M downwards) to scale down."
 		case itemReinstallServerGo:
 			desc = "Completely rebuild a single server from master-install (fixes corrupted game files)."
+		case itemAttachServerGo:
+			desc = "Attach to a server's tmux console (interactive). Press Ctrl+B then D to detach."
 		case itemUpdateServerConfigs:
 			desc = "Update RCON password, maxplayers, and GSLT token for all servers without reinstalling."
 		case itemUpdateGameGo:

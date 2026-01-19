@@ -240,23 +240,38 @@ func (m *TmuxManager) Start(server int) error {
 		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
 	}
 
-	// Use the Valve cs2.sh script from the game directory and tee output into
-	// a persistent per-server log file so logs survive tmux restarts.
+	// Use the Valve cs2.sh script from the game directory. Run directly in
+	// tmux without piping to maintain interactive console responsiveness when
+	// attaching. This matches LinuxGSM's approach for better interactivity.
 	cmdline := fmt.Sprintf(
-		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -port %d -tv_port %d -usercon%s 2>&1 | tee -a %s'",
-		filepath.Dir(logFile),
+		"cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -port %d -tv_port %d -usercon%s'",
 		gameDir,
 		session,
 		gamePort,
 		tvPort,
 		gsltArg,
-		logFile,
 	)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
 	if err := m.runAsCS2User(cmdline).Run(); err != nil {
 		log.Printf("[tmux] Start: failed to start server %d: %v", server, err)
 		return fmt.Errorf("failed to start server %d in tmux: %w", server, err)
 	}
+
+	// Enable logging via tmux pipe-pane so we get persistent logs without
+	// breaking console interactivity. The pipe-pane runs in the background
+	// and doesn't interfere with the console's responsiveness.
+	logDir := filepath.Dir(logFile)
+	pipeCmd := fmt.Sprintf(
+		"mkdir -p %s && tmux pipe-pane -o -t %s 'cat >> %s'",
+		logDir,
+		session,
+		logFile,
+	)
+	if err := m.runAsCS2User(pipeCmd).Run(); err != nil {
+		// Non-fatal; console will work without logging.
+		log.Printf("[tmux] Start: failed to enable logging for server %d: %v", server, err)
+	}
+
 	return nil
 }
 
