@@ -242,13 +242,23 @@ func (m *TmuxManager) Start(server int) error {
 
 	// Use the Valve cs2.sh script from the game directory. Run directly in
 	// tmux without piping to maintain interactive console responsiveness when
-	// attaching. This matches LinuxGSM's approach for better interactivity.
+	// attaching. Revert to the working v1.4.5 command format that uses:
+	// - `-port` (command-line flag)
+	// - `+tv_port` (console command - note the + not -)
+	// - `+map` to load map at startup
+	// - `+maxplayers` for player limit
+	maxPlayers := detectMaxPlayers(m.CS2User)
+	if maxPlayers == 0 {
+		maxPlayers = 10 // default from v1.4.5
+	}
+	
 	cmdline := fmt.Sprintf(
-		"cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -port %d -tv_port %d -usercon%s'",
+		"cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s'",
 		gameDir,
 		session,
 		gamePort,
 		tvPort,
+		maxPlayers,
 		gsltArg,
 	)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
@@ -394,7 +404,13 @@ func (m *TmuxManager) Debug(server int) error {
 	if gslt != "" {
 		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
 	}
-	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 -port %d -tv_port %d -usercon%s", gameDir, gamePort, tvPort, gsltArg))
+	// Use v1.4.5 command format for debug mode too
+	maxPlayers := detectMaxPlayers(m.CS2User)
+	if maxPlayers == 0 {
+		maxPlayers = 10
+	}
+	
+	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s", gameDir, gamePort, tvPort, maxPlayers, gsltArg))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

@@ -389,7 +389,13 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 		return buf.String(), err
 	}
 
-	// Customize server.cfg with ports and settings
+	// Delete the copied server.cfg so customizeServerCfgGo creates a fresh one
+	// with all proper settings instead of trying to update the incomplete one
+	// from master-install
+	serverCfgPath := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg", "server.cfg")
+	_ = os.Remove(serverCfgPath)
+
+	// Customize server.cfg with ports and settings (will create fresh config)
 	if err := customizeServerCfgGo(writer, user, serverNum, rcon, hostnamePrefix, gamePort, tvPort, maxPlayers); err != nil {
 		log("  [!] Customize server.cfg for server-%d failed: %v", serverNum, err)
 		return buf.String(), err
@@ -570,6 +576,59 @@ func detectGSLT(user string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// UpdateServerConfig regenerates server.cfg and autoexec.cfg for a single server
+// without reinstalling game files. This is much faster than reinstall when you
+// just need to fix config issues.
+func UpdateServerConfig(serverNum int) (string, error) {
+	mgr, err := NewTmuxManager()
+	if err != nil {
+		return "", err
+	}
+	if mgr.NumServers <= 0 {
+		return "", fmt.Errorf("no existing servers found; run the install wizard first")
+	}
+	if serverNum < 1 || serverNum > mgr.NumServers {
+		return "", fmt.Errorf("server-%d does not exist (valid range: 1-%d)", serverNum, mgr.NumServers)
+	}
+
+	user := mgr.CS2User
+	gamePort, tvPort := detectServerPorts(user, serverNum)
+	rcon := detectRCONPassword(user)
+	hostnamePrefix := detectHostnamePrefix(user)
+	maxPlayers := detectMaxPlayers(user)
+
+	var buf bytes.Buffer
+	log := func(format string, args ...any) {
+		line := fmt.Sprintf(format, args...)
+		if !strings.HasSuffix(line, "\n") {
+			line += "\n"
+		}
+		buf.WriteString(line)
+		fmt.Print(line)
+	}
+
+	log("[*] Updating config for server-%d", serverNum)
+	log("")
+
+	// Delete existing server.cfg to force fresh creation
+	serverCfgPath := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg", "server.cfg")
+	_ = os.Remove(serverCfgPath)
+
+	// Regenerate configs
+	var writer io.Writer = &buf
+	if err := customizeServerCfgGo(writer, user, serverNum, rcon, hostnamePrefix, gamePort, tvPort, maxPlayers); err != nil {
+		log("  [!] Failed to update config: %v", err)
+		return buf.String(), err
+	}
+
+	log("  [✓] Config updated for server-%d", serverNum)
+	log("")
+	log("  Restart the server for changes to take effect:")
+	log("    sudo csm restart %d", serverNum)
+
+	return buf.String(), nil
 }
 
 // DetectServerPorts reads the autoexec.cfg for a given server and extracts the

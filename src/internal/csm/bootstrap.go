@@ -678,14 +678,15 @@ func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverN
 		return nil
 	}
 
-	fmt.Fprintf(w, "  [*] Copying master to server-%d\n", serverNum)
+	fmt.Fprintf(w, "  [*] Copying master to server-%d (this may take a minute)...\n", serverNum)
 	if err := runCmdLoggedContext(ctx, w, "rsync",
-		"-a", "--info=PROGRESS2",
+		"-a", "--info=progress2", "--no-inc-recursive",
 		masterDir+string(os.PathSeparator),
 		serverDir+string(os.PathSeparator),
 	); err != nil {
 		return err
 	}
+	fmt.Fprintf(w, "  [✓] Master copied to server-%d\n", serverNum)
 	return nil
 }
 
@@ -895,6 +896,10 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 // ========================================
 rcon_password "%s"
 ip "0.0.0.0"
+sv_rcon_banpenalty 0
+sv_rcon_maxfailures 5
+sv_rcon_minfailures 5
+sv_rcon_minfailuretime 30
 
 // ========================================
 // Server Identity
@@ -948,6 +953,10 @@ ip "0.0.0.0"
 
 // Server Identity
 %s
+
+// Load a default map to initialize the server
+// Without this, the server stays in "console" mode and doesn't execute server.cfg
+map de_dust2
 
 // Start warmup mode
 startwarmup

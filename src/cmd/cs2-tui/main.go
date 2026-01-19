@@ -230,6 +230,30 @@ func main() {
 			}
 			fmt.Printf("\nServer %d has been reinstalled successfully!\n", server)
 			return
+		case "update-config":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "usage: csm update-config <server>")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Regenerates server.cfg and autoexec.cfg without reinstalling game files.")
+				fmt.Fprintln(os.Stderr, "Much faster than reinstall when you just need to fix config issues.")
+				os.Exit(1)
+			}
+			server, serr := strconv.Atoi(args[1])
+			if serr != nil || server <= 0 {
+				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				os.Exit(1)
+			}
+			out, err := csm.UpdateServerConfig(server)
+			csm.LogAction("cli", fmt.Sprintf("update-config server-%d", server), out, err)
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "update-config server-%d failed: %v\n", server, err)
+				os.Exit(1)
+			}
+			fmt.Printf("\nServer %d config updated successfully!\n", server)
+			return
 		case "logs":
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm logs <server> [lines]")
