@@ -19,8 +19,10 @@ Designed to work hand-in-hand with:
 - **Multi-server deployment**: Spin up 3–5 CS2 servers with a single command.
 - **Tournament-ready stack**: Installs Metamod, CounterStrikeSharp, MatchZy (enhanced).
 - **Safe updates**: Handles game and plugin updates automatically while preserving your configs.
+- **Server management**: Add, remove, or reinstall individual servers without affecting others.
 - **Persistent overrides**: Everything in `overrides/` survives updates.
-- **Observability & control**: Go-based CLI/TUI and tmux integration for logs and debugging.
+- **Observability & control**: Go-based CLI/TUI with live progress tracking and tmux integration.
+- **Configuration updates**: Change RCON, max players, and GSLT across all servers without reinstalling.
 
 ## Quick Start
 

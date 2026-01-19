@@ -10,27 +10,37 @@ The main entrypoint for managing servers is the `csm` CLI/TUI:
 sudo csm       # Launch interactive TUI (installs, updates, status, logs, cleanup)
 ```
 
-From the TUI you can:
+The TUI has four main tabs:
 
-- **Install or repair servers** (wizard).
-- **Start / stop / restart all servers**.
-- **Check status and logs**.
-- **Run game or plugin updates**.
-- **Install / manage the auto-update monitor**.
+- **Install** - Install dependencies, run the install wizard, set up auto-update cron
+- **Updates** - Update CS2 game files, update plugins, update server configs (RCON, maxplayers, GSLT)
+- **Servers** - View dashboard, logs, start/stop/restart servers, add/remove/reinstall servers
+- **Tools** - MatchZy database management, map thumbnails, public IP, force update CSM, CLI help
 
-You can also call common actions directly from the CLI:
+### Common CLI commands
 
 ```bash
+# Setup & Installation
 sudo csm install-deps           # Install core system dependencies
-sudo csm bootstrap              # Install/redeploy servers
-sudo csm start                  # Start all servers
-sudo csm stop                   # Stop all servers
-sudo csm restart                # Restart all servers
-sudo csm status                 # Show tmux status in the CLI
-sudo csm update-game            # Update CS2 game files
-sudo csm update-plugins         # Update plugins (download + deploy)
-sudo csm monitor                # Run one iteration of the auto-update monitor
+sudo csm bootstrap              # Install/redeploy servers (non-interactive)
 sudo csm install-monitor-cron   # Install cron-based auto-update monitor
+
+# Server Control
+sudo csm start [server]         # Start all servers (or specific server number)
+sudo csm stop [server]          # Stop all servers (or specific server number)
+sudo csm restart [server]       # Restart all servers (or specific server number)
+sudo csm status                 # Show tmux status overview
+
+# Updates
+sudo csm update-game            # Update CS2 game files after Valve update
+sudo csm update-plugins         # Update plugins (download + deploy)
+sudo csm update-server <n>      # Update a specific server instance
+sudo csm monitor                # Run one iteration of the auto-update monitor
+
+# Server Management
+sudo csm reinstall <server>     # Completely rebuild a server from master (fixes corrupted files)
+
+# Cleanup
 sudo csm cleanup-all            # Danger: remove all CS2 data and user
 ```
 
@@ -42,6 +52,7 @@ Servers run inside tmux sessions for easy console access. The `csm` binary provi
 sudo csm status          # See all server sessions
 sudo csm attach 1        # Attach to server 1 console
 sudo csm logs 1 100      # Show last 100 lines of console output
+sudo csm logs-file 1     # Print the raw log file path for server 1
 sudo csm list-sessions   # List all tmux sessions
 sudo csm debug 1         # Run server 1 in foreground for debugging
 ```
@@ -50,6 +61,35 @@ When attached to a tmux session:
 
 - Press **Ctrl+B, then D** to detach without stopping the server.
 - Type commands directly into the CS2 console.
+
+## Scaling servers
+
+You can add or remove servers without a full reinstall:
+
+```bash
+# Via TUI: Navigate to Servers tab → "Add servers" or "Remove servers"
+
+# Via CLI (prompts are easier in TUI):
+# Adding servers copies from master-install and applies your existing config
+# Removing servers deletes the highest-numbered servers
+```
+
+## Fixing corrupted servers
+
+If a server has corrupted game files (e.g., `gameinfo.gi` errors, crashes), use the reinstall command:
+
+```bash
+sudo csm reinstall 2     # Completely rebuilds server 2 from master-install
+```
+
+This will:
+1. Stop the server
+2. Delete the corrupted server directory
+3. Copy fresh files from `master-install`
+4. Apply all your existing settings (ports, RCON, hostname, GSLT)
+5. Start the server automatically
+
+Your configuration is preserved - only the game files are replaced.
 
 ## Where servers live
 

@@ -45,24 +45,38 @@ sudo csm            # run all TUI actions (install, updates, status, cleanup)
 
 CLI helpers such as `csm help` can be run without sudo, but for simplicity you can prefix most operational commands with `sudo` as well.
 
-From the TUI you can:
+The TUI has four main tabs (use arrow keys to navigate):
 
-- Install or repair servers (wizard).
-- Start/stop/restart all servers.
-- Check status and logs.
-- Run game/plugin updates.
+- **Install** - Run install wizard, manage dependencies, set up auto-updates
+- **Updates** - Update game, plugins, or server configs (RCON, maxplayers, GSLT)
+- **Servers** - View status, logs, start/stop/restart, add/remove/reinstall servers
+- **Tools** - Database management, map thumbnails, utilities
 
 ## 3. Common CLI one-liners
 
 These commands are shortcuts around the TUI:
 
 ```bash
-csm install-deps           # Install core system dependencies (run with sudo)
-csm status                 # Check tmux status
-csm update-game            # Update CS2
-csm update-plugins         # Update plugins
-csm monitor                # Run one monitor iteration
-csm install-monitor-cron   # Install cron-based auto-update monitor
+# Setup & maintenance
+sudo csm install-deps           # Install core system dependencies
+sudo csm install-monitor-cron   # Install cron-based auto-update monitor
+sudo csm reinstall <server>     # Rebuild a corrupted server
+
+# Server control
+sudo csm status                 # Check tmux status
+sudo csm start [server]         # Start all servers (or specific server)
+sudo csm stop [server]          # Stop all servers (or specific server)
+sudo csm restart [server]       # Restart all servers (or specific server)
+
+# Updates
+sudo csm update-game            # Update CS2 after Valve update
+sudo csm update-plugins         # Update plugins
+sudo csm monitor                # Run one monitor iteration
+
+# Debugging
+sudo csm attach 1               # Attach to server 1 console
+sudo csm logs 1 200             # View last 200 lines of server 1 logs
+sudo csm debug 1                # Run server 1 in foreground (debug mode)
 ```
 
 If you keep your `overrides/` and `game_files/` in a specific directory (for example `/opt/cs2-server-manager`), you can point CSM at it explicitly:

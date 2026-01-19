@@ -62,13 +62,24 @@ csm help    # show CLI help without sudo
 Common CLI commands:
 
 ```bash
+# Server management
 sudo csm status                 # Tmux status overview
+sudo csm start [server]         # Start all servers (or specific server)
+sudo csm stop [server]          # Stop all servers (or specific server)
+sudo csm restart [server]       # Restart all servers (or specific server)
+
+# Updates
 sudo csm update-game            # Update CS2 game files
 sudo csm update-plugins         # Update plugins (download + deploy)
 sudo csm monitor                # Run one iteration of the auto-update monitor
+
+# Setup & maintenance
 sudo csm install-deps           # Install core system dependencies
 sudo csm bootstrap              # Install/redeploy servers
 sudo csm install-monitor-cron   # Install cron-based auto-update monitor
+sudo csm reinstall <server>     # Rebuild a server (fixes corrupted files)
+
+# Cleanup
 sudo csm cleanup-all            # Danger: remove all CS2 data and user
 ```
 
@@ -78,6 +89,7 @@ For logs and debugging:
 sudo csm attach 1        # Attach to server 1 console (tmux)
 sudo csm debug 1         # Run server 1 in foreground (debug mode)
 sudo csm logs 1 100      # View last 100 lines of server 1 logs
+sudo csm logs-file 1     # Print the log file path for server 1
 ```
 
 ---

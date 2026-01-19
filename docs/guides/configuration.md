@@ -69,8 +69,25 @@ Default ports (incrementing by 10):
 | 2      | 27025 | 27030 |
 | 3      | 27035 | 27040 |
 
-- **Default RCON password**: `ntlan2025`
-- You can adjust ports and RCON in your overrides configs.
+The install wizard will prompt you to set an RCON password during setup.
+
+### Updating server configuration
+
+You can update RCON password, max players, and GSLT token across all servers without reinstalling:
+
+**Via TUI**: Navigate to **Updates tab → "Update server configs"**
+
+This will:
+- Prompt for new RCON password, max players, and GSLT token
+- Update the shared configuration
+- Sync changes to all servers
+- Restart servers to apply changes
+
+**Via CLI**: Edit the shared config files manually:
+- RCON & maxplayers: `/home/<cs2_user>/cs2-config/game/csgo/cfg/server.cfg`
+- GSLT token: `/home/<cs2_user>/cs2-config/server.gslt`
+
+Then restart servers: `sudo csm restart`
 
 ## Best practices
 
