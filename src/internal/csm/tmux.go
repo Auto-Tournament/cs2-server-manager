@@ -230,6 +230,9 @@ func (m *TmuxManager) Start(server int) error {
 	// Kill any existing session first to ensure a clean log/console.
 	_ = m.runAsCS2User("tmux kill-session -t " + session).Run()
 
+	// Detect ports for this server from its config
+	gamePort, tvPort := detectServerPorts(m.CS2User, server)
+
 	// Build command line with optional GSLT token
 	gslt := m.getGSLT(server)
 	gsltArg := ""
@@ -240,10 +243,12 @@ func (m *TmuxManager) Start(server int) error {
 	// Use the Valve cs2.sh script from the game directory and tee output into
 	// a persistent per-server log file so logs survive tmux restarts.
 	cmdline := fmt.Sprintf(
-		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -usercon%s 2>&1 | tee -a %s'",
+		"mkdir -p %s && cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 -port %d -tv_port %d -usercon%s 2>&1 | tee -a %s'",
 		filepath.Dir(logFile),
 		gameDir,
 		session,
+		gamePort,
+		tvPort,
 		gsltArg,
 		logFile,
 	)
@@ -365,12 +370,16 @@ func (m *TmuxManager) ListSessions() (string, error) {
 func (m *TmuxManager) Debug(server int) error {
 	serverDir := m.serverDir(server)
 	gameDir := filepath.Join(serverDir, "game")
+	
+	// Detect ports for this server from its config
+	gamePort, tvPort := detectServerPorts(m.CS2User, server)
+	
 	gslt := m.getGSLT(server)
 	gsltArg := ""
 	if gslt != "" {
 		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
 	}
-	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 -usercon%s", gameDir, gsltArg))
+	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 -port %d -tv_port %d -usercon%s", gameDir, gamePort, tvPort, gsltArg))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
