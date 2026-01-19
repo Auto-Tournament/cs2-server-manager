@@ -28,6 +28,7 @@ const (
 	viewLogsPrompt
 	viewAddServersPrompt
 	viewRemoveServersPrompt
+	viewReinstallServerPrompt
 	viewEditServerConfigs
 	viewServerConfigPrompt
 )
@@ -54,6 +55,7 @@ const (
 	itemCleanupAllGo
 	itemAddServerGo
 	itemRemoveServerGo
+	itemReinstallServerGo
 	itemUpdateServerConfigs
 	itemViewServerConfig
 	itemCLIHelp
@@ -407,6 +409,11 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "",
 				kind:        itemRemoveServerGo,
 			},
+			{
+				title:       "Reinstall a server",
+				description: "",
+				kind:        itemReinstallServerGo,
+			},
 		}
 	case tabTools:
 		return []menuItem{
@@ -703,6 +710,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+		if m.view == viewReinstallServerPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateReinstallServerPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
 		if m.view == viewServerConfigPrompt {
 			var cmd tea.Cmd
 			m, cmd = m.updateServerConfigPromptKey(msg)
@@ -993,6 +1007,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.wizard.input.SetValue("")
 				m.wizard.input.Focus()
 				cmds = append(cmds, textinput.Blink)
+			case itemReinstallServerGo:
+				// Prompt for which server to reinstall
+				m.view = viewReinstallServerPrompt
+				m.status = "Reinstall server: enter server number to reinstall."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
 			case itemUpdateServerConfigs:
 				// Initialize config editor with current values
 				m.initConfigEditor()
@@ -1079,7 +1101,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logPercent = 0
 		// Any completed command that uses the scaling log tailer should clear
 		// the scaling flag so the progress bar disappears.
-		if msg.item.kind == itemAddServerGo || msg.item.kind == itemRemoveServerGo {
+		if msg.item.kind == itemAddServerGo || msg.item.kind == itemRemoveServerGo || msg.item.kind == itemReinstallServerGo {
 			m.scaling = false
 		}
 
@@ -1581,6 +1603,8 @@ func (m model) View() string {
 		return m.viewAddServersPrompt()
 	case viewRemoveServersPrompt:
 		return m.viewRemoveServersPrompt()
+	case viewReinstallServerPrompt:
+		return m.viewReinstallServerPrompt()
 	case viewServerConfigPrompt:
 		return m.viewServerConfigPrompt()
 	case viewEditServerConfigs:
@@ -1696,6 +1720,8 @@ func (m model) View() string {
 			desc = "Add N new CS2 servers based on the existing setup."
 		case itemRemoveServerGo:
 			desc = "Stop and delete the highest-numbered N servers (server-M downwards) to scale down."
+		case itemReinstallServerGo:
+			desc = "Completely rebuild a single server from master-install (fixes corrupted game files)."
 		case itemUpdateServerConfigs:
 			desc = "Update RCON password, maxplayers, and GSLT token for all servers without reinstalling."
 		case itemUpdateGameGo:

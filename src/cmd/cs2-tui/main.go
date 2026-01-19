@@ -206,6 +206,30 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "reinstall":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "usage: csm reinstall <server>")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "This will completely rebuild the specified server from the master installation.")
+				fmt.Fprintln(os.Stderr, "Use this if a server's game files are corrupted or incomplete.")
+				os.Exit(1)
+			}
+			server, serr := strconv.Atoi(args[1])
+			if serr != nil || server <= 0 {
+				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				os.Exit(1)
+			}
+			out, err := csm.ReinstallServerInstance(server)
+			csm.LogAction("cli", fmt.Sprintf("reinstall server-%d", server), out, err)
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "reinstall server-%d failed: %v\n", server, err)
+				os.Exit(1)
+			}
+			fmt.Printf("\nServer %d has been reinstalled successfully!\n", server)
+			return
 		case "logs":
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm logs <server> [lines]")
@@ -523,6 +547,7 @@ func printUsage() {
 	fmt.Printf("%sCommands (require sudo for typical setups):%s\n", yellow, reset)
 	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
 	fmt.Println("  cleanup-all            Remove all servers and related resources")
+	fmt.Println("  reinstall <server>     Rebuild a single server from master (fixes corrupted files)")
 	fmt.Println("  update-game            Update CS2 game files after a Valve update")
 	fmt.Println("  update-plugins         Update plugins and deploy to servers")
 	fmt.Println("  monitor                Run auto-update monitor loop")

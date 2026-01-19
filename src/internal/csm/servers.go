@@ -263,6 +263,132 @@ func RemoveLastServerInstance() (string, error) {
 	return buf.String(), nil
 }
 
+// ReinstallServerInstance completely rebuilds a single server from the master
+// installation. This is useful when a server's game files are corrupted or
+// incomplete. It will stop the server, delete its directory, copy fresh files
+// from master-install, and reconfigure everything.
+func ReinstallServerInstance(serverNum int) (string, error) {
+	return ReinstallServerInstanceWithContext(context.Background(), serverNum)
+}
+
+// ReinstallServerInstanceWithContext is like ReinstallServerInstance but
+// accepts a context for cancellation.
+func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (string, error) {
+	mgr, err := NewTmuxManager()
+	if err != nil {
+		return "", err
+	}
+	if mgr.NumServers <= 0 {
+		return "", fmt.Errorf("no existing servers found; run the install wizard first")
+	}
+	if serverNum < 1 || serverNum > mgr.NumServers {
+		return "", fmt.Errorf("server-%d does not exist (valid range: 1-%d)", serverNum, mgr.NumServers)
+	}
+
+	user := mgr.CS2User
+	gamePort, tvPort := detectServerPorts(user, serverNum)
+	rcon := detectRCONPassword(user)
+	hostnamePrefix := detectHostnamePrefix(user)
+	enableMetamod := detectMetamodEnabled(user)
+	maxPlayers := detectMaxPlayers(user)
+	gslt := detectGSLT(user)
+
+	var buf bytes.Buffer
+	var logFile *os.File
+
+	// When invoked from the TUI, CSM_REINSTALL_LOG is set to a temp path that
+	// the UI tails in real time. Mirror all log lines into that file so the
+	// user can see progress while the reinstall is running.
+	if logPath := strings.TrimSpace(os.Getenv("CSM_REINSTALL_LOG")); logPath != "" {
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			logFile = f
+			defer func() {
+				if err := logFile.Close(); err != nil {
+					fmt.Fprintf(os.Stderr, "CSM_REINSTALL_LOG close failed: %v\n", err)
+				}
+			}()
+		}
+	}
+
+	log := func(format string, args ...any) {
+		fmt.Fprintf(&buf, format, args...)
+		if !strings.HasSuffix(format, "\n") {
+			buf.WriteByte('\n')
+		}
+		if logFile != nil {
+			fmt.Fprintf(logFile, format, args...)
+			if !strings.HasSuffix(format, "\n") {
+				_, _ = logFile.Write([]byte{'\n'})
+			}
+		}
+	}
+
+	log("[*] Reinstalling server-%d for user %s", serverNum, user)
+	log("    This will completely rebuild the server from master-install")
+	log("")
+
+	// Stop the server first
+	if err := stopTmuxServerGo(&buf, user, serverNum); err != nil {
+		log("  [i] Could not stop tmux session for server-%d: %v", serverNum, err)
+	}
+
+	// Delete the existing server directory to ensure clean state
+	serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum))
+	log("  [*] Deleting existing server-%d directory", serverNum)
+	if err := os.RemoveAll(serverDir); err != nil {
+		log("  [i] os.RemoveAll failed (%v), retrying with rm -rf", err)
+		if err2 := runCmdLogged(&buf, "rm", "-rf", serverDir); err2 != nil {
+			log("  [!] Failed to delete %s: %v", serverDir, err)
+			return buf.String(), fmt.Errorf("failed to delete %s: %w", serverDir, err)
+		}
+	}
+	log("  [✓] Existing server-%d directory removed", serverNum)
+	log("")
+
+	// Copy fresh files from master-install
+	if err := copyMasterToServerGo(ctx, &buf, user, serverNum, false); err != nil {
+		log("  [!] Copy master to server-%d failed: %v", serverNum, err)
+		return buf.String(), err
+	}
+
+	// Overlay shared config
+	if err := overlayConfigToServerGo(ctx, &buf, user, serverNum); err != nil {
+		log("  [!] Overlay config to server-%d failed: %v", serverNum, err)
+		return buf.String(), err
+	}
+
+	// Configure Metamod
+	if err := configureMetamodGo(&buf, user, serverNum, enableMetamod); err != nil {
+		log("  [!] Configure Metamod for server-%d failed: %v", serverNum, err)
+		return buf.String(), err
+	}
+
+	// Customize server.cfg with ports and settings
+	if err := customizeServerCfgGo(&buf, user, serverNum, rcon, hostnamePrefix, gamePort, tvPort, maxPlayers); err != nil {
+		log("  [!] Customize server.cfg for server-%d failed: %v", serverNum, err)
+		return buf.String(), err
+	}
+
+	// Store GSLT token if one exists
+	if gslt != "" {
+		if err := storeGSLTGo(&buf, user, serverNum, gslt); err != nil {
+			log("  [!] Failed to store GSLT for server-%d: %v", serverNum, err)
+		}
+	}
+
+	log("  [✓] Server-%d reinstalled successfully (game %d, TV %d)", serverNum, gamePort, tvPort)
+	log("")
+
+	// Automatically start the reinstalled server
+	if err := mgr.Start(serverNum); err != nil {
+		log("  [!] Failed to start server-%d: %v", serverNum, err)
+		return buf.String(), err
+	}
+	log("  [✓] Server-%d started", serverNum)
+
+	return buf.String(), nil
+}
+
 // DetectRCONPassword best-effort reads the RCON password from an existing
 // server-1 config so new servers reuse the same password. Falls back to the
 // default if parsing fails.

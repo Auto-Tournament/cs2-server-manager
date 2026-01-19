@@ -276,6 +276,40 @@ func runUpdateServerConfigsGoWithConfig(cfg csm.UpdateServerConfigsConfig) tea.C
 	}
 }
 
+// runReinstallServerGo completely rebuilds a single server from the master
+// installation. This is useful when a server's game files are corrupted.
+func runReinstallServerGo(serverNum int) tea.Cmd {
+	return func() tea.Msg {
+		// Stream reinstall progress by mirroring logs into a temp file that a
+		// background goroutine tails, similar to scale operations.
+		logPath := filepath.Join(os.TempDir(), "csm-reinstall.log")
+		_ = os.Remove(logPath)
+
+		done := make(chan struct{})
+		go tailInstallLog(logPath, done)
+		defer close(done)
+
+		_ = os.Setenv("CSM_REINSTALL_LOG", logPath)
+		defer os.Unsetenv("CSM_REINSTALL_LOG")
+
+		// Wire a cancellable context so the user can press C to cancel the
+		// reinstall if needed.
+		ctx, cancel := context.WithCancel(context.Background())
+		SetInstallCancel(cancel)
+		defer CancelInstall()
+
+		out, err := csm.ReinstallServerInstanceWithContext(ctx, serverNum)
+		return commandFinishedMsg{
+			item: menuItem{
+				title: fmt.Sprintf("Reinstall server %d", serverNum),
+				kind:  itemReinstallServerGo,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
 // runRemoveServersGo scales down by stopping and deleting the highest-numbered
 // N server-* directories so NewTmuxManager will subsequently report fewer
 // servers.
