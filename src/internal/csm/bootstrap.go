@@ -148,13 +148,29 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		log("  [!] Failed to write default overrides to %s: %v", cfg.OverridesDir, err)
 	}
 	
-	// Defer cleanup of overrides directory on cancellation
-	// If the install is cancelled, remove the entire overrides directory to ensure clean state
+	// Track if bootstrap succeeded - we'll use this in defer to decide cleanup
+	bootstrapSucceeded := false
 	defer func() {
-		// Check if context was cancelled
-		if ctx.Err() != nil {
-			// Always remove overrides directory on cancellation - it was created/modified during install
-			_ = os.RemoveAll(cfg.OverridesDir)
+		// Clean up overrides directory if bootstrap failed or was cancelled
+		if !bootstrapSucceeded || ctx.Err() != nil {
+			if len(createdOverrideFiles) > 0 {
+				log("  [*] Cleaning up overrides directory due to failed/cancelled install...")
+				if err := os.RemoveAll(cfg.OverridesDir); err != nil {
+					log("  [!] Failed to clean up overrides directory: %v", err)
+				} else {
+					log("  [✓] Overrides directory cleaned up")
+				}
+			} else if ctx.Err() != nil {
+				// Even if no files were created, if cancelled, clean up the directory if it didn't exist before
+				// (This handles the case where ensureDefaultOverrides created the directory structure)
+				if _, err := os.Stat(cfg.OverridesDir); err == nil {
+					// Check if directory is empty or only contains wizard-managed files
+					entries, _ := os.ReadDir(cfg.OverridesDir)
+					if len(entries) == 0 {
+						_ = os.RemoveAll(cfg.OverridesDir)
+					}
+				}
+			}
 		}
 	}()
 
@@ -171,6 +187,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("[2/5] Installing/updating master CS2 installation...")
 	if err := installMasterViaSteamCMD(ctx, &buf, cfg); err != nil {
 		log("  [!] Failed to install/update master: %v", err)
+		log("  [*] Check /tmp/csm-bootstrap.log for detailed steamcmd output")
 		return buf.String(), err
 	}
 	log("")
@@ -271,6 +288,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("Custom configs: %s/game -> /home/%s/cs2-config/game", cfg.OverridesDir, cfg.CS2User)
 	log("Metamod       : %v", cfg.EnableMetamod)
 
+	bootstrapSucceeded = true
 	return buf.String(), nil
 }
 
@@ -375,12 +393,13 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 	// Run steamcmd as CS2 user
 	// Use a trap to ensure steamcmd is killed when the script receives SIGTERM/SIGKILL
 	// This is necessary because su->shell->steamcmd chain doesn't automatically kill children
+	// Don't use set -e since wait returns the steamcmd exit code and we want to handle it explicitly
 	script := fmt.Sprintf(`
-set -e
 trap 'if [ -n "$STEAMCMD_PID" ]; then kill -TERM "$STEAMCMD_PID" 2>/dev/null; wait "$STEAMCMD_PID" 2>/dev/null; fi; exit' TERM INT EXIT
 steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit &
 STEAMCMD_PID=$!
 wait $STEAMCMD_PID
+exit $?
 `, masterDir)
 
 	cmd := exec.CommandContext(ctx, "su", "-", cfg.CS2User, "-c", script)
@@ -427,7 +446,19 @@ wait $STEAMCMD_PID
 				pkillCmd.Run() // Best effort, ignore errors
 			}()
 			if err := cmd.Wait(); err != nil {
-				return fmt.Errorf("steamcmd failed: %w", err)
+				// Log the error details
+				fmt.Fprintf(w, "  [!] SteamCMD process exited with error: %v\n", err)
+				// Even if steamcmd exits with an error, check if the install actually succeeded
+				// by looking for gameinfo.gi - sometimes steamcmd reports errors but still completes
+				if _, statErr := os.Stat(gameinfo); statErr == nil {
+					fmt.Fprintln(w, "  [i] SteamCMD reported an error, but game files appear to be installed")
+					fmt.Fprintln(w, "  [i] Continuing with installation...")
+					// Continue - the install likely succeeded despite the error
+				} else {
+					fmt.Fprintf(w, "  [!] SteamCMD failed and gameinfo.gi not found at %s\n", gameinfo)
+					fmt.Fprintln(w, "  [*] Check /tmp/csm-bootstrap.log for detailed steamcmd output")
+					return fmt.Errorf("steamcmd failed: %w (check /tmp/csm-bootstrap.log for details)", err)
+				}
 			}
 		} else {
 			// Fall back to non-streaming mode if we can't open the log file.
@@ -438,7 +469,15 @@ wait $STEAMCMD_PID
 				fmt.Fprintln(w, string(out))
 			}
 			if err != nil {
-				return fmt.Errorf("steamcmd failed: %w", err)
+				fmt.Fprintf(w, "  [!] SteamCMD process exited with error: %v\n", err)
+				// Even if steamcmd exits with an error, check if the install actually succeeded
+				if _, statErr := os.Stat(gameinfo); statErr == nil {
+					fmt.Fprintln(w, "  [i] SteamCMD reported an error, but game files appear to be installed")
+					fmt.Fprintln(w, "  [i] Continuing with installation...")
+				} else {
+					fmt.Fprintf(w, "  [!] SteamCMD failed and gameinfo.gi not found at %s\n", gameinfo)
+					return fmt.Errorf("steamcmd failed: %w (check logs for details)", err)
+				}
 			}
 		}
 	} else {
@@ -450,7 +489,15 @@ wait $STEAMCMD_PID
 			fmt.Fprintln(w, string(out))
 		}
 		if err != nil {
-			return fmt.Errorf("steamcmd failed: %w", err)
+			fmt.Fprintf(w, "  [!] SteamCMD process exited with error: %v\n", err)
+			// Even if steamcmd exits with an error, check if the install actually succeeded
+			if _, statErr := os.Stat(gameinfo); statErr == nil {
+				fmt.Fprintln(w, "  [i] SteamCMD reported an error, but game files appear to be installed")
+				fmt.Fprintln(w, "  [i] Continuing with installation...")
+			} else {
+				fmt.Fprintf(w, "  [!] SteamCMD failed and gameinfo.gi not found at %s\n", gameinfo)
+				return fmt.Errorf("steamcmd failed: %w (check logs for details)", err)
+			}
 		}
 	}
 
