@@ -660,7 +660,7 @@ func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	return nil
 }
 
-func copyMasterToServerGo(ctx context.Context, w *bytes.Buffer, user string, serverNum int, fresh bool) error {
+func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverNum int, fresh bool) error {
 	masterDir := filepath.Join("/home", user, "master-install")
 	serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum))
 
@@ -689,7 +689,7 @@ func copyMasterToServerGo(ctx context.Context, w *bytes.Buffer, user string, ser
 	return nil
 }
 
-func overlayConfigToServerGo(ctx context.Context, w *bytes.Buffer, user string, serverNum int) error {
+func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serverNum int) error {
 	configDir := filepath.Join("/home", user, "cs2-config", "game")
 	serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game")
 
@@ -710,7 +710,7 @@ func overlayConfigToServerGo(ctx context.Context, w *bytes.Buffer, user string, 
 	return nil
 }
 
-func configureMetamodGo(w *bytes.Buffer, user string, serverNum int, enable bool) error {
+func configureMetamodGo(w io.Writer, user string, serverNum int, enable bool) error {
 	gameinfo := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "gameinfo.gi")
 
 	data, err := os.ReadFile(gameinfo)
@@ -801,7 +801,7 @@ func writeSharedServerConfig(user string, rcon string, maxPlayers int) error {
 	return nil
 }
 
-func customizeServerCfgGo(w *bytes.Buffer, user string, serverNum int, rcon, hostnamePrefix string, gamePort, tvPort int, maxPlayers int) error {
+func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnamePrefix string, gamePort, tvPort int, maxPlayers int) error {
 	// Write shared config (RCON, maxplayers) to cs2-config first
 	if err := writeSharedServerConfig(user, rcon, maxPlayers); err != nil {
 		return fmt.Errorf("failed to write shared config: %w", err)
@@ -972,7 +972,7 @@ echo "==========================================="
 
 // storeGSLTGo writes the GSLT token to the shared cs2-config location.
 // The serverNum parameter is kept for compatibility but all servers share the same GSLT.
-func storeGSLTGo(w *bytes.Buffer, user string, serverNum int, gslt string) error {
+func storeGSLTGo(w io.Writer, user string, serverNum int, gslt string) error {
 	configDir := filepath.Join("/home", user, "cs2-config")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return err

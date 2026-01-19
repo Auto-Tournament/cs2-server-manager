@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -304,11 +305,13 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 
 	var buf bytes.Buffer
 	var logFile *os.File
+	isCLI := true
 
 	// When invoked from the TUI, CSM_REINSTALL_LOG is set to a temp path that
 	// the UI tails in real time. Mirror all log lines into that file so the
 	// user can see progress while the reinstall is running.
 	if logPath := strings.TrimSpace(os.Getenv("CSM_REINSTALL_LOG")); logPath != "" {
+		isCLI = false
 		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 			logFile = f
 			defer func() {
@@ -333,11 +336,17 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 			_, _ = logFile.WriteString(line)
 		}
 		
-		// If NOT running in TUI mode (no CSM_REINSTALL_LOG), print to stdout
-		// for real-time CLI feedback
-		if logFile == nil {
+		// If running in CLI mode, print to stdout for real-time feedback
+		if isCLI {
 			fmt.Print(line)
 		}
+	}
+	
+	// For operations that write directly to the buffer (like rsync), we need
+	// to create a writer that also outputs to stdout in CLI mode
+	var writer io.Writer = &buf
+	if isCLI {
+		writer = io.MultiWriter(&buf, os.Stdout)
 	}
 
 	log("[*] Reinstalling server-%d for user %s", serverNum, user)
@@ -363,32 +372,32 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 	log("")
 
 	// Copy fresh files from master-install
-	if err := copyMasterToServerGo(ctx, &buf, user, serverNum, false); err != nil {
+	if err := copyMasterToServerGo(ctx, writer, user, serverNum, false); err != nil {
 		log("  [!] Copy master to server-%d failed: %v", serverNum, err)
 		return buf.String(), err
 	}
 
 	// Overlay shared config
-	if err := overlayConfigToServerGo(ctx, &buf, user, serverNum); err != nil {
+	if err := overlayConfigToServerGo(ctx, writer, user, serverNum); err != nil {
 		log("  [!] Overlay config to server-%d failed: %v", serverNum, err)
 		return buf.String(), err
 	}
 
 	// Configure Metamod
-	if err := configureMetamodGo(&buf, user, serverNum, enableMetamod); err != nil {
+	if err := configureMetamodGo(writer, user, serverNum, enableMetamod); err != nil {
 		log("  [!] Configure Metamod for server-%d failed: %v", serverNum, err)
 		return buf.String(), err
 	}
 
 	// Customize server.cfg with ports and settings
-	if err := customizeServerCfgGo(&buf, user, serverNum, rcon, hostnamePrefix, gamePort, tvPort, maxPlayers); err != nil {
+	if err := customizeServerCfgGo(writer, user, serverNum, rcon, hostnamePrefix, gamePort, tvPort, maxPlayers); err != nil {
 		log("  [!] Customize server.cfg for server-%d failed: %v", serverNum, err)
 		return buf.String(), err
 	}
 
 	// Store GSLT token if one exists
 	if gslt != "" {
-		if err := storeGSLTGo(&buf, user, serverNum, gslt); err != nil {
+		if err := storeGSLTGo(writer, user, serverNum, gslt); err != nil {
 			log("  [!] Failed to store GSLT for server-%d: %v", serverNum, err)
 		}
 	}
