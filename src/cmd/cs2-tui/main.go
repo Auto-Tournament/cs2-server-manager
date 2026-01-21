@@ -140,11 +140,19 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux start failed: %v\n", err)
 				os.Exit(1)
 			}
+			if mgr.NumServers == 0 {
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				os.Exit(1)
+			}
 			target := "all"
 			if len(args) > 1 {
 				server, serr := strconv.Atoi(args[1])
-				if serr != nil {
-					fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				if serr != nil || server <= 0 {
+					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+					os.Exit(1)
+				}
+				if server > mgr.NumServers {
+					fmt.Fprintf(os.Stderr, "server-%d does not exist (only %d server(s) installed)\n", server, mgr.NumServers)
 					os.Exit(1)
 				}
 				err = mgr.Start(server)
@@ -164,11 +172,19 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux stop failed: %v\n", err)
 				os.Exit(1)
 			}
+			if mgr.NumServers == 0 {
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				os.Exit(1)
+			}
 			target := "all"
 			if len(args) > 1 {
 				server, serr := strconv.Atoi(args[1])
-				if serr != nil {
-					fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				if serr != nil || server <= 0 {
+					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+					os.Exit(1)
+				}
+				if server > mgr.NumServers {
+					fmt.Fprintf(os.Stderr, "server-%d does not exist (only %d server(s) installed)\n", server, mgr.NumServers)
 					os.Exit(1)
 				}
 				err = mgr.Stop(server)
@@ -188,11 +204,19 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux restart failed: %v\n", err)
 				os.Exit(1)
 			}
+			if mgr.NumServers == 0 {
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				os.Exit(1)
+			}
 			target := "all"
 			if len(args) > 1 {
 				server, serr := strconv.Atoi(args[1])
-				if serr != nil {
-					fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				if serr != nil || server <= 0 {
+					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+					os.Exit(1)
+				}
+				if server > mgr.NumServers {
+					fmt.Fprintf(os.Stderr, "server-%d does not exist (only %d server(s) installed)\n", server, mgr.NumServers)
 					os.Exit(1)
 				}
 				err = mgr.Restart(server)
@@ -214,9 +238,22 @@ func main() {
 				fmt.Fprintln(os.Stderr, "Use this if a server's game files are corrupted or incomplete.")
 				os.Exit(1)
 			}
+			mgr, err := csm.NewTmuxManager()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to detect servers: %v\n", err)
+				os.Exit(1)
+			}
+			if mgr.NumServers == 0 {
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				os.Exit(1)
+			}
 			server, serr := strconv.Atoi(args[1])
 			if serr != nil || server <= 0 {
-				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+				os.Exit(1)
+			}
+			if server > mgr.NumServers {
+				fmt.Fprintf(os.Stderr, "server-%d does not exist (only %d server(s) installed)\n", server, mgr.NumServers)
 				os.Exit(1)
 			}
 			out, err := csm.ReinstallServerInstance(server)
@@ -238,9 +275,22 @@ func main() {
 				fmt.Fprintln(os.Stderr, "Much faster than reinstall when you just need to fix config issues.")
 				os.Exit(1)
 			}
+			mgr, err := csm.NewTmuxManager()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to detect servers: %v\n", err)
+				os.Exit(1)
+			}
+			if mgr.NumServers == 0 {
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				os.Exit(1)
+			}
 			server, serr := strconv.Atoi(args[1])
 			if serr != nil || server <= 0 {
-				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+				os.Exit(1)
+			}
+			if server > mgr.NumServers {
+				fmt.Fprintf(os.Stderr, "server-%d does not exist (only %d server(s) installed)\n", server, mgr.NumServers)
 				os.Exit(1)
 			}
 			out, err := csm.UpdateServerConfig(server)

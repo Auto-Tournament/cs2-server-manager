@@ -264,7 +264,7 @@ func (m *TmuxManager) Start(server int) error {
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
 	if err := m.runAsCS2User(cmdline).Run(); err != nil {
 		log.Printf("[tmux] Start: failed to start server %d: %v", server, err)
-		return fmt.Errorf("failed to start server %d in tmux: %w", server, err)
+		return fmt.Errorf("failed to start server %d in tmux session %q: %w (check server logs at %s)", server, session, err, logFile)
 	}
 
 	// Enable logging via tmux pipe-pane so we get persistent logs without

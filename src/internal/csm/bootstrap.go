@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -132,8 +131,13 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if cfg.RCONPassword == "" {
 		// Use a neutral fallback rather than an event-specific password; the
 		// install wizard will normally require users to set this explicitly.
-		log("  [!] No RCON password supplied; using default %q. You should change this after install.", DefaultRCONPassword)
+		log("  [!] WARNING: No RCON password supplied; using default %q", DefaultRCONPassword)
+		log("  [!] SECURITY: You MUST change the RCON password after installation!")
+		log("  [!] SECURITY: Default passwords are insecure and publicly known!")
 		cfg.RCONPassword = DefaultRCONPassword
+	} else if cfg.RCONPassword == DefaultRCONPassword {
+		log("  [!] WARNING: You are using the default RCON password!")
+		log("  [!] SECURITY: Please change it to a strong, unique password immediately!")
 	}
 
 	// Determine the project root for game_files/ and overrides/.
@@ -160,8 +164,9 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if cfg.GameFilesDir == "" {
 		cfg.GameFilesDir = filepath.Join(root, "game_files")
 	}
+	// Overrides are stored in the CS2 user's home directory for easier access
 	if cfg.OverridesDir == "" {
-		cfg.OverridesDir = filepath.Join(root, "overrides")
+		cfg.OverridesDir = filepath.Join("/home", cfg.CS2User, "overrides")
 	}
 
 	// If no overrides directory exists yet, seed it with the built-in defaults.
@@ -207,9 +212,19 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("")
 
 	log("[2/5] Installing/updating master CS2 installation...")
-	if err := installMasterViaSteamCMD(ctx, &buf, cfg); err != nil {
-		log("  [!] Failed to install/update master: %v", err)
-		log("  [*] Check /tmp/csm-bootstrap.log for detailed steamcmd output")
+	// Add timeout to SteamCMD operation to prevent indefinite hanging
+	steamCtx, steamCancel := contextWithTimeout(ctx, TimeoutSteamCMD)
+	defer steamCancel()
+	
+	if err := installMasterViaSteamCMD(steamCtx, &buf, cfg); err != nil {
+		if steamCtx.Err() == context.DeadlineExceeded {
+			log("  [!] SteamCMD operation timed out after %v", TimeoutSteamCMD)
+			log("  [*] This may indicate network issues or a very slow connection")
+			log("  [*] Check /tmp/csm-bootstrap.log for detailed steamcmd output")
+		} else {
+			log("  [!] Failed to install/update master: %v", err)
+			log("  [*] Check /tmp/csm-bootstrap.log for detailed steamcmd output")
+		}
 		return buf.String(), err
 	}
 	log("")
@@ -325,221 +340,12 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 }
 
 // --- core helpers ---
-
-func createCS2User(w *bytes.Buffer, user string) error {
-	// Check if user exists
-	if err := exec.Command("id", "-u", user).Run(); err == nil {
-		fmt.Fprintln(w, "  [i] User", user, "already exists")
-	} else {
-		// Check if group exists
-		if err := exec.Command("getent", "group", user).Run(); err == nil {
-			fmt.Fprintf(w, "  [*] Creating user %s with existing group %s\n", user, user)
-			if err := exec.Command("useradd", "-m", "-s", "/bin/bash", "-g", user, user).Run(); err != nil {
-				return err
-			}
-		} else {
-			fmt.Fprintf(w, "  [*] Creating user %s and matching group\n", user)
-			if err := exec.Command("useradd", "-m", "-s", "/bin/bash", "-U", user).Run(); err != nil {
-				return err
-			}
-		}
-		_ = exec.Command("loginctl", "enable-linger", user).Run()
-		fmt.Fprintf(w, "  [✓] User %s created\n", user)
-	}
-
-	home := filepath.Join("/home", user)
-	if err := os.MkdirAll(home, 0o755); err != nil {
-		return err
-	}
-	// Ensure /usr/games is in PATH for steamcmd
-	bashrc := filepath.Join(home, ".bashrc")
-	data, _ := os.ReadFile(bashrc)
-	if !bytes.Contains(data, []byte("/usr/games")) {
-		f, err := os.OpenFile(bashrc, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-		if err == nil {
-			_, _ = f.WriteString(`export PATH="/usr/games:$PATH"` + "\n")
-			_ = f.Close()
-		}
-	}
-	return nil
-}
-
-func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg BootstrapConfig) error {
-	homeDir := filepath.Join("/home", cfg.CS2User)
-	masterDir := filepath.Join(homeDir, "master-install")
-	gameinfo := filepath.Join(masterDir, "game", "csgo", "gameinfo.gi")
-
-	if cfg.FreshInstall {
-		if _, err := os.Stat(masterDir); err == nil {
-			fmt.Fprintln(w, "  [*] FRESH_INSTALL=1: Deleting existing master install")
-			if err := os.RemoveAll(masterDir); err != nil {
-				// On some filesystems RemoveAll can fail with "directory not
-				// empty" for deep trees. Fall back to a best-effort rm -rf
-				// using the system tools so we don't leave a half-deleted
-				// master install behind.
-				fmt.Fprintf(w, "  [i] os.RemoveAll failed (%v), retrying with rm -rf\n", err)
-				if err2 := runCmdLogged(w, "rm", "-rf", masterDir); err2 != nil {
-					return fmt.Errorf("failed to delete master install %s: %w (rm -rf fallback also failed: %v)", masterDir, err, err2)
-				}
-			}
-		}
-	}
-
-	if _, err := os.Stat(gameinfo); err == nil && !cfg.UpdateMaster {
-		fmt.Fprintln(w, "  [i] Master install exists and UPDATE_MASTER=0, skipping")
-		return nil
-	}
-
-	if _, err := os.Stat(gameinfo); err == nil && cfg.UpdateMaster {
-		fmt.Fprintln(w, "  [*] Updating existing master install")
-	} else {
-		fmt.Fprintf(w, "  [*] Installing fresh CS2 master to %s\n", masterDir)
-	}
-
-	// Ensure the CS2 user's home directory and master install exist and are
-	// owned by the CS2 user, mirroring the original bootstrap script. This
-	// prevents permission issues when steamcmd tries to create ~/.steam or
-	// write into the master install directory.
-	if err := os.MkdirAll(homeDir, 0o755); err != nil {
-		return err
-	}
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), homeDir).Run()
-
-	if err := os.MkdirAll(masterDir, 0o755); err != nil {
-		return err
-	}
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), masterDir).Run()
-
-	// Ensure dependencies (apt-get, steamcmd) - Debian/Ubuntu only for now.
-	if err := ensureBootstrapDependencies(w); err != nil {
-		return err
-	}
-
-	// Pre-create ~/.steam for the CS2 user and ensure it is owned correctly.
-	steamDir := filepath.Join(homeDir, ".steam")
-	if err := os.MkdirAll(steamDir, 0o755); err != nil {
-		return err
-	}
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), steamDir).Run()
-
-	// Run steamcmd as CS2 user
-	// Use a trap to ensure steamcmd is killed when the script receives SIGTERM/SIGKILL
-	// This is necessary because su->shell->steamcmd chain doesn't automatically kill children
-	// Don't use set -e since wait returns the steamcmd exit code and we want to handle it explicitly
-	script := fmt.Sprintf(`
-trap 'if [ -n "$STEAMCMD_PID" ]; then kill -TERM "$STEAMCMD_PID" 2>/dev/null; wait "$STEAMCMD_PID" 2>/dev/null; fi; exit' TERM INT EXIT
-steamcmd +force_install_dir "%s" +login anonymous +app_update 730 validate +quit &
-STEAMCMD_PID=$!
-wait $STEAMCMD_PID
-exit $?
-`, masterDir)
-
-	cmd := exec.CommandContext(ctx, "su", "-", cfg.CS2User, "-c", script)
-	
-	// Set process group so we can kill all child processes (steamcmd) when context is cancelled.
-	// When su spawns a shell which spawns steamcmd, killing just su doesn't kill the children.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// If CSM_BOOTSTRAP_LOG is set, stream steamcmd output into that file so
-	// the TUI can show a live tail while the install is running.
-	if logPath, ok := os.LookupEnv("CSM_BOOTSTRAP_LOG"); ok && logPath != "" {
-		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-		if err == nil {
-			defer func() {
-				if cerr := f.Close(); cerr != nil {
-					fmt.Fprintf(os.Stderr, "CSM_BOOTSTRAP_LOG close failed: %v\n", cerr)
-				}
-			}()
-			tw := &teeWriter{buf: w, file: f}
-			cmd.Stdout = tw
-			cmd.Stderr = tw
-			if err := cmd.Start(); err != nil {
-				return fmt.Errorf("steamcmd start failed: %w", err)
-			}
-			// When context is cancelled, kill all steamcmd processes related to master-install
-			// This is more reliable than trying to manage process groups with su->shell->steamcmd chain
-			go func() {
-				<-ctx.Done()
-				// Kill the main process first
-				if cmd.Process != nil && cmd.Process.Pid > 0 {
-					_ = cmd.Process.Kill()
-				}
-				// Then kill any remaining steamcmd processes for master-install
-				// Bootstrap runs as root (checked at start), so we can kill processes directly
-				// Use pkill as root to find and kill all steamcmd processes
-				var pkillCmd *exec.Cmd
-				if os.Geteuid() == 0 {
-					// Already running as root, don't need sudo
-					pkillCmd = exec.Command("pkill", "-9", "-f", "steamcmd.*master-install")
-				} else {
-					// Fallback to sudo (may prompt for password)
-					pkillCmd = exec.Command("sudo", "pkill", "-9", "-f", "steamcmd.*master-install")
-				}
-				pkillCmd.Run() // Best effort, ignore errors
-			}()
-			if err := cmd.Wait(); err != nil {
-				// Log the error details
-				fmt.Fprintf(w, "  [!] SteamCMD process exited with error: %v\n", err)
-				// Even if steamcmd exits with an error, check if the install actually succeeded
-				// by looking for gameinfo.gi - sometimes steamcmd reports errors but still completes
-				if _, statErr := os.Stat(gameinfo); statErr == nil {
-					fmt.Fprintln(w, "  [i] SteamCMD reported an error, but game files appear to be installed")
-					fmt.Fprintln(w, "  [i] Continuing with installation...")
-					// Continue - the install likely succeeded despite the error
-				} else {
-					fmt.Fprintf(w, "  [!] SteamCMD failed and gameinfo.gi not found at %s\n", gameinfo)
-					fmt.Fprintln(w, "  [*] Check /tmp/csm-bootstrap.log for detailed steamcmd output")
-					return fmt.Errorf("steamcmd failed: %w (check /tmp/csm-bootstrap.log for details)", err)
-				}
-			}
-		} else {
-			// Fall back to non-streaming mode if we can't open the log file.
-			// Note: CombinedOutput() doesn't allow us to kill process groups during execution,
-			// but this is a fallback path and cancellation is less critical here.
-			out, err := cmd.CombinedOutput()
-			if len(out) > 0 {
-				fmt.Fprintln(w, string(out))
-			}
-			if err != nil {
-				fmt.Fprintf(w, "  [!] SteamCMD process exited with error: %v\n", err)
-				// Even if steamcmd exits with an error, check if the install actually succeeded
-				if _, statErr := os.Stat(gameinfo); statErr == nil {
-					fmt.Fprintln(w, "  [i] SteamCMD reported an error, but game files appear to be installed")
-					fmt.Fprintln(w, "  [i] Continuing with installation...")
-				} else {
-					fmt.Fprintf(w, "  [!] SteamCMD failed and gameinfo.gi not found at %s\n", gameinfo)
-					return fmt.Errorf("steamcmd failed: %w (check logs for details)", err)
-				}
-			}
-		}
-	} else {
-		// No streaming requested; just run and capture the full output.
-		// Note: CombinedOutput() doesn't allow us to kill process groups during execution,
-		// but this path is rarely used in the TUI (which prefers streaming).
-		out, err := cmd.CombinedOutput()
-		if len(out) > 0 {
-			fmt.Fprintln(w, string(out))
-		}
-		if err != nil {
-			fmt.Fprintf(w, "  [!] SteamCMD process exited with error: %v\n", err)
-			// Even if steamcmd exits with an error, check if the install actually succeeded
-			if _, statErr := os.Stat(gameinfo); statErr == nil {
-				fmt.Fprintln(w, "  [i] SteamCMD reported an error, but game files appear to be installed")
-				fmt.Fprintln(w, "  [i] Continuing with installation...")
-			} else {
-				fmt.Fprintf(w, "  [!] SteamCMD failed and gameinfo.gi not found at %s\n", gameinfo)
-				return fmt.Errorf("steamcmd failed: %w (check logs for details)", err)
-			}
-		}
-	}
-
-	if _, err := os.Stat(gameinfo); err == nil {
-		fmt.Fprintln(w, "  [✓] Master install complete/updated")
-		return nil
-	}
-	fmt.Fprintln(w, "  [!] Master install failed - gameinfo.gi not found")
-	return fmt.Errorf("gameinfo.gi not found after steamcmd")
-}
+// The following functions have been moved to separate files for better organization:
+// - createCS2User -> user_management.go
+// - installMasterViaSteamCMD -> steam.go
+// - setupSteamSDKLinksGo -> steam.go
+// - copyMasterToServerGo -> server_deployment.go
+// - overlayConfigToServerGo -> server_deployment.go
 
 func ensureBootstrapDependencies(w io.Writer) error {
 	return ensureBootstrapDependenciesContext(context.Background(), w)
@@ -588,29 +394,7 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 	return nil
 }
 
-func setupSteamSDKLinksGo(w *bytes.Buffer, user string) error {
-	steamDir := filepath.Join("/home", user, ".steam")
-	sdk64Dir := filepath.Join(steamDir, "sdk64")
-	steamClientSrc := filepath.Join("/home", user, ".local", "share", "Steam", "steamcmd", "linux64", "steamclient.so")
-
-	fmt.Fprintf(w, "  [*] Setting up Steam SDK symlinks for %s\n", user)
-
-	if err := os.MkdirAll(sdk64Dir, 0o755); err != nil {
-		return err
-	}
-
-	if _, err := os.Stat(steamClientSrc); err == nil {
-		dst := filepath.Join(sdk64Dir, "steamclient.so")
-		_ = os.Remove(dst)
-		if err := os.Symlink(steamClientSrc, dst); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "  [✓] Steam SDK symlink created: %s -> %s\n", dst, steamClientSrc)
-	} else {
-		fmt.Fprintf(w, "  [!] steamclient.so not found at %s (will appear after first SteamCMD run)\n", steamClientSrc)
-	}
-	return nil
-}
+// setupSteamSDKLinksGo is now in steam.go
 
 func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	configDir := filepath.Join("/home", cfg.CS2User, "cs2-config")
@@ -660,56 +444,7 @@ func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	return nil
 }
 
-func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverNum int, fresh bool) error {
-	masterDir := filepath.Join("/home", user, "master-install")
-	serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum))
-
-	if fresh {
-		if _, err := os.Stat(serverDir); err == nil {
-			fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing server-%d\n", serverNum)
-			if err := os.RemoveAll(serverDir); err != nil {
-				return err
-			}
-		}
-	}
-
-	if fi, err := os.Stat(serverDir); err == nil && fi.IsDir() {
-		fmt.Fprintf(w, "  [i] Server %d already exists, skipping copy\n", serverNum)
-		return nil
-	}
-
-	fmt.Fprintf(w, "  [*] Copying master to server-%d (this may take a minute)...\n", serverNum)
-	if err := runCmdLoggedContext(ctx, w, "rsync",
-		"-a", "--info=progress2", "--no-inc-recursive",
-		masterDir+string(os.PathSeparator),
-		serverDir+string(os.PathSeparator),
-	); err != nil {
-		return err
-	}
-	fmt.Fprintf(w, "  [✓] Master copied to server-%d\n", serverNum)
-	return nil
-}
-
-func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serverNum int) error {
-	configDir := filepath.Join("/home", user, "cs2-config", "game")
-	serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game")
-
-	if fi, err := os.Stat(configDir); err != nil || !fi.IsDir() {
-		fmt.Fprintf(w, "  [i] No shared config to overlay for server-%d\n", serverNum)
-		return nil
-	}
-
-	fmt.Fprintf(w, "  [*] Overlaying shared config to server-%d\n", serverNum)
-	if err := runCmdLoggedContext(ctx, w, "rsync",
-		"-a",
-		"--exclude", ".git/",
-		configDir+string(os.PathSeparator),
-		serverDir+string(os.PathSeparator),
-	); err != nil {
-		return err
-	}
-	return nil
-}
+// copyMasterToServerGo and overlayConfigToServerGo are now in server_deployment.go
 
 func configureMetamodGo(w io.Writer, user string, serverNum int, enable bool) error {
 	gameinfo := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "gameinfo.gi")
@@ -721,7 +456,9 @@ func configureMetamodGo(w io.Writer, user string, serverNum int, enable bool) er
 	}
 
 	backup := gameinfo + ".backup"
-	_ = os.WriteFile(backup, data, 0o644)
+	if err := os.WriteFile(backup, data, 0o644); err != nil {
+		fmt.Fprintf(w, "  [!] Warning: Failed to create backup %s: %v\n", backup, err)
+	}
 
 	content := string(data)
 	const needle = "csgo/addons/metamod"
@@ -1064,7 +801,10 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 				DBMode:          "external",
 			}
 
-			data, _ := json.MarshalIndent(onDisk, "", "  ")
+			data, err := json.MarshalIndent(onDisk, "", "  ")
+			if err != nil {
+				return fmt.Errorf("failed to marshal database config: %w", err)
+			}
 			if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
 				return err
 			}
@@ -1082,6 +822,12 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		dbCfg.MySQLDatabase = DefaultMatchzyDBName
 		dbCfg.MySQLUsername = DefaultMatchzyDBUser
 		dbCfg.MySQLPassword = DefaultMatchzyDBPassword
+		
+		// Warn about default database passwords
+		if cfg.ExternalDBPassword == "" || cfg.ExternalDBPassword == DefaultMatchzyDBPassword {
+			fmt.Fprintf(w, "  [!] WARNING: Using default MatchZy database password!\n")
+			fmt.Fprintf(w, "  [!] SECURITY: Change the database password in production!\n")
+		}
 
 		onDisk := struct {
 			matchzyDBConfig
@@ -1093,7 +839,10 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 			DBMode:          "docker",
 		}
 
-		data, _ := json.MarshalIndent(onDisk, "", "  ")
+		data, err := json.MarshalIndent(onDisk, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal database config: %w", err)
+		}
 		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
 			return err
 		}
@@ -1121,9 +870,12 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 			CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
 		}
 
-		data, _ := json.MarshalIndent(onDisk, "", "  ")
+		data, err := json.MarshalIndent(onDisk, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal MatchZy database config: %w", err)
+		}
 		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
-			return err
+			return fmt.Errorf("failed to write MatchZy database config to %s: %w", matchzyCfgPath, err)
 		}
 		fmt.Fprintf(w, "  [✓] Created %s with default values\n", matchzyCfgPath)
 	}
@@ -1158,6 +910,10 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	volumeName := getenvDefault("MATCHZY_DB_VOLUME", DefaultMatchzyVolumeName)
 	imageName := getenvDefault("MATCHZY_DB_IMAGE", "mysql:8.0")
 	rootPass := getenvDefault("MATCHZY_DB_ROOT_PASSWORD", DefaultMatchzyRootPassword)
+	if rootPass == DefaultMatchzyRootPassword {
+		fmt.Fprintf(w, "  [!] WARNING: Using default MySQL root password!\n")
+		fmt.Fprintf(w, "  [!] SECURITY: Set MATCHZY_DB_ROOT_PASSWORD environment variable for production!\n")
+	}
 
 	containerExists := false
 	currentPort := ""
@@ -1175,9 +931,13 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	// so we start from a clean database state.
 	if cfg.FreshInstall {
 		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing MatchZy container %q (if present)\n", containerName)
-		_ = exec.Command("docker", "rm", "-f", containerName).Run()
+		if err := exec.Command("docker", "rm", "-f", containerName).Run(); err != nil {
+			fmt.Fprintf(w, "  [i] Container %q may not exist (this is fine): %v\n", containerName, err)
+		}
 		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing MatchZy volume %q (if present)\n", volumeName)
-		_ = exec.Command("docker", "volume", "rm", volumeName).Run()
+		if err := exec.Command("docker", "volume", "rm", volumeName).Run(); err != nil {
+			fmt.Fprintf(w, "  [i] Volume %q may not exist (this is fine): %v\n", volumeName, err)
+		}
 		containerExists = false
 		currentPort = ""
 	}
@@ -1215,7 +975,10 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		DBMode:          "docker",
 	}
 
-	data, _ = json.MarshalIndent(onDisk, "", "  ")
+	data, err = json.MarshalIndent(onDisk, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal database config: %w", err)
+	}
 	if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
 		return err
 	}
@@ -1224,7 +987,9 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	if containerExists {
 		if currentPort != strconv.Itoa(dbCfg.MySQLPort) {
 			fmt.Fprintf(w, "  [*] Recreating %s to use host port %d\n", containerName, dbCfg.MySQLPort)
-			_ = exec.Command("docker", "rm", "-f", containerName).Run()
+			if err := exec.Command("docker", "rm", "-f", containerName).Run(); err != nil {
+				fmt.Fprintf(w, "  [!] Warning: Failed to remove existing container: %v\n", err)
+			}
 			recreate = true
 		}
 	} else {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // runCmdLogged runs a command, streaming its combined output into the provided
@@ -44,7 +45,15 @@ func runCmdLoggedContext(ctx context.Context, w io.Writer, name string, args ...
 	cmd.Stdout = target
 	cmd.Stderr = target
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s %v failed: %w", name, args, err)
+		// Provide more context in error messages
+		operation := fmt.Sprintf("%s %v", name, args)
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("%s timed out (operation took too long): %w", operation, err)
+		}
+		if ctx.Err() == context.Canceled {
+			return fmt.Errorf("%s was cancelled: %w", operation, err)
+		}
+		return fmt.Errorf("%s failed: %w", operation, err)
 	}
 	return nil
 }
@@ -56,4 +65,38 @@ func getenvDefault(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// contextWithTimeout creates a context with a timeout, but respects the parent
+// context's deadline if it's shorter. This ensures we don't extend timeouts
+// unnecessarily when called from TUI operations that already have timeouts.
+func contextWithTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if parent == nil {
+		parent = context.Background()
+	}
+	
+	// If parent already has a deadline, use the shorter of the two
+	if deadline, ok := parent.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < timeout {
+			timeout = remaining
+		}
+	}
+	
+	return context.WithTimeout(parent, timeout)
+}
+
+// improveErrorMessage adds context to error messages to make them more actionable
+func improveErrorMessage(operation string, err error, additionalContext ...string) error {
+	if err == nil {
+		return nil
+	}
+	
+	msg := fmt.Sprintf("%s failed", operation)
+	if len(additionalContext) > 0 {
+		msg += ": " + strings.Join(additionalContext, "; ")
+	}
+	msg += ": " + err.Error()
+	
+	return fmt.Errorf(msg)
 }

@@ -2,7 +2,6 @@ package csm
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 )
 
@@ -13,14 +12,10 @@ import (
 func VerifyMatchzyDB() (string, error) {
 	var buf bytes.Buffer
 
-	root, err := os.Getwd()
-	if err != nil {
-		root = "."
-	}
-
+	cs2User := getenvDefault("CS2_USER", DefaultCS2User)
 	cfg := BootstrapConfig{
-		CS2User:           getenvDefault("CS2_USER", DefaultCS2User),
-		OverridesDir:      filepath.Join(root, "overrides"),
+		CS2User:           cs2User,
+		OverridesDir:      filepath.Join("/home", cs2User, "overrides"),
 		MatchzySkipDocker: getenvDefault("MATCHZY_SKIP_DOCKER", "0") == "1",
 	}
 

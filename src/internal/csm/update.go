@@ -14,6 +14,7 @@ import (
 // UpdateGame updates the master CS2 installation via SteamCMD and rsyncs
 // core game files to all server instances, preserving configs and addons.
 // It returns a human-readable log of what happened.
+// This function is protected by a mutex to prevent concurrent updates.
 func UpdateGame() (string, error) {
 	return UpdateGameWithContext(context.Background())
 }
@@ -21,7 +22,14 @@ func UpdateGame() (string, error) {
 // UpdateGameWithContext is like UpdateGame but accepts a context for
 // cancellation. If the context is cancelled mid-way, further work is skipped
 // and the partial log plus ctx.Err() are returned.
+// This function is protected by a mutex to prevent concurrent updates.
 func UpdateGameWithContext(ctx context.Context) (string, error) {
+	return withGameUpdateLock(func() (string, error) {
+		return updateGameWithContextLocked(ctx)
+	})
+}
+
+func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	var buf bytes.Buffer
 	var logFile *os.File
 
@@ -74,6 +82,13 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 	}
 	cs2User := mgr.CS2User
 	masterDir := filepath.Join("/home", cs2User, "master-install")
+
+	// Check disk space before starting update
+	if err := CheckDiskSpaceForGameUpdate(cs2User, mgr.NumServers); err != nil {
+		log("  [!] Disk space check failed: %v", err)
+		log("  [*] Update may fail if disk fills up during operation")
+		// Continue anyway - the check is conservative and users may have enough space
+	}
 
 	// Preserve the current Metamod enabled/disabled state so we can re-apply
 	// it after refreshing game files from the master install. Valve updates
@@ -129,7 +144,15 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 		if err := checkCtx(); err != nil {
 			return buf.String(), err
 		}
-		if err := syncMasterToServerWithContext(ctx, &buf, logFile, masterDir, mgr, i); err != nil {
+		// Add timeout for rsync operations to prevent indefinite hanging
+		rsyncCtx, rsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
+		err := syncMasterToServerWithContext(rsyncCtx, &buf, logFile, masterDir, mgr, i)
+		rsyncCancel()
+		if err != nil {
+			if rsyncCtx.Err() == context.DeadlineExceeded {
+				log("  [!] Syncing server-%d timed out after %v", i, TimeoutRsync)
+				log("  [*] This may indicate disk I/O issues or very large file transfers")
+			}
 			// Errors are logged inside syncMasterToServerWithContext; continue
 			// to try remaining servers so a partial update doesn't block
 			// others.
@@ -151,7 +174,9 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 	// operations run as root.
 	homeDir := filepath.Join("/home", cs2User)
 	log("Ensuring ownership of %s for user %s", homeDir, cs2User)
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), homeDir).Run()
+	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), homeDir).Run(); err != nil {
+		log("  [!] Warning: Failed to set ownership of %s: %v", homeDir, err)
+	}
 
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
@@ -165,14 +190,15 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 	}
 	log("[OK] All servers started after game update.")
 
-	logOut := buf.String()
-	AppendLog("update-game.log", logOut)
-	return logOut, nil
-}
+		logOut := buf.String()
+		AppendLog("update-game.log", logOut)
+		return logOut, nil
+	}
 
 // DeployPluginsToServers stops all servers, rsyncs plugin content from the
 // shared game_files tree into each server instance, then restarts servers.
 // It assumes plugins are already staged under game_files/.
+// This function is protected by a mutex to prevent concurrent deployments.
 func DeployPluginsToServers() (string, error) {
 	return DeployPluginsToServersWithContext(context.Background())
 }
@@ -180,7 +206,14 @@ func DeployPluginsToServers() (string, error) {
 // DeployPluginsToServersWithContext is like DeployPluginsToServers but accepts
 // a context for cancellation. If the context is cancelled mid-way, further
 // servers are skipped and the partial log plus ctx.Err() are returned.
+// This function is protected by a mutex to prevent concurrent deployments.
 func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
+	return withPluginDeployLock(func() (string, error) {
+		return deployPluginsToServersWithContextLocked(ctx)
+	})
+}
+
+func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error) {
 	var buf bytes.Buffer
 	var w io.Writer = &buf
 
@@ -283,26 +316,39 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 			continue
 		}
 
+		// Add timeout for rsync operations
+		rsyncCtx, rsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
 		srcAddons := filepath.Join(gameDir, "csgo", "addons") + string(os.PathSeparator)
-		if err := runCmdLoggedContext(ctx, w, "rsync", "-a", "--delete", srcAddons, dstAddons+string(os.PathSeparator)); err != nil {
-			log("  [ERROR] rsync addons for server-%d failed: %v", i, err)
+		if err := runCmdLoggedContext(rsyncCtx, w, "rsync", "-a", "--delete", srcAddons, dstAddons+string(os.PathSeparator)); err != nil {
+			if rsyncCtx.Err() == context.DeadlineExceeded {
+				log("  [ERROR] rsync addons for server-%d timed out after %v", i, TimeoutRsync)
+			} else {
+				log("  [ERROR] rsync addons for server-%d failed: %v", i, err)
+			}
 		} else {
 			log("  [OK] Updated addons on server-%d", i)
 		}
+		rsyncCancel()
 
 		// For configs, treat the shared cs2-config tree as the canonical source
 		// so that any MatchZy or other plugin configs maintained there are
 		// propagated to all servers.
 		if fi, err := os.Stat(sharedCfgDir); err == nil && fi.IsDir() {
-			if err := runCmdLoggedContext(ctx, w, "rsync",
+			cfgRsyncCtx, cfgRsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
+			if err := runCmdLoggedContext(cfgRsyncCtx, w, "rsync",
 				"-a",
 				sharedCfgDir+string(os.PathSeparator),
 				filepath.Join(dstGame, "cfg")+"/",
 			); err != nil {
-				log("  [ERROR] rsync cfg for server-%d failed: %v", i, err)
+				if cfgRsyncCtx.Err() == context.DeadlineExceeded {
+					log("  [ERROR] rsync cfg for server-%d timed out after %v", i, TimeoutRsync)
+				} else {
+					log("  [ERROR] rsync cfg for server-%d failed: %v", i, err)
+				}
 			} else {
 				log("  [OK] Synced cfg from %s to server-%d", sharedCfgDir, i)
 			}
+			cfgRsyncCancel()
 		} else {
 			log("  [i] Shared cfg directory %s not found; skipping cfg sync for server-%d", sharedCfgDir, i)
 		}
@@ -322,7 +368,9 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 	// rsyncing plugins/configs as root.
 	homeDir := filepath.Join("/home", mgr.CS2User)
 	log("Ensuring ownership of %s for user %s", homeDir, mgr.CS2User)
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", mgr.CS2User, mgr.CS2User), homeDir).Run()
+	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", mgr.CS2User, mgr.CS2User), homeDir).Run(); err != nil {
+		log("  [!] Warning: Failed to set ownership of %s: %v", homeDir, err)
+	}
 
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
@@ -335,10 +383,10 @@ func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
 	}
 	log("[OK] All servers restarted after plugin update.")
 
-	out := buf.String()
-	AppendLog("deploy-plugins.log", out)
-	return out, nil
-}
+		out := buf.String()
+		AppendLog("deploy-plugins.log", out)
+		return out, nil
+	}
 
 // UpdateAndDeployPlugins downloads the latest plugin bundle into game_files/
 // and then deploys those plugins to all servers.
@@ -408,6 +456,32 @@ func UpdateAndDeployPluginsWithContext(ctx context.Context) (string, error) {
 		return all, err
 	}
 
+	// Update cs2-config with new default configs from plugin bundles, then apply overrides
+	mgr, err := NewTmuxManager()
+	if err == nil {
+		log("")
+		log("Updating shared configs with new plugin defaults...")
+		if err := updateSharedConfigsFromPluginBundle(w, mgr); err != nil {
+			log("[WARN] Failed to update shared configs: %v", err)
+		} else {
+			log("[OK] Shared configs updated")
+		}
+
+		log("")
+		log("Applying user overrides to shared configs...")
+		if err := applyOverridesToSharedConfigs(w, mgr); err != nil {
+			log("[WARN] Failed to apply overrides: %v", err)
+		} else {
+			log("[OK] User overrides applied")
+		}
+	}
+
+	if err := checkCtx(); err != nil {
+		all := buf.String()
+		AppendLog("update-and-deploy-plugins.log", all)
+		return all, err
+	}
+
 	log("")
 	log("Now syncing updated plugins to all servers...")
 	out2, err := DeployPluginsToServersWithContext(ctx)
@@ -423,6 +497,63 @@ func UpdateAndDeployPluginsWithContext(ctx context.Context) (string, error) {
 
 	AppendLog("update-and-deploy-plugins.log", all)
 	return all, nil
+}
+
+// updateSharedConfigsFromPluginBundle updates cs2-config with new default configs
+// from the plugin bundle (game_files/cfg). Only copies files that don't exist in
+// cs2-config, preserving user customizations.
+func updateSharedConfigsFromPluginBundle(w io.Writer, mgr *TmuxManager) error {
+	up := NewPluginUpdater()
+	srcCfgDir := filepath.Join(up.GameDir, "csgo", "cfg")
+	dstCfgDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "cfg")
+
+	// Ensure destination exists
+	if err := os.MkdirAll(dstCfgDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create cs2-config cfg directory: %w", err)
+	}
+
+	// Check if source has any config files
+	if fi, err := os.Stat(srcCfgDir); err != nil || !fi.IsDir() {
+		fmt.Fprintf(w, "  [i] No default configs found in plugin bundle\n")
+		return nil
+	}
+
+	// Use rsync with --update to only copy files that are newer or don't exist
+	// This preserves existing user customizations while adding new default configs
+	fmt.Fprintf(w, "  [*] Syncing new default configs from plugin bundle to cs2-config...\n")
+	if err := runCmdLogged(w, "rsync", "-a", "--update", srcCfgDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
+		return fmt.Errorf("failed to sync configs: %w", err)
+	}
+
+	return nil
+}
+
+// applyOverridesToSharedConfigs applies user overrides from overrides/game/csgo/cfg
+// to cs2-config/game/csgo/cfg. This ensures user customizations always win.
+func applyOverridesToSharedConfigs(w io.Writer, mgr *TmuxManager) error {
+	up := NewPluginUpdater()
+	srcOverridesDir := filepath.Join(up.OverridesDir, "csgo", "cfg")
+	dstCfgDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "cfg")
+
+	// Check if overrides directory exists
+	if fi, err := os.Stat(srcOverridesDir); err != nil || !fi.IsDir() {
+		fmt.Fprintf(w, "  [i] No overrides directory found, skipping\n")
+		return nil
+	}
+
+	// Ensure destination exists
+	if err := os.MkdirAll(dstCfgDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create cs2-config cfg directory: %w", err)
+	}
+
+	// Apply overrides - this will overwrite any matching files in cs2-config
+	// with user customizations from overrides/
+	fmt.Fprintf(w, "  [*] Applying user overrides to cs2-config...\n")
+	if err := runCmdLogged(w, "rsync", "-a", srcOverridesDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
+		return fmt.Errorf("failed to apply user overrides from %s to %s: %w (check permissions and ensure override files are readable)", srcOverridesDir, dstCfgDir, err)
+	}
+
+	return nil
 }
 
 // UpdateServerWithContext updates the game files for a single server via
@@ -465,7 +596,10 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 		if err := os.MkdirAll(filepath.Dir(statusPath), 0o755); err != nil {
 			return
 		}
-		_ = os.WriteFile(statusPath, []byte(state+"\n"), 0o644)
+		if err := os.WriteFile(statusPath, []byte(state+"\n"), 0o644); err != nil {
+			// Status file write failure is non-critical, just log it
+			fmt.Fprintf(os.Stderr, "[update] Warning: Failed to write status file %s: %v\n", statusPath, err)
+		}
 	}
 	setStatus("UPDATING")
 	defer setStatus("")
@@ -557,7 +691,9 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 	// directory after rsync/SteamCMD work.
 	homeDir := filepath.Join("/home", cs2User)
 	log("Ensuring ownership of %s for user %s", homeDir, cs2User)
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), homeDir).Run()
+	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), homeDir).Run(); err != nil {
+		log("  [!] Warning: Failed to set ownership of %s: %v", homeDir, err)
+	}
 
 	log("")
 	log("Restarting server-%d...", server)

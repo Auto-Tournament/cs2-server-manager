@@ -373,7 +373,8 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 		log("  [i] os.RemoveAll failed (%v), retrying with rm -rf", err)
 		if err2 := runCmdLogged(&buf, "rm", "-rf", serverDir); err2 != nil {
 			log("  [!] Failed to delete %s: %v", serverDir, err)
-			return buf.String(), fmt.Errorf("failed to delete %s: %w", serverDir, err)
+			log("  [*] This may indicate permission issues or files in use")
+			return buf.String(), fmt.Errorf("failed to delete server directory %s: %w (check permissions and ensure server is stopped)", serverDir, err)
 		}
 	}
 	log("  [✓] Existing server-%d directory removed", serverNum)
@@ -456,6 +457,8 @@ func detectRCONPassword(user string) string {
 	cfg := sharedConfigPath(user)
 	data, err := os.ReadFile(cfg)
 	if err != nil {
+		// Silently return empty string - this is expected if config doesn't exist yet
+		// (e.g., during first install). No need to log as this is a best-effort read.
 		return ""
 	}
 	for _, line := range strings.Split(string(data), "\n") {
