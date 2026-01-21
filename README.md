@@ -78,6 +78,7 @@ sudo csm install-deps           # Install core system dependencies
 sudo csm bootstrap              # Install/redeploy servers
 sudo csm install-monitor-cron   # Install cron-based auto-update monitor
 sudo csm reinstall <server>     # Rebuild a server (fixes corrupted files)
+sudo csm update-config <server> # Regenerate server configs without reinstalling
 
 # Cleanup
 sudo csm cleanup-all            # Danger: remove all CS2 data and user

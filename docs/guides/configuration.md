@@ -89,6 +89,23 @@ This will:
 
 Then restart servers: `sudo csm restart`
 
+### Editing plugin configuration files
+
+The TUI provides quick access to edit key configuration files:
+
+**Via TUI**: Navigate to **Tools tab**:
+- **Edit MatchZy config.cfg** - Edit shared MatchZy configuration
+- **Edit MatchZy database.json** - Edit database connection settings
+- **Edit CounterStrikeSharp admins.json** - Edit CSS admin permissions
+
+These options will:
+1. Quit the TUI and open the file in nano
+2. Automatically fix file ownership after editing
+3. Sync the edited config to all servers
+4. Show instructions to restart the TUI
+
+All edits are automatically synced to all servers and ownership is fixed.
+
 ## Best practices
 
 - Keep all long-term customizations inside `overrides/`.

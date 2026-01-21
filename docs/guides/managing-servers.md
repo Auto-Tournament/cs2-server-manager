@@ -39,6 +39,7 @@ sudo csm monitor                # Run one iteration of the auto-update monitor
 
 # Server Management
 sudo csm reinstall <server>     # Completely rebuild a server from master (fixes corrupted files)
+sudo csm update-config <server> # Regenerate server.cfg and autoexec.cfg (fast, no file copying)
 
 # Cleanup
 sudo csm cleanup-all            # Danger: remove all CS2 data and user
@@ -90,6 +91,20 @@ This will:
 5. Start the server automatically
 
 Your configuration is preserved - only the game files are replaced.
+
+## Updating configuration without reinstalling
+
+If you just need to fix or regenerate `server.cfg` and `autoexec.cfg` (for example, after fixing config syntax errors), use the faster `update-config` command:
+
+```bash
+sudo csm update-config 1     # Regenerates configs for server 1 (takes < 1 second)
+```
+
+This is much faster than `reinstall` since it doesn't copy game files. It will:
+1. Regenerate `server.cfg` with proper formatting
+2. Regenerate `autoexec.cfg`
+3. Fix file ownership
+4. Restart the server to apply changes
 
 ## Where servers live
 
