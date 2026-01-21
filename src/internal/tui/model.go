@@ -60,6 +60,9 @@ const (
 	itemAttachServerGo
 	itemUpdateServerConfigs
 	itemViewServerConfig
+	itemEditMatchZyConfig
+	itemEditMatchZyDatabase
+	itemEditCSSAdmins
 	itemCLIHelp
 )
 
@@ -428,6 +431,21 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "MatchZy DB: verify/repair",
 				description: "Verify MatchZy database setup and repair in a scrollable view.",
 				kind:        itemMatchzyDBViewport,
+			},
+			{
+				title:       "Edit MatchZy config.cfg",
+				description: "Edit shared MatchZy configuration (applies to all servers).",
+				kind:        itemEditMatchZyConfig,
+			},
+			{
+				title:       "Edit MatchZy database.json",
+				description: "Edit MatchZy database connection settings.",
+				kind:        itemEditMatchZyDatabase,
+			},
+			{
+				title:       "Edit CounterStrikeSharp admins.json",
+				description: "Edit CSS admin permissions (applies to all servers).",
+				kind:        itemEditCSSAdmins,
 			},
 			{
 				title:       "Extract map thumbnails",
@@ -1055,6 +1073,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Extracting and converting map thumbnails..."
 				m.lastOutput = ""
 				cmds = append(cmds, runExtractThumbnailsGo(), m.spin.Tick)
+			case itemEditMatchZyConfig:
+				cmds = append(cmds, runEditConfigFile("MatchZy config.cfg", "game/csgo/cfg/MatchZy/config.cfg"))
+			case itemEditMatchZyDatabase:
+				cmds = append(cmds, runEditConfigFile("MatchZy database.json", "game/csgo/cfg/MatchZy/database.json"))
+			case itemEditCSSAdmins:
+				cmds = append(cmds, runEditConfigFile("CounterStrikeSharp admins.json", "game/csgo/addons/counterstrikesharp/configs/admins.json"))
 			case itemCLIHelp:
 				// Pure documentation/cheatsheet page; no long-running command.
 				m.detailTitle = "CLI commands & advanced usage"
