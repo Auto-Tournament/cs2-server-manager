@@ -116,13 +116,345 @@ All notable changes to CS2 Server Manager will be documented in this file.
 
 ## [1.4.5] - 2025-12-18
 
-### Fixed
-- Stable release with working launch command format
-- Proper port binding for multiple servers
-- Metamod and CounterStrikeSharp integration
+### Changed
+- Refactored initWizardDefaults to improve server count detection
+
+**Note:** This version had the working launch command format that was later broken and then restored.
 
 ---
 
-## Previous Versions
+## [1.4.4] - 2025-12-18
 
-For earlier versions, see the git history: `git log --oneline`
+### Changed
+- Refactored MySQL host configuration in bootstrap process
+
+---
+
+## [1.4.3] - 2025-12-18
+
+### Changed
+- Refactored server management and enhance bootstrapping process
+
+---
+
+## [1.4.2] - 2025-12-18
+
+### Added
+- Enhanced server management prompts with disk space estimates
+
+### Changed
+- Updated syncMasterToServerWithContext to use masterDir for authoritative game files
+- Removed unused tailContains function from monitor.go
+
+---
+
+## [1.4.1] - 2025-12-18
+
+### Changed
+- Updated plugin deployment process to sync configurations from shared directory
+
+---
+
+## [1.4.0] - 2025-12-18
+
+### Added
+- Enhanced auto-update functionality with MatchZy integration
+
+---
+
+## [1.3.10] - 2025-12-18
+
+### Changed
+- Refactored plugin management and update process
+
+---
+
+## [1.3.9] - 2025-12-18
+
+### Fixed
+- Clear existing persistent log file before starting tmux session to prevent log growth
+
+---
+
+## [1.3.8] - 2025-12-18
+
+### Fixed
+- Ensure CS2 user ownership of home directory after updates and plugin deployments
+
+---
+
+## [1.3.7] - 2025-12-18
+
+### Added
+- Added confirmation prompt before release in release.sh
+
+### Changed
+- Refactored bootstrap and install wizard to remove RequireExistingMaster option
+
+---
+
+## [1.3.6] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.3.5] - 2025-12-18
+
+### Changed
+- Updated .gitignore to include .env and cs2-tui files
+- Ensure ownership of home directory for CS2 user during bootstrap process to prevent permission issues
+
+---
+
+## [1.3.4] - 2025-12-18
+
+### Added
+- Implement RequireExistingMaster option in bootstrap and install wizard
+
+### Changed
+- Enhanced TmuxManager to derive game and TV ports from autoexec.cfg
+- Removed cs2-tui binary from repository
+
+---
+
+## [1.3.3] - 2025-12-18
+
+### Changed
+- Enhanced error handling and output visibility in TmuxManager
+- Enhanced TUI logging and viewport management
+- Refined install wizard height management for improved stability
+- Enhanced install wizard layout and external DB configuration rendering
+
+---
+
+## [1.3.2] - 2025-12-18
+
+### Added
+- Install wizard field activation logic and improved cursor navigation
+
+### Changed
+- Refactored CSM configuration handling and update documentation
+
+---
+
+## [1.3.1] - 2025-12-18
+
+### Changed
+- Enhanced documentation for CSM configuration and logging
+- Updated .gitignore and enhanced troubleshooting documentation
+
+---
+
+## [1.3.0] - 2025-12-18
+
+### Major Release: TUI + Go-native flows refactor
+
+### Added
+- Complete TUI (Terminal User Interface) rewrite using Bubble Tea
+- Go-native server management flows (replacing shell scripts)
+- Interactive install wizard with live progress tracking
+- Enhanced error handling and cancellation support
+
+### Changed
+- Removed deprecated installation and auto-update scripts
+- Migrated from shell-based to Go-based implementation
+
+---
+
+## [1.2.8] - 2025-12-18
+
+### Added
+- Enhanced server instance creation with hostname prefix detection
+
+---
+
+## [1.2.7] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.2.6] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.2.5] - 2025-12-18
+
+### Changed
+- Enhanced server configuration and installation wizard
+
+---
+
+## [1.2.4] - 2025-12-18
+
+### Added
+- Enhanced MatchZy database configuration handling
+- Implemented per-server auto-update functionality and enhanced monitoring
+- Enhanced RunAutoUpdateMonitor with root privilege check
+
+### Changed
+- Refactored TUI styles and error handling
+- Major TUI + Go-native flows refactor
+
+---
+
+## [1.2.3] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.2.2] - 2025-12-18
+
+### Changed
+- Refactored dependency installation logging and ensureBootstrapDependencies function
+
+---
+
+## [1.2.1] - 2025-12-18
+
+### Changed
+- Enhanced install wizard and quit confirmation handling
+
+---
+
+## [1.2.0] - 2025-12-18
+
+### Added
+- Enhanced install wizard and menu item descriptions
+
+---
+
+## [1.1.13] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.12] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.11] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.10] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.9] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.8] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.7] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.6] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.5] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.4] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.3] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.2] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.1] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.1.0] - 2025-12-18
+
+### Added
+- Implemented core CSM functionality with new features and configurations
+- Added link to full documentation site in README
+- Updated README with enhanced installation instructions and usage guidelines
+
+---
+
+## [1.0.4] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.0.3] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.0.2] - 2025-12-18
+
+*No significant changes*
+
+---
+
+## [1.0.1] - 2025-12-18
+
+### Changed
+- Enhanced release script with git commit/tag functionality
+
+---
+
+## [1.0.0] - 2025-12-18
+
+### Initial Release
+
+### Added
+- Multi-server CS2 deployment
+- Automated plugin installation (Metamod, CounterStrikeSharp, MatchZy)
+- Docker-based MySQL database provisioning
+- Auto-update monitor functionality
+- Map thumbnail extraction
+- Tmux-based server management
+- Configuration override system
+
+---
+
+## Previous Development
+
+For the complete development history, see: `git log --oneline --all`
