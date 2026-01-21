@@ -1196,8 +1196,12 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		}
 	}
 
+	// For Docker mode, always use localhost since the MySQL container is
+	// exposed on the host's port 3306. The CS2 server runs on the same host
+	// and should connect via 127.0.0.1, not the detected primary IP (which
+	// might be a VPN interface like Wireguard that can't reach itself).
 	hostIP := detectPrimaryIPGo()
-	dbCfg.MySQLHost = hostIP
+	dbCfg.MySQLHost = "127.0.0.1" // Always use localhost for Docker mode
 
 	// Update database.json with host/port/db/user/pass, preserving the
 	// wizard-management note so users know manual edits may be overwritten.
