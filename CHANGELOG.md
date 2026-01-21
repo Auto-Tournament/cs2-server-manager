@@ -1,226 +1,326 @@
-# Changelog
+# CS2 Server Manager Changelog
 
 All notable changes to CS2 Server Manager will be documented in this file.
 
 ---
 
-## [Unreleased]
+# Unreleased
 
-### Added
-- Config file editing in TUI Tools tab:
-  - Edit MatchZy config.cfg
-  - Edit MatchZy database.json  
-  - Edit CounterStrikeSharp admins.json
-- Automatic config syncing to all servers after editing
-- Automatic ownership fixes after config editing
+#### January 21, 2026
 
-### Fixed
-- RCON password not being set - Fixed launch command format (reverted to v1.4.5 working format)
-- Server.cfg generation - Now creates properly formatted configs with all required settings
-- Metamod detection bug - Fixed chicken-and-egg problem where broken servers prevented Metamod from being enabled
-- Database connection - Docker mode now uses `127.0.0.1` instead of detected primary IP (fixes Wireguard VPN issues)
-- Tmux console interactivity - Switched from `tee` to `pipe-pane` for proper interactive console
-- Port binding conflicts - Reverted to v1.4.5 launch command format (`+tv_port` not `-tv_port`)
+### ✨ New Features
 
-### Changed
-- Config file editing automatically syncs to all servers and fixes ownership
-- Improved error handling and progress tracking for reinstall operations
+#### Config File Editing in TUI
+- **Config file editing in TUI Tools tab:**
+  - Edit MatchZy `config.cfg`
+  - Edit MatchZy `database.json`
+  - Edit CounterStrikeSharp `admins.json`
+- **Automatic syncing**: Edited configs automatically sync to all servers
+- **Automatic ownership fixes**: Files are automatically chowned to `cs2servermanager` user after editing
+- Opens `nano` editor with full terminal control (fixes Ctrl+X issues)
+- Creates directories and files as needed
+
+### 🔧 Fixed
+
+- **RCON password not being set** - Fixed launch command format (reverted to v1.4.5 working format with `+tv_port` instead of `-tv_port`)
+- **Server.cfg generation** - Now creates properly formatted configs with all required settings (IP binding, RCON security, logging, etc.)
+- **Metamod detection bug** - Fixed chicken-and-egg problem where broken servers prevented Metamod from being enabled during reinstall
+- **Database connection** - Docker mode now uses `127.0.0.1` instead of detected primary IP (fixes Wireguard VPN connectivity issues)
+- **Tmux console interactivity** - Switched from `tee` to `pipe-pane` for proper interactive console during `csm attach`
+- **Port binding conflicts** - Reverted to v1.4.5 launch command format (`+tv_port` not `-tv_port`, added `+map de_dust2`)
+
+### 📚 Documentation
+
+- Updated documentation for new config editing features
+- Created comprehensive CHANGELOG.md
 
 ---
 
-## [1.5.8] - 2026-01-19
+# 1.5.8
 
-### Fixed
-- **Database connection for Docker mode** - Changed MySQL host from detected primary IP to `127.0.0.1` to fix Wireguard VPN connectivity issues
+#### January 21, 2026
+
+### 🔧 Fixed
+
+- **Database connection for Docker mode** - Changed MySQL host from detected primary IP to `127.0.0.1` to fix Wireguard VPN connectivity issues where servers couldn't reach themselves via VPN interface
 - Updated copyright year in documentation to 2026
 
 ---
 
-## [1.5.7] - 2026-01-19
+# 1.5.7
 
-### Fixed
+#### January 19, 2026
+
+### 🔧 Fixed
+
 - Enhanced debugging output for server detection
 - Fixed gameinfo path detection in Metamod detection logic
 
 ---
 
-## [1.5.6] - 2026-01-19
+# 1.5.6
 
-### Added
+#### January 19, 2026
+
+### ✨ New Features
+
+#### Fast Config Update Command
 - **`csm update-config <server>` command** - Fast config-only update without reinstalling game files (takes < 1 second)
+- Stops server, deletes existing `server.cfg`, regenerates fresh config, and restarts server
+- Perfect for fixing configuration issues without waiting for full reinstall
 
-### Changed
+### 🔧 Changed
+
 - Refactored buffer handling in server configuration functions for improved flexibility
 - Improved logging in ReinstallServerInstanceWithContext for better clarity
 - Updated .gitignore to include 'csm' and 'overrides' directories
 
 ---
 
-## [1.5.5] - 2026-01-19
+# 1.5.5
 
-### Added
-- Comprehensive file ownership management - All operations now ensure proper file ownership
+#### January 19, 2026
+
+### ✨ New Features
+
+- Comprehensive file ownership management - All operations now ensure proper file ownership (`cs2servermanager` user)
 - Enhanced TUI functionality and error handling
 
 ---
 
-## [1.5.4] - 2026-01-19
+# 1.5.4
 
-### Added
-- **`csm reinstall <server>` command** - Completely rebuild a server from master-install (fixes corrupted files)
-- Reinstall feature in TUI (Servers tab → "Reinstall a server")
-- Real-time progress tracking for reinstall operations
+#### January 19, 2026
 
-### Changed
+### ✨ New Features
+
+#### Server Reinstallation
+- **`csm reinstall <server>` command** - Completely rebuild a server from master-install (fixes corrupted files, `gameinfo.gi` errors, segmentation faults)
+- **Reinstall feature in TUI** - Available in Servers tab → "Reinstall a server"
+- **Real-time progress tracking** - Shows live output during long operations like `rsync`
+- Stops server, removes server directory, copies fresh files from master-install, regenerates configs, and restarts server
+- Perfect for fixing corrupted game files without manual intervention
+
+### 📚 Documentation
+
 - Updated documentation for server management and configuration
 
 ---
 
-## [1.5.3] - 2026-01-19
+# 1.5.3
 
-### Fixed
+#### January 19, 2026
+
+### 🔧 Fixed
+
 - **Port binding conflicts** - Enhanced TmuxManager to detect and utilize server ports correctly
 - Refined bootstrap process and error handling for steamcmd installation
 - Enhanced default overrides handling and cleanup on cancellation
 
 ---
 
-## [1.5.2] - 2026-01-19
+# 1.5.2
 
-### Changed
+#### January 18, 2026
+
+### 🔧 Changed
+
 - Enhanced steamcmd process management and install wizard cancellation handling
 - Improved process management during steamcmd execution in bootstrap
 - Enhanced install wizard logging during bootstrap process
 
 ---
 
-## [1.5.1] - 2026-01-19
+# 1.5.1
 
-### Changed
+#### January 18, 2026
+
+### 🔧 Changed
+
 - Enhanced install wizard cancellation handling and reset state on quit
 
 ---
 
-## [1.5.0] - 2026-01-19
+# 1.5.0
 
-### Added
-- Shared server configuration management
-- Enhanced installation wizard for new settings (GSLT, max players, hostname prefix)
+#### January 18, 2026
+
+**🎯 Shared Configuration & Enhanced Wizard Release**
+
+This release introduces shared server configuration management and an enhanced installation wizard with new settings for better server customization.
+
+### ✨ New Features
+
+#### Shared Server Configuration
+- Shared server configuration management system
 - Server configuration editor in TUI
+- Enhanced configuration handling across all servers
 
-### Changed
+#### Enhanced Installation Wizard
+- New settings in install wizard:
+  - **GSLT token** configuration
+  - **Max players** setting
+  - **Hostname prefix** detection and configuration
+- Better defaults and validation
+
+### 🔧 Changed
+
 - Removed deprecated MatchZy configuration files
 - Enhanced project documentation and server configuration management
 
 ---
 
-## [1.4.5] - 2025-12-18
+# 1.4.5
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Refactored initWizardDefaults to improve server count detection
 
-**Note:** This version had the working launch command format that was later broken and then restored.
+**Note:** This version had the working launch command format that was later broken and then restored in recent fixes.
 
 ---
 
-## [1.4.4] - 2025-12-18
+# 1.4.4
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Refactored MySQL host configuration in bootstrap process
 
 ---
 
-## [1.4.3] - 2025-12-18
+# 1.4.3
 
-### Changed
-- Refactored server management and enhance bootstrapping process
+#### December 18, 2025
+
+### 🔧 Changed
+
+- Refactored server management and enhanced bootstrapping process
 
 ---
 
-## [1.4.2] - 2025-12-18
+# 1.4.2
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Enhanced server management prompts with disk space estimates
 
-### Changed
+### 🔧 Changed
+
 - Updated syncMasterToServerWithContext to use masterDir for authoritative game files
 - Removed unused tailContains function from monitor.go
 
 ---
 
-## [1.4.1] - 2025-12-18
+# 1.4.1
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Updated plugin deployment process to sync configurations from shared directory
 
 ---
 
-## [1.4.0] - 2025-12-18
+# 1.4.0
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Enhanced auto-update functionality with MatchZy integration
 
 ---
 
-## [1.3.10] - 2025-12-18
+# 1.3.10
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Refactored plugin management and update process
 
 ---
 
-## [1.3.9] - 2025-12-18
+# 1.3.9
 
-### Fixed
+#### December 18, 2025
+
+### 🔧 Fixed
+
 - Clear existing persistent log file before starting tmux session to prevent log growth
 
 ---
 
-## [1.3.8] - 2025-12-18
+# 1.3.8
 
-### Fixed
+#### December 18, 2025
+
+### 🔧 Fixed
+
 - Ensure CS2 user ownership of home directory after updates and plugin deployments
 
 ---
 
-## [1.3.7] - 2025-12-18
+# 1.3.7
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Added confirmation prompt before release in release.sh
 
-### Changed
+### 🔧 Changed
+
 - Refactored bootstrap and install wizard to remove RequireExistingMaster option
 
 ---
 
-## [1.3.6] - 2025-12-18
+# 1.3.6
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.3.5] - 2025-12-18
+# 1.3.5
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Updated .gitignore to include .env and cs2-tui files
 - Ensure ownership of home directory for CS2 user during bootstrap process to prevent permission issues
 
 ---
 
-## [1.3.4] - 2025-12-18
+# 1.3.4
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Implement RequireExistingMaster option in bootstrap and install wizard
 
-### Changed
+### 🔧 Changed
+
 - Enhanced TmuxManager to derive game and TV ports from autoexec.cfg
 - Removed cs2-tui binary from repository
 
 ---
 
-## [1.3.3] - 2025-12-18
+# 1.3.3
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Enhanced error handling and output visibility in TmuxManager
 - Enhanced TUI logging and viewport management
 - Refined install wizard height management for improved stability
@@ -228,230 +328,349 @@ All notable changes to CS2 Server Manager will be documented in this file.
 
 ---
 
-## [1.3.2] - 2025-12-18
+# 1.3.2
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Install wizard field activation logic and improved cursor navigation
 
-### Changed
+### 🔧 Changed
+
 - Refactored CSM configuration handling and update documentation
 
 ---
 
-## [1.3.1] - 2025-12-18
+# 1.3.1
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Enhanced documentation for CSM configuration and logging
 - Updated .gitignore and enhanced troubleshooting documentation
 
 ---
 
-## [1.3.0] - 2025-12-18
+# 1.3.0
 
-### Major Release: TUI + Go-native flows refactor
+#### December 18, 2025
 
-### Added
-- Complete TUI (Terminal User Interface) rewrite using Bubble Tea
-- Go-native server management flows (replacing shell scripts)
-- Interactive install wizard with live progress tracking
+**🎉 Major Release: TUI + Go-native Flows Refactor**
+
+This release marks a complete rewrite of the CS2 Server Manager with a modern Terminal User Interface (TUI) and Go-native server management flows, replacing the previous shell script-based implementation.
+
+### ✨ New Features
+
+#### Complete TUI Rewrite
+- **Terminal User Interface (TUI)** using Bubble Tea framework
+- Interactive menu-driven interface with keyboard navigation
+- Real-time progress tracking and live log output
 - Enhanced error handling and cancellation support
 
-### Changed
+#### Go-native Server Management
+- **Go-native server management flows** replacing shell scripts
+- Better error handling and state management
+- Improved logging and debugging capabilities
+- More reliable process management
+
+#### Interactive Install Wizard
+- **Interactive install wizard** with live progress tracking
+- Step-by-step server configuration
+- Real-time validation and feedback
+- Better user experience for initial setup
+
+### 🔧 Changed
+
 - Removed deprecated installation and auto-update scripts
 - Migrated from shell-based to Go-based implementation
+- Improved code maintainability and extensibility
 
 ---
 
-## [1.2.8] - 2025-12-18
+# 1.2.8
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Enhanced server instance creation with hostname prefix detection
 
 ---
 
-## [1.2.7] - 2025-12-18
+# 1.2.7
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.2.6] - 2025-12-18
+# 1.2.6
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.2.5] - 2025-12-18
+# 1.2.5
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Enhanced server configuration and installation wizard
 
 ---
 
-## [1.2.4] - 2025-12-18
+# 1.2.4
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Enhanced MatchZy database configuration handling
 - Implemented per-server auto-update functionality and enhanced monitoring
 - Enhanced RunAutoUpdateMonitor with root privilege check
 
-### Changed
+### 🔧 Changed
+
 - Refactored TUI styles and error handling
 - Major TUI + Go-native flows refactor
 
 ---
 
-## [1.2.3] - 2025-12-18
+# 1.2.3
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.2.2] - 2025-12-18
+# 1.2.2
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Refactored dependency installation logging and ensureBootstrapDependencies function
 
 ---
 
-## [1.2.1] - 2025-12-18
+# 1.2.1
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Enhanced install wizard and quit confirmation handling
 
 ---
 
-## [1.2.0] - 2025-12-18
+# 1.2.0
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Enhanced install wizard and menu item descriptions
 
 ---
 
-## [1.1.13] - 2025-12-18
+# 1.1.13
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.12] - 2025-12-18
+# 1.1.12
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.11] - 2025-12-18
+# 1.1.11
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.10] - 2025-12-18
+# 1.1.10
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.9] - 2025-12-18
+# 1.1.9
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.8] - 2025-12-18
+# 1.1.8
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.7] - 2025-12-18
+# 1.1.7
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.6] - 2025-12-18
+# 1.1.6
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.5] - 2025-12-18
+# 1.1.5
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.4] - 2025-12-18
+# 1.1.4
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.3] - 2025-12-18
+# 1.1.3
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.2] - 2025-12-18
+# 1.1.2
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.1] - 2025-12-18
+# 1.1.1
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.1.0] - 2025-12-18
+# 1.1.0
 
-### Added
+#### December 18, 2025
+
+### ✨ New Features
+
 - Implemented core CSM functionality with new features and configurations
 - Added link to full documentation site in README
 - Updated README with enhanced installation instructions and usage guidelines
 
 ---
 
-## [1.0.4] - 2025-12-18
+# 1.0.4
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.0.3] - 2025-12-18
+# 1.0.3
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.0.2] - 2025-12-18
+# 1.0.2
+
+#### December 18, 2025
 
 *No significant changes*
 
 ---
 
-## [1.0.1] - 2025-12-18
+# 1.0.1
 
-### Changed
+#### December 18, 2025
+
+### 🔧 Changed
+
 - Enhanced release script with git commit/tag functionality
 
 ---
 
-## [1.0.0] - 2025-12-18
+# 1.0.0
 
-### Initial Release
+#### December 18, 2025
 
-### Added
-- Multi-server CS2 deployment
-- Automated plugin installation (Metamod, CounterStrikeSharp, MatchZy)
-- Docker-based MySQL database provisioning
-- Auto-update monitor functionality
-- Map thumbnail extraction
-- Tmux-based server management
-- Configuration override system
+**🎉 Initial Release**
+
+This marks the first official release of CS2 Server Manager, a comprehensive tool for managing multiple Counter-Strike 2 dedicated servers.
+
+### ✨ New Features
+
+#### Multi-Server Deployment
+- Deploy and manage multiple CS2 server instances from a single installation
+- Automatic port allocation and conflict detection
+- Isolated server directories with shared master installation
+
+#### Automated Plugin Installation
+- **Metamod:Source** - Core plugin framework
+- **CounterStrikeSharp** - C# scripting plugin for CS2
+- **MatchZy** - Tournament management plugin
+- Automatic plugin deployment and configuration
+
+#### Docker-Based Database
+- **Docker-based MySQL database provisioning** for MatchZy
+- Automatic database setup and configuration
+- Secure connection handling
+
+#### Server Management
+- **Tmux-based server management** - Detachable server sessions
+- Start, stop, restart, and monitor servers
+- Interactive console access via `csm attach <server>`
+- Real-time log viewing
+
+#### Auto-Update Monitor
+- **Auto-update monitor functionality** - Keeps servers up to date
+- Automatic SteamCMD updates
+- Configurable update intervals
+
+#### Additional Features
+- **Map thumbnail extraction** - Generate map previews
+- **Configuration override system** - Customize server configs per-instance
+- **Shared configuration management** - Centralized config management
 
 ---
 
