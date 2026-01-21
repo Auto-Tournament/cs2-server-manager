@@ -6,6 +6,12 @@ All notable changes to CS2 Server Manager will be documented in this file.
 
 # Unreleased
 
+*No unreleased changes*
+
+---
+
+# 1.5.9
+
 #### January 21, 2026
 
 ### ✨ New Features
@@ -19,20 +25,13 @@ All notable changes to CS2 Server Manager will be documented in this file.
 - **Automatic ownership fixes**: Files are automatically chowned to `cs2servermanager` user after editing
 - Opens `nano` editor with full terminal control (fixes Ctrl+X issues)
 - Creates directories and files as needed
-
-### 🔧 Fixed
-
-- **RCON password not being set** - Fixed launch command format (reverted to v1.4.5 working format with `+tv_port` instead of `-tv_port`)
-- **Server.cfg generation** - Now creates properly formatted configs with all required settings (IP binding, RCON security, logging, etc.)
-- **Metamod detection bug** - Fixed chicken-and-egg problem where broken servers prevented Metamod from being enabled during reinstall
-- **Database connection** - Docker mode now uses `127.0.0.1` instead of detected primary IP (fixes Wireguard VPN connectivity issues)
-- **Tmux console interactivity** - Switched from `tee` to `pipe-pane` for proper interactive console during `csm attach`
-- **Port binding conflicts** - Reverted to v1.4.5 launch command format (`+tv_port` not `-tv_port`, added `+map de_dust2`)
+- Uses `syscall.Exec` to give `nano` full terminal control
 
 ### 📚 Documentation
 
 - Updated documentation for new config editing features
-- Created comprehensive CHANGELOG.md
+- Created comprehensive CHANGELOG.md matching MatchZy Enhanced format and styling
+- Documented all versions from v1.0.0 to current release
 
 ---
 
