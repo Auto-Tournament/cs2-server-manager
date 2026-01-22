@@ -390,11 +390,6 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemAttachServerGo,
 			},
 			{
-				title:       "View server.cfg",
-				description: "",
-				kind:        itemViewServerConfig,
-			},
-			{
 				title:       "Start all servers",
 				description: "",
 				kind:        itemStartAllGo,
@@ -432,13 +427,10 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "Update RCON password, maxplayers, GSLT, hostname, and RCON ban settings for all servers.",
 				kind:        itemUpdateServerConfigs,
 			},
-		}
-	case tabTools:
-		return []menuItem{
 			{
-				title:       "MatchZy DB: verify/repair",
-				description: "Verify MatchZy database setup and repair in a scrollable view.",
-				kind:        itemMatchzyDBViewport,
+				title:       "View server.cfg",
+				description: "View the server.cfg file for a specific server.",
+				kind:        itemViewServerConfig,
 			},
 			{
 				title:       "Edit MatchZy config.cfg",
@@ -454,6 +446,14 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "Edit CounterStrikeSharp admins.json",
 				description: "Edit CSS admin permissions (applies to all servers).",
 				kind:        itemEditCSSAdmins,
+			},
+		}
+	case tabTools:
+		return []menuItem{
+			{
+				title:       "MatchZy DB: verify/repair",
+				description: "Verify MatchZy database setup and repair in a scrollable view.",
+				kind:        itemMatchzyDBViewport,
 			},
 			{
 				title:       "Unban IP address",
