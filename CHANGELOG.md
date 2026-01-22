@@ -6,7 +6,31 @@ All notable changes to CS2 Server Manager will be documented in this file.
 
 # Unreleased
 
-*No unreleased changes*
+### ✨ New Features
+
+#### IP Ban Management
+- **IP unban utilities:**
+  - `csm unban <server> <ip>` - Remove an IP from banned RCON requests
+  - `csm unban-all <server>` - Clear all IPs banned for RCON attempts
+  - `csm list-bans <server>` - List all banned IP addresses
+  - TUI options in Tools tab for unbanning IPs
+- **Automatic server reload**: Unban operations automatically send `removeip` or `exec banned_ip.cfg` commands to running servers via tmux (no restart needed)
+- **RCON ban settings disabled by default**: New servers have RCON IP bans disabled (sv_rcon_maxfailures 0) to prevent Docker network IPs from being incorrectly banned
+
+#### Enhanced Server Configuration
+- **New Config tab in TUI** - Dedicated tab for server configuration management
+- **Expanded config editor:**
+  - RCON password
+  - Max players
+  - GSLT token
+  - Hostname prefix
+  - RCON ban settings (max failures, min failures, min failure time)
+- **RCON ban configuration**: Configure RCON ban settings directly from TUI (set to 0 to disable)
+
+### 🔧 Fixed
+
+- **RCON ban false positives**: Disabled RCON IP bans by default to prevent Docker network IPs (e.g., 172.19.0.3) from being incorrectly banned
+- **Unban operations**: Improved error handling - missing ban files or unbanned IPs are treated as success rather than errors
 
 ---
 

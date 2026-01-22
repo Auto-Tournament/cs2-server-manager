@@ -194,6 +194,15 @@ fi
 DIST_DIR="dist/releases/${TAG}"
 mkdir -p "${DIST_DIR}"
 
+# Verify version.go was updated correctly before building
+VERIFIED_VERSION=$(grep 'const[[:space:]]\+currentVersion' "$VERSION_FILE" | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)
+if [[ "$VERIFIED_VERSION" != "$TAG" ]]; then
+  echo "[csm] ERROR: version.go contains ${VERIFIED_VERSION} but expected ${TAG}"
+  echo "[csm] Aborting build to prevent incorrect version in binaries."
+  exit 1
+fi
+
+echo "[csm] Verified version.go matches tag: ${TAG}"
 echo "[csm] Building release binaries for ${TAG}..."
 
 # Linux amd64
@@ -201,6 +210,17 @@ GOOS=linux GOARCH=amd64 go build -o "${DIST_DIR}/csm-linux-amd64" ./src/cmd/cs2-
 
 # Linux arm64 (common on ARM servers)
 GOOS=linux GOARCH=arm64 go build -o "${DIST_DIR}/csm-linux-arm64" ./src/cmd/cs2-tui
+
+# Verify the built binary reports the correct version (if binary supports it)
+echo "[csm] Verifying built binaries..."
+if [[ -f "${DIST_DIR}/csm-linux-amd64" ]]; then
+  # Check if binary runs and contains the version string
+  if strings "${DIST_DIR}/csm-linux-amd64" 2>/dev/null | grep -q "${TAG}"; then
+    echo "[csm] ✓ Binary contains version string: ${TAG}"
+  else
+    echo "[csm] WARNING: Could not verify version string in binary"
+  fi
+fi
 
 if [[ "$CSM_DRY_RUN" == "true" ]]; then
   echo "[csm] DRY RUN: would create GitHub release ${TAG} with assets:"
