@@ -304,6 +304,90 @@ func main() {
 			}
 			fmt.Printf("\nServer %d config updated successfully!\n", server)
 			return
+		case "unban":
+			if len(args) < 3 {
+				fmt.Fprintln(os.Stderr, "usage: csm unban <server> <ip>")
+				fmt.Fprintln(os.Stderr, "       csm unban 0 <ip>  (unban from all servers)")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Removes an IP address from a server's banned_ip.cfg file.")
+				fmt.Fprintln(os.Stderr, "Use this when an IP was incorrectly banned for RCON hacking attempts.")
+				fmt.Fprintln(os.Stderr, "Use server number 0 to unban from all servers.")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Example: sudo csm unban 1 172.19.0.3")
+				fmt.Fprintln(os.Stderr, "         sudo csm unban 0 172.19.0.3  (unban from all servers)")
+				os.Exit(1)
+			}
+			server, serr := strconv.Atoi(args[1])
+			if serr != nil || server < 0 {
+				fmt.Fprintf(os.Stderr, "invalid server number %q (must be 0 for all servers, or a positive integer)\n", args[1])
+				os.Exit(1)
+			}
+			ip := args[2]
+			out, err := csm.UnbanIP(server, ip)
+			csm.LogAction("cli", fmt.Sprintf("unban %d %s", server, ip), out, err)
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "unban failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "unban-all":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "usage: csm unban-all <server>")
+				fmt.Fprintln(os.Stderr, "       csm unban-all 0  (clear all bans from all servers)")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Removes all IP addresses from a server's banned_ip.cfg file.")
+				fmt.Fprintln(os.Stderr, "Use this to clear all IPs that were banned for RCON hacking attempts.")
+				fmt.Fprintln(os.Stderr, "Use server number 0 to clear bans from all servers.")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Example: sudo csm unban-all 1")
+				fmt.Fprintln(os.Stderr, "         sudo csm unban-all 0  (clear all bans from all servers)")
+				os.Exit(1)
+			}
+			server, serr := strconv.Atoi(args[1])
+			if serr != nil || server < 0 {
+				fmt.Fprintf(os.Stderr, "invalid server number %q (must be 0 for all servers, or a positive integer)\n", args[1])
+				os.Exit(1)
+			}
+			out, err := csm.UnbanAllIPs(server)
+			csm.LogAction("cli", fmt.Sprintf("unban-all %d", server), out, err)
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "unban-all failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "list-bans":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "usage: csm list-bans <server>")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Lists all banned IP addresses for the specified server.")
+				os.Exit(1)
+			}
+			server, serr := strconv.Atoi(args[1])
+			if serr != nil || server <= 0 {
+				fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+				os.Exit(1)
+			}
+			ips, err := csm.ListBannedIPs(server)
+			csm.LogAction("cli", fmt.Sprintf("list-bans %d", server), "", err)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "list-bans failed: %v\n", err)
+				os.Exit(1)
+			}
+			if len(ips) == 0 {
+				fmt.Printf("No banned IPs found for server-%d\n", server)
+			} else {
+				fmt.Printf("Banned IPs for server-%d:\n", server)
+				for _, ip := range ips {
+					fmt.Printf("  - %s\n", ip)
+				}
+			}
+			return
 		case "logs":
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm logs <server> [lines]")
@@ -617,11 +701,15 @@ func printUsage() {
 	fmt.Println("  list-sessions          List tmux sessions")
 	fmt.Println("  debug                  Run a server in foreground debug mode")
 	fmt.Println("  extract-map-data       Extract map thumbnails from VPKs (PNG + WEBP, plus 1280px WEBP thumbnails)")
+	fmt.Println("  list-bans <server>     List banned IP addresses for a server")
 	fmt.Println()
 	fmt.Printf("%sCommands (require sudo for typical setups):%s\n", yellow, reset)
 	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
 	fmt.Println("  cleanup-all            Remove all servers and related resources")
 	fmt.Println("  reinstall <server>     Rebuild a single server from master (fixes corrupted files)")
+	fmt.Println("  update-config <server> Regenerate server configs without reinstalling")
+	fmt.Println("  unban <server> <ip>    Remove IP from banned RCON requests (use 0 for all servers)")
+	fmt.Println("  unban-all <server>     Clear all IPs banned for RCON attempts (use 0 for all servers)")
 	fmt.Println("  update-game            Update CS2 game files after a Valve update")
 	fmt.Println("  update-plugins         Update plugins and deploy to servers")
 	fmt.Println("  monitor                Run auto-update monitor loop")

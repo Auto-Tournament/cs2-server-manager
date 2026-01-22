@@ -79,6 +79,9 @@ sudo csm bootstrap              # Install/redeploy servers
 sudo csm install-monitor-cron   # Install cron-based auto-update monitor
 sudo csm reinstall <server>     # Rebuild a server (fixes corrupted files)
 sudo csm update-config <server> # Regenerate server configs without reinstalling
+sudo csm unban <server> <ip>    # Remove IP from banned RCON requests (use 0 for all servers)
+sudo csm unban-all <server>     # Clear all IPs banned for RCON attempts (use 0 for all servers)
+csm list-bans <server>          # List banned IPs for a server
 
 # Cleanup
 sudo csm cleanup-all            # Danger: remove all CS2 data and user

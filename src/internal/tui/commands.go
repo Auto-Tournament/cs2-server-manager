@@ -341,6 +341,40 @@ func runReinstallServerGo(serverNum int) tea.Cmd {
 	}
 }
 
+// runUnbanIPGo removes an IP address from a server's banned_ip.cfg file.
+func runUnbanIPGo(serverNum int, ip string) tea.Cmd {
+	return func() tea.Msg {
+		out, err := csm.UnbanIP(serverNum, ip)
+		return commandFinishedMsg{
+			item: menuItem{
+				title: fmt.Sprintf("Unban %s from server %d", ip, serverNum),
+				kind:  itemUnbanIP,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
+// runUnbanAllIPsGo clears all IP bans from a server's banned_ip.cfg file.
+func runUnbanAllIPsGo(serverNum int) tea.Cmd {
+	return func() tea.Msg {
+		out, err := csm.UnbanAllIPs(serverNum)
+		title := fmt.Sprintf("Clear all IP bans from server %d", serverNum)
+		if serverNum == 0 {
+			title = "Clear all IP bans from all servers"
+		}
+		return commandFinishedMsg{
+			item: menuItem{
+				title: title,
+				kind:  itemUnbanAllIPs,
+			},
+			output: out,
+			err:    err,
+		}
+	}
+}
+
 // runRemoveServersGo scales down by stopping and deleting the highest-numbered
 // N server-* directories so NewTmuxManager will subsequently report fewer
 // servers.

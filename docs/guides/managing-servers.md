@@ -15,7 +15,7 @@ The TUI has four main tabs:
 - **Install** - Install dependencies, run the install wizard, set up auto-update cron
 - **Updates** - Update CS2 game files, update plugins, update server configs (RCON, maxplayers, GSLT)
 - **Servers** - View dashboard, logs, start/stop/restart servers, add/remove/reinstall servers
-- **Tools** - MatchZy database management, map thumbnails, public IP, force update CSM, CLI help
+- **Tools** - MatchZy database management, edit configs, unban IPs, map thumbnails, public IP, force update CSM, CLI help
 
 ### Common CLI commands
 
@@ -40,6 +40,8 @@ sudo csm monitor                # Run one iteration of the auto-update monitor
 # Server Management
 sudo csm reinstall <server>     # Completely rebuild a server from master (fixes corrupted files)
 sudo csm update-config <server> # Regenerate server.cfg and autoexec.cfg (fast, no file copying)
+sudo csm unban <server> <ip>    # Unban an IP address (use 0 for all servers)
+csm list-bans <server>          # List all banned IP addresses for a server
 
 # Cleanup
 sudo csm cleanup-all            # Danger: remove all CS2 data and user
@@ -105,6 +107,31 @@ This is much faster than `reinstall` since it doesn't copy game files. It will:
 2. Regenerate `autoexec.cfg`
 3. Fix file ownership
 4. Restart the server to apply changes
+
+## Managing IP bans
+
+If an IP address gets banned for RCON hacking attempts (e.g., Docker network IPs being incorrectly banned), you can unban it:
+
+```bash
+# Remove IP from banned RCON requests (specific server)
+sudo csm unban 1 172.19.0.3
+
+# Remove IP from banned RCON requests (all servers)
+sudo csm unban 0 172.19.0.3
+
+# Clear all IPs banned for RCON attempts (specific server)
+sudo csm unban-all 1
+
+# Clear all IPs banned for RCON attempts (all servers)
+sudo csm unban-all 0
+
+# List banned IPs for a server
+csm list-bans 1
+```
+
+**Note:** The server must be restarted for the unban to take effect. You can restart with `sudo csm restart <server>`.
+
+You can also use the TUI: Navigate to **Tools** tab → **Unban IP address** or **Unban all IPs**.
 
 ## Where servers live
 

@@ -32,6 +32,8 @@ const (
 	viewAttachServerPrompt
 	viewEditServerConfigs
 	viewServerConfigPrompt
+	viewUnbanIPPrompt
+	viewUnbanAllIPsPrompt
 )
 
 type itemKind int
@@ -63,6 +65,8 @@ const (
 	itemEditMatchZyConfig
 	itemEditMatchZyDatabase
 	itemEditCSSAdmins
+	itemUnbanIP
+	itemUnbanAllIPs
 	itemCLIHelp
 )
 
@@ -448,6 +452,16 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemEditCSSAdmins,
 			},
 			{
+				title:       "Unban IP address",
+				description: "Remove an IP from banned RCON requests (use 0 for all servers).",
+				kind:        itemUnbanIP,
+			},
+			{
+				title:       "Unban all IPs",
+				description: "Clear all IPs banned for RCON hacking attempts (use 0 for all servers).",
+				kind:        itemUnbanAllIPs,
+			},
+			{
 				title:       "Extract map thumbnails",
 				description: "",
 				kind:        itemExtractThumbnailsGo,
@@ -738,6 +752,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewReinstallServerPrompt {
 			var cmd tea.Cmd
 			m, cmd = m.updateReinstallServerPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		if m.view == viewUnbanIPPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateUnbanIPPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		if m.view == viewUnbanAllIPsPrompt {
+			var cmd tea.Cmd
+			m, cmd = m.updateUnbanAllIPsPromptKey(msg)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -1043,6 +1071,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Prompt for which server to reinstall
 				m.view = viewReinstallServerPrompt
 				m.status = "Reinstall server: enter server number to reinstall."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
+			case itemUnbanIP:
+				// Prompt for server number and IP to unban
+				m.view = viewUnbanIPPrompt
+				m.status = "Unban IP: enter server number (0 for all) and IP address to remove from banned RCON requests."
+				m.wizard.errMsg = ""
+				m.wizard.input.SetValue("")
+				m.wizard.input.Focus()
+				cmds = append(cmds, textinput.Blink)
+			case itemUnbanAllIPs:
+				// Prompt for server number to clear all bans
+				m.view = viewUnbanAllIPsPrompt
+				m.status = "Unban all IPs: enter server number (0 for all) to clear all IPs banned for RCON attempts."
 				m.wizard.errMsg = ""
 				m.wizard.input.SetValue("")
 				m.wizard.input.Focus()
@@ -1657,6 +1701,10 @@ func (m model) View() string {
 		return m.viewServerConfigPrompt()
 	case viewEditServerConfigs:
 		return m.viewEditServerConfigs()
+	case viewUnbanIPPrompt:
+		return m.viewUnbanIPPrompt()
+	case viewUnbanAllIPsPrompt:
+		return m.viewUnbanAllIPsPrompt()
 	}
 
 	var b strings.Builder

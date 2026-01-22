@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -336,6 +337,157 @@ func (m model) updateReinstallServerPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 		m.lastOutput = ""
 
 		return m, tea.Batch(runReinstallServerGo(n), m.spin.Tick)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
+func (m model) viewUnbanIPPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("Unban IP address")) +
+		"\n" +
+		headerBorderStyle.Render("Remove an IP from banned RCON requests")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Enter server number and IP (e.g., '1 172.19.0.3'):")
+	fmt.Fprintln(&b, "  Use '0' as server number to unban from all servers")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, subtleStyle.Render("Removes IP from banned_ip.cfg (e.g., Docker IPs incorrectly banned)."))
+		fmt.Fprintln(&b, subtleStyle.Render("Example: '1 172.19.0.3' or '0 172.19.0.3' (all servers)"))
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Press Enter to unban IP, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateUnbanIPPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter server number and IP address."
+			return m, nil
+		}
+
+		// Parse input: "server ip" or "ip" (defaults to server 0)
+		parts := strings.Fields(value)
+		var serverNum int
+		var ip string
+		var err error
+
+		if len(parts) == 1 {
+			// Just IP provided, unban from all servers
+			serverNum = 0
+			ip = parts[0]
+		} else if len(parts) == 2 {
+			// Server number and IP provided
+			serverNum, err = strconv.Atoi(parts[0])
+			if err != nil || serverNum < 0 {
+				m.wizard.errMsg = "Server number must be 0 (all servers) or a positive integer."
+				return m, nil
+			}
+			ip = parts[1]
+		} else {
+			m.wizard.errMsg = "Invalid format. Use 'server ip' or 'ip' (e.g., '1 172.19.0.3' or '172.19.0.3')."
+			return m, nil
+		}
+
+		// Validate IP format
+		if net.ParseIP(ip) == nil {
+			m.wizard.errMsg = "Invalid IP address format."
+			return m, nil
+		}
+
+		m.view = viewMain
+		m.running = true
+		m.status = fmt.Sprintf("Unbanning %s from server %d...", ip, serverNum)
+		m.lastOutput = ""
+
+		return m, tea.Batch(runUnbanIPGo(serverNum, ip), m.spin.Tick)
+	}
+
+	var cmd tea.Cmd
+	m.wizard.input, cmd = m.wizard.input.Update(key)
+	return m, cmd
+}
+
+func (m model) viewUnbanAllIPsPrompt() string {
+	var b strings.Builder
+
+	header := headerBorderStyle.Render(titleStyle.Render("Unban all IP addresses")) +
+		"\n" +
+		headerBorderStyle.Render("Clear all IPs banned for RCON hacking attempts")
+
+	fmt.Fprintln(&b, header)
+	fmt.Fprintln(&b)
+
+	fmt.Fprintln(&b, "Enter server number (0 for all servers):")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, m.wizard.input.View())
+	fmt.Fprintln(&b)
+
+	if m.wizard.errMsg != "" {
+		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
+	} else {
+		fmt.Fprintln(&b, subtleStyle.Render("This will remove all IP bans from the server's banned_ip.cfg file."))
+		fmt.Fprintln(&b, subtleStyle.Render("Useful when multiple IPs were incorrectly banned for RCON attempts."))
+		fmt.Fprintln(&b, subtleStyle.Render("Use '0' to clear bans from all servers."))
+		fmt.Fprintln(&b)
+		fmt.Fprintln(&b, "Press Enter to clear all bans, Esc to cancel.")
+	}
+
+	return b.String()
+}
+
+func (m model) updateUnbanAllIPsPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
+	switch key.String() {
+	case "esc":
+		m.view = viewMain
+		m.status = "Select an action and press Enter to run it."
+		return m, nil
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "enter":
+		value := strings.TrimSpace(m.wizard.input.Value())
+		if value == "" {
+			m.wizard.errMsg = "Please enter a server number (0 for all servers)."
+			return m, nil
+		}
+
+		serverNum, err := strconv.Atoi(value)
+		if err != nil || serverNum < 0 {
+			m.wizard.errMsg = "Server number must be 0 (all servers) or a positive integer."
+			return m, nil
+		}
+
+		m.view = viewMain
+		m.running = true
+		if serverNum == 0 {
+			m.status = "Clearing all IP bans from all servers..."
+		} else {
+			m.status = fmt.Sprintf("Clearing all IP bans from server %d...", serverNum)
+		}
+		m.lastOutput = ""
+
+		return m, tea.Batch(runUnbanAllIPsGo(serverNum), m.spin.Tick)
 	}
 
 	var cmd tea.Cmd

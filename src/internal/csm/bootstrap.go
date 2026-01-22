@@ -582,6 +582,14 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 				continue
 			}
 			
+			// Remove old RCON ban settings (we'll add them fresh with disabled values)
+			if strings.HasPrefix(trimmed, "sv_rcon_banpenalty") ||
+				strings.HasPrefix(trimmed, "sv_rcon_maxfailures") ||
+				strings.HasPrefix(trimmed, "sv_rcon_minfailures") ||
+				strings.HasPrefix(trimmed, "sv_rcon_minfailuretime") {
+				continue
+			}
+			
 			// Remove old maxplayers/tv settings (we'll add them at the end)
 			if strings.HasPrefix(trimmed, "maxplayers") ||
 				strings.HasPrefix(trimmed, "sv_maxplayers") ||
@@ -594,9 +602,14 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 			out = append(out, line)
 		}
 		
-		// Prepend rcon_password (must be first)
+		// Prepend rcon_password and RCON ban settings (must be first)
 		out = append([]string{
 			fmt.Sprintf(`rcon_password "%s"`, rcon),
+			`ip "0.0.0.0"`,
+			`sv_rcon_banpenalty 0`,
+			`sv_rcon_maxfailures 0`,
+			`sv_rcon_minfailures 0`,
+			`sv_rcon_minfailuretime 0`,
 		}, out...)
 		
 		// Add hostname if it wasn't in the file
@@ -634,9 +647,9 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 rcon_password "%s"
 ip "0.0.0.0"
 sv_rcon_banpenalty 0
-sv_rcon_maxfailures 5
-sv_rcon_minfailures 5
-sv_rcon_minfailuretime 30
+sv_rcon_maxfailures 0
+sv_rcon_minfailures 0
+sv_rcon_minfailuretime 0
 
 // ========================================
 // Server Identity
