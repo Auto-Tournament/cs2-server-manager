@@ -603,6 +603,7 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 		}
 		
 		// Prepend rcon_password and RCON ban settings (must be first)
+		// Use default disabled values (will be overridden by customizeServerCfgGoWithRCONBans if called)
 		out = append([]string{
 			fmt.Sprintf(`rcon_password "%s"`, rcon),
 			`ip "0.0.0.0"`,
@@ -725,6 +726,192 @@ echo "==========================================="
 	
 	// Note: Ownership of cfg directory (and all other files) is fixed by the
 	// comprehensive fixServerOwnership call at the end of bootstrap/reinstall.
+	
+	return nil
+}
+
+// customizeServerCfgGoWithRCONBans is like customizeServerCfgGo but accepts RCON ban settings.
+func customizeServerCfgGoWithRCONBans(w io.Writer, user string, serverNum int, rcon, hostnamePrefix string, gamePort, tvPort int, maxPlayers int, rconMaxFailures, rconMinFailures, rconMinFailureTime int) error {
+	// Write shared config (RCON, maxplayers) to cs2-config first
+	if err := writeSharedServerConfig(user, rcon, maxPlayers); err != nil {
+		return fmt.Errorf("failed to write shared config: %w", err)
+	}
+
+	cfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		return err
+	}
+	serverCfg := filepath.Join(cfgDir, "server.cfg")
+	autoexecCfg := filepath.Join(cfgDir, "autoexec.cfg")
+
+	fmt.Fprintf(w, "  [*] Customizing configs for server-%d\n", serverNum)
+
+	if strings.TrimSpace(hostnamePrefix) == "" {
+		hostnamePrefix = "CS2 Server"
+	}
+	fullName := fmt.Sprintf(`hostname "%s #%d"`, hostnamePrefix, serverNum)
+
+	if data, err := os.ReadFile(serverCfg); err == nil {
+		// Update existing server.cfg
+		lines := strings.Split(string(data), "\n")
+		var out []string
+		updatedHostname := false
+		
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			
+			// Update hostname if found
+			if strings.HasPrefix(trimmed, "hostname ") {
+				out = append(out, fullName)
+				updatedHostname = true
+				continue
+			}
+			
+			// Update or remove old rcon_password (we'll add it at the start)
+			if strings.HasPrefix(trimmed, "rcon_password") {
+				continue
+			}
+			
+			// Remove old RCON ban settings (we'll add them fresh)
+			if strings.HasPrefix(trimmed, "sv_rcon_banpenalty") ||
+				strings.HasPrefix(trimmed, "sv_rcon_maxfailures") ||
+				strings.HasPrefix(trimmed, "sv_rcon_minfailures") ||
+				strings.HasPrefix(trimmed, "sv_rcon_minfailuretime") {
+				continue
+			}
+			
+			// Remove old maxplayers/tv settings (we'll add them at the end)
+			if strings.HasPrefix(trimmed, "maxplayers") ||
+				strings.HasPrefix(trimmed, "sv_maxplayers") ||
+				strings.HasPrefix(trimmed, "tv_enable") ||
+				strings.HasPrefix(trimmed, "tv_delay") ||
+				strings.HasPrefix(trimmed, "tv_port") {
+				continue
+			}
+			
+			out = append(out, line)
+		}
+		
+		// Prepend rcon_password and RCON ban settings (must be first)
+		out = append([]string{
+			fmt.Sprintf(`rcon_password "%s"`, rcon),
+			`ip "0.0.0.0"`,
+			`sv_rcon_banpenalty 0`,
+			fmt.Sprintf(`sv_rcon_maxfailures %d`, rconMaxFailures),
+			fmt.Sprintf(`sv_rcon_minfailures %d`, rconMinFailures),
+			fmt.Sprintf(`sv_rcon_minfailuretime %d`, rconMinFailureTime),
+		}, out...)
+		
+		// Add hostname if it wasn't in the file
+		if !updatedHostname {
+			out = append(out, "", fullName)
+		}
+		
+		// Add maxplayers if specified
+		if maxPlayers > 0 {
+			out = append(out, "", fmt.Sprintf("maxplayers %d", maxPlayers))
+		}
+		
+		// Append GOTV settings
+		out = append(out, "",
+			"// ========================================",
+			"// GOTV Configuration (Required for Demo Recording)",
+			"// ========================================",
+			"tv_enable 1",
+			"tv_delay 90",
+			fmt.Sprintf("tv_port %d", tvPort),
+		)
+		
+		if err := os.WriteFile(serverCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
+			return err
+		}
+	} else {
+		// Create new server.cfg with RCON ban settings
+		maxPlayersLine := ""
+		if maxPlayers > 0 {
+			maxPlayersLine = fmt.Sprintf("maxplayers %d\n", maxPlayers)
+		}
+		content := fmt.Sprintf(`// ======================================== 
+// RCON Configuration
+// ========================================
+rcon_password "%s"
+ip "0.0.0.0"
+sv_rcon_banpenalty 0
+sv_rcon_maxfailures %d
+sv_rcon_minfailures %d
+sv_rcon_minfailuretime %d
+
+// ========================================
+// Server Identity
+// ========================================
+%s
+
+%s// ========================================
+// Logging
+// ========================================
+log on
+sv_logbans 1
+sv_logecho 1
+sv_logfile 1
+sv_log_onefile 0
+
+// ========================================
+// Network Settings
+// ========================================
+sv_lan 0
+sv_password ""
+
+// ========================================
+// GOTV Configuration (Required for Demo Recording)
+// ========================================
+tv_enable 1
+tv_delay 90
+tv_port %d
+
+// ========================================
+// Server Performance
+// ========================================
+sv_maxrate 0
+sv_minrate 196608
+sv_maxcmdrate 128
+sv_mincmdrate 64
+sv_hibernate_when_empty 0
+`, rcon, rconMaxFailures, rconMinFailures, rconMinFailureTime, fullName, maxPlayersLine, tvPort)
+		if err := os.WriteFile(serverCfg, []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+
+	// autoexec.cfg with startup info (unchanged)
+	autoexec := fmt.Sprintf(`// ===================================================
+// Auto-executed on server startup
+// ===================================================
+
+// RCON Configuration (ensures it's always set)
+rcon_password "%s"
+ip "0.0.0.0"
+
+// Server Identity
+%s
+
+// Load a default map to initialize the server
+// Without this, the server stays in "console" mode and doesn't execute server.cfg
+map de_dust2
+
+// Start warmup mode
+startwarmup
+
+// Startup message
+echo "==========================================="
+echo " %s"
+echo " Port: Game %d, TV %d"
+echo " RCON: Enabled on port %d (TCP)"
+echo " RCON Password: %s"
+echo "==========================================="
+`, rcon, fullName, fullName, gamePort, tvPort, gamePort, rcon)
+	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
+		return err
+	}
 	
 	return nil
 }

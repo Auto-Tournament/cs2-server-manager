@@ -9,10 +9,14 @@ import (
 
 // UpdateServerConfigsConfig contains configuration for updating server configs.
 type UpdateServerConfigsConfig struct {
-	CS2User     string
-	RCONPassword string
-	MaxPlayers   int // 0 means don't change
-	GSLT         string // empty means don't change
+	CS2User            string
+	RCONPassword       string
+	MaxPlayers         int    // 0 means don't change
+	GSLT               string // empty means don't change
+	HostnamePrefix     string // empty means don't change
+	RCONMaxFailures    int    // 0 means disabled, -1 means don't change
+	RCONMinFailures    int    // 0 means disabled, -1 means don't change
+	RCONMinFailureTime int    // 0 means disabled, -1 means don't change
 }
 
 // UpdateServerConfigs updates server configurations (RCON password, maxplayers, GSLT)
@@ -80,7 +84,24 @@ func UpdateServerConfigsWithContext(ctx context.Context, cfg UpdateServerConfigs
 		gslt = detectGSLT(user)
 	}
 
-	hostnamePrefix := detectHostnamePrefix(user)
+	hostnamePrefix := cfg.HostnamePrefix
+	if hostnamePrefix == "" {
+		hostnamePrefix = detectHostnamePrefix(user)
+	}
+
+	// RCON ban settings (-1 means don't change, use current values)
+	rconMaxFailures := cfg.RCONMaxFailures
+	if rconMaxFailures == -1 {
+		rconMaxFailures, _, _ = detectRCONBanSettings(user)
+	}
+	rconMinFailures := cfg.RCONMinFailures
+	if rconMinFailures == -1 {
+		_, rconMinFailures, _ = detectRCONBanSettings(user)
+	}
+	rconMinFailureTime := cfg.RCONMinFailureTime
+	if rconMinFailureTime == -1 {
+		_, _, rconMinFailureTime = detectRCONBanSettings(user)
+	}
 
 	// Update each server
 	for i := 1; i <= mgr.NumServers; i++ {
@@ -94,8 +115,8 @@ func UpdateServerConfigsWithContext(ctx context.Context, cfg UpdateServerConfigs
 
 		log("[%d/%d] Updating server-%d...", i, mgr.NumServers, i)
 
-		// Update server.cfg with new RCON password and maxplayers
-		if err := customizeServerCfgGo(&buf, user, i, rcon, hostnamePrefix, gamePort, tvPort, maxPlayers); err != nil {
+		// Update server.cfg with new RCON password, maxplayers, hostname, and RCON ban settings
+		if err := customizeServerCfgGoWithRCONBans(&buf, user, i, rcon, hostnamePrefix, gamePort, tvPort, maxPlayers, rconMaxFailures, rconMinFailures, rconMinFailureTime); err != nil {
 			log("  [!] Failed to update server.cfg for server-%d: %v", i, err)
 			continue
 		}
@@ -112,12 +133,19 @@ func UpdateServerConfigsWithContext(ctx context.Context, cfg UpdateServerConfigs
 	}
 
 	log("=== Config Update Complete ===")
-	log("RCON password : %s", rcon)
+	log("RCON password        : %s", rcon)
 	if maxPlayers > 0 {
-		log("Max players   : %d", maxPlayers)
+		log("Max players          : %d", maxPlayers)
+	}
+	if hostnamePrefix != "" {
+		log("Hostname prefix      : %s", hostnamePrefix)
 	}
 	if gslt != "" {
-		log("GSLT          : (configured)")
+		log("GSLT                 : (configured)")
+	}
+	log("RCON ban settings    : max=%d, min=%d, time=%d", rconMaxFailures, rconMinFailures, rconMinFailureTime)
+	if rconMaxFailures == 0 {
+		log("  (RCON bans disabled)")
 	}
 	log("")
 

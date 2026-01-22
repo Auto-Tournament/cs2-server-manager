@@ -77,6 +77,7 @@ const (
 	tabInstall tab = iota
 	tabUpdates
 	tabServers
+	tabConfig
 	tabTools
 )
 
@@ -370,11 +371,6 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "Sync plugins from game_files/ and overrides/ to every server instance.",
 				kind:        itemDeployPluginsGo,
 			},
-			{
-				title:       "Update server configs",
-				description: "Update RCON password, maxplayers, GSLT token for all servers.",
-				kind:        itemUpdateServerConfigs,
-			},
 		}
 	case tabServers:
 		return []menuItem{
@@ -427,6 +423,14 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "Reinstall a server",
 				description: "",
 				kind:        itemReinstallServerGo,
+			},
+		}
+	case tabConfig:
+		return []menuItem{
+			{
+				title:       "Update server configs",
+				description: "Update RCON password, maxplayers, GSLT, hostname, and RCON ban settings for all servers.",
+				kind:        itemUpdateServerConfigs,
 			},
 		}
 	case tabTools:
@@ -1716,23 +1720,23 @@ func (m model) View() string {
 	}
 	fmt.Fprintln(&b)
 
-	// Tab bar. While a long-running command is active, we hide the tabs to
-	// reduce visual clutter and focus attention on the status/output.
-	if !m.running {
-		tabs := []string{"Install", "Updates", "Servers", "Tools"}
-		var tabParts []string
-		for i, name := range tabs {
-			style := tabInactiveStyle
-			if tab(i) == m.tab {
-				style = tabActiveStyle
+		// Tab bar. While a long-running command is active, we hide the tabs to
+		// reduce visual clutter and focus attention on the status/output.
+		if !m.running {
+			tabs := []string{"Install", "Updates", "Servers", "Config", "Tools"}
+			var tabParts []string
+			for i, name := range tabs {
+				style := tabInactiveStyle
+				if tab(i) == m.tab {
+					style = tabActiveStyle
+				}
+				tabParts = append(tabParts, style.Render(name))
 			}
-			tabParts = append(tabParts, style.Render(name))
+			fmt.Fprintln(&b, tabBarStyle.Render(strings.Join(tabParts, "  ")))
+			fmt.Fprintln(&b)
+		} else {
+			fmt.Fprintln(&b)
 		}
-		fmt.Fprintln(&b, tabBarStyle.Render(strings.Join(tabParts, "  ")))
-		fmt.Fprintln(&b)
-	} else {
-		fmt.Fprintln(&b)
-	}
 
 	// Version / update banner: only on the main menu (viewMain) and Install tab, 
 	// and only when not running any operations (to avoid showing it during installation, etc).

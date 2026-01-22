@@ -13,13 +13,17 @@ import (
 
 // configEditorState holds the state for the server config editor
 type configEditorState struct {
-	rconPassword string
-	maxPlayers   string
-	gslt         string
-	cursor       int // 0=rcon, 1=maxplayers, 2=gslt, 3=apply, 4=cancel
-	editing      bool
-	input        textinput.Model
-	errMsg       string
+	rconPassword      string
+	maxPlayers        string
+	gslt              string
+	hostnamePrefix    string
+	rconMaxFailures   string
+	rconMinFailures   string
+	rconMinFailureTime string
+	cursor            int // field index
+	editing           bool
+	input             textinput.Model
+	errMsg            string
 }
 
 // configEditorField indices
@@ -27,6 +31,10 @@ const (
 	configFieldRCON = iota
 	configFieldMaxPlayers
 	configFieldGSLT
+	configFieldHostname
+	configFieldRCONMaxFailures
+	configFieldRCONMinFailures
+	configFieldRCONMinFailureTime
 	configFieldApply
 	configFieldCancel
 	configFieldCount
@@ -75,7 +83,41 @@ func (m model) viewEditServerConfigs() string {
 	}
 	renderField(configFieldGSLT, "GSLT token (optional):", gsltVal)
 
+	// Hostname prefix
+	hostnameVal := m.configEditor.hostnamePrefix
+	if m.configEditor.cursor == configFieldHostname && m.configEditor.editing {
+		hostnameVal = m.configEditor.input.View()
+	}
+	renderField(configFieldHostname, "Hostname prefix:", hostnameVal)
+
+	// RCON ban settings section
+	fmt.Fprintln(&b, "")
+	fmt.Fprintln(&b, subtleStyle.Render("RCON Ban Settings (0 = disabled):"))
+	fmt.Fprintln(&b, "")
+
+	// RCON max failures
+	rconMaxVal := m.configEditor.rconMaxFailures
+	if m.configEditor.cursor == configFieldRCONMaxFailures && m.configEditor.editing {
+		rconMaxVal = m.configEditor.input.View()
+	}
+	renderField(configFieldRCONMaxFailures, "RCON max failures:", rconMaxVal)
+
+	// RCON min failures
+	rconMinVal := m.configEditor.rconMinFailures
+	if m.configEditor.cursor == configFieldRCONMinFailures && m.configEditor.editing {
+		rconMinVal = m.configEditor.input.View()
+	}
+	renderField(configFieldRCONMinFailures, "RCON min failures:", rconMinVal)
+
+	// RCON min failure time
+	rconTimeVal := m.configEditor.rconMinFailureTime
+	if m.configEditor.cursor == configFieldRCONMinFailureTime && m.configEditor.editing {
+		rconTimeVal = m.configEditor.input.View()
+	}
+	renderField(configFieldRCONMinFailureTime, "RCON min failure time (sec):", rconTimeVal)
+
 	// Action buttons
+	fmt.Fprintln(&b, "")
 	applyLabel := "Apply changes"
 	cancelLabel := "Cancel"
 	renderField(configFieldApply, "", applyLabel)
@@ -90,6 +132,14 @@ func (m model) viewEditServerConfigs() string {
 		desc = "Maximum number of players (0 or empty = use CS2 default, typically 10)."
 	case configFieldGSLT:
 		desc = "Steam Game Server Login Token (GSLT) for server authentication. Optional but recommended for public servers. Leave empty to keep current value."
+	case configFieldHostname:
+		desc = "Hostname prefix for servers (e.g., 'CS2 Server' becomes 'CS2 Server #1', 'CS2 Server #2', etc.)."
+	case configFieldRCONMaxFailures:
+		desc = "Maximum failed RCON attempts before banning (0 = disable RCON bans)."
+	case configFieldRCONMinFailures:
+		desc = "Minimum failed RCON attempts before banning (0 = disable RCON bans)."
+	case configFieldRCONMinFailureTime:
+		desc = "Time window in seconds for counting RCON failures (0 = disable RCON bans)."
 	case configFieldApply:
 		desc = "Apply these changes to all servers. Servers will be stopped, updated, and restarted."
 	case configFieldCancel:
@@ -161,6 +211,14 @@ func (m model) updateEditServerConfigs(msg tea.Msg) (model, tea.Cmd) {
 				m.configEditor.maxPlayers = val
 			case configFieldGSLT:
 				m.configEditor.gslt = val
+			case configFieldHostname:
+				m.configEditor.hostnamePrefix = val
+			case configFieldRCONMaxFailures:
+				m.configEditor.rconMaxFailures = val
+			case configFieldRCONMinFailures:
+				m.configEditor.rconMinFailures = val
+			case configFieldRCONMinFailureTime:
+				m.configEditor.rconMinFailureTime = val
 			}
 			m.configEditor.editing = false
 			m.configEditor.errMsg = ""
@@ -181,7 +239,8 @@ func (m model) updateEditServerConfigs(msg tea.Msg) (model, tea.Cmd) {
 	switch key.String() {
 	case "enter", " ":
 		switch m.configEditor.cursor {
-		case configFieldRCON, configFieldMaxPlayers, configFieldGSLT:
+		case configFieldRCON, configFieldMaxPlayers, configFieldGSLT, configFieldHostname,
+			configFieldRCONMaxFailures, configFieldRCONMinFailures, configFieldRCONMinFailureTime:
 			m.configEditor.editing = true
 			m.configEditor.errMsg = ""
 			var initial string
@@ -192,6 +251,14 @@ func (m model) updateEditServerConfigs(msg tea.Msg) (model, tea.Cmd) {
 				initial = m.configEditor.maxPlayers
 			case configFieldGSLT:
 				initial = m.configEditor.gslt
+			case configFieldHostname:
+				initial = m.configEditor.hostnamePrefix
+			case configFieldRCONMaxFailures:
+				initial = m.configEditor.rconMaxFailures
+			case configFieldRCONMinFailures:
+				initial = m.configEditor.rconMinFailures
+			case configFieldRCONMinFailureTime:
+				initial = m.configEditor.rconMinFailureTime
 			}
 			m.configEditor.input.SetValue(initial)
 			m.configEditor.input.CursorEnd()
@@ -213,6 +280,37 @@ func (m model) updateEditServerConfigs(msg tea.Msg) (model, tea.Cmd) {
 				}
 			}
 
+			// Validate RCON ban settings
+			rconMaxFailures := 0
+			if strings.TrimSpace(m.configEditor.rconMaxFailures) != "" {
+				if n, err := strconv.Atoi(strings.TrimSpace(m.configEditor.rconMaxFailures)); err == nil && n >= 0 {
+					rconMaxFailures = n
+				} else {
+					m.configEditor.errMsg = "RCON max failures must be a non-negative integer"
+					return m, nil
+				}
+			}
+
+			rconMinFailures := 0
+			if strings.TrimSpace(m.configEditor.rconMinFailures) != "" {
+				if n, err := strconv.Atoi(strings.TrimSpace(m.configEditor.rconMinFailures)); err == nil && n >= 0 {
+					rconMinFailures = n
+				} else {
+					m.configEditor.errMsg = "RCON min failures must be a non-negative integer"
+					return m, nil
+				}
+			}
+
+			rconMinFailureTime := 0
+			if strings.TrimSpace(m.configEditor.rconMinFailureTime) != "" {
+				if n, err := strconv.Atoi(strings.TrimSpace(m.configEditor.rconMinFailureTime)); err == nil && n >= 0 {
+					rconMinFailureTime = n
+				} else {
+					m.configEditor.errMsg = "RCON min failure time must be a non-negative integer"
+					return m, nil
+				}
+			}
+
 			// Apply changes
 			m.view = viewMain
 			m.running = true
@@ -220,9 +318,13 @@ func (m model) updateEditServerConfigs(msg tea.Msg) (model, tea.Cmd) {
 			m.lastOutput = ""
 
 			cfg := csm.UpdateServerConfigsConfig{
-				RCONPassword: m.configEditor.rconPassword,
-				MaxPlayers:   maxPlayers,
-				GSLT:         m.configEditor.gslt,
+				RCONPassword:        m.configEditor.rconPassword,
+				MaxPlayers:          maxPlayers,
+				GSLT:                m.configEditor.gslt,
+				HostnamePrefix:      strings.TrimSpace(m.configEditor.hostnamePrefix),
+				RCONMaxFailures:      rconMaxFailures,
+				RCONMinFailures:     rconMinFailures,
+				RCONMinFailureTime:  rconMinFailureTime,
 			}
 
 			return m, tea.Batch(runUpdateServerConfigsGo(cfg), m.spin.Tick)
@@ -272,6 +374,8 @@ func (m *model) initConfigEditor() {
 	rcon := csm.DetectRCONPassword(user)
 	maxPlayers := csm.DetectMaxPlayers(user)
 	gslt := csm.DetectGSLT(user)
+	hostnamePrefix := csm.DetectHostnamePrefix(user)
+	rconMaxFailures, rconMinFailures, rconMinFailureTime := csm.DetectRCONBanSettings(user)
 
 	m.configEditor.rconPassword = rcon
 	if maxPlayers > 0 {
@@ -280,6 +384,10 @@ func (m *model) initConfigEditor() {
 		m.configEditor.maxPlayers = ""
 	}
 	m.configEditor.gslt = gslt
+	m.configEditor.hostnamePrefix = hostnamePrefix
+	m.configEditor.rconMaxFailures = fmt.Sprintf("%d", rconMaxFailures)
+	m.configEditor.rconMinFailures = fmt.Sprintf("%d", rconMinFailures)
+	m.configEditor.rconMinFailureTime = fmt.Sprintf("%d", rconMinFailureTime)
 	m.configEditor.cursor = 0
 	m.configEditor.editing = false
 	m.configEditor.errMsg = ""

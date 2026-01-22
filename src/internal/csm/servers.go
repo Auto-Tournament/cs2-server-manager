@@ -517,6 +517,38 @@ func detectHostnamePrefix(user string) string {
 	return "CS2 Server"
 }
 
+// DetectRCONBanSettings best-effort reads RCON ban settings from an existing server config.
+// Returns (maxFailures, minFailures, minFailureTime). Defaults to (0, 0, 0) if not found.
+func DetectRCONBanSettings(user string) (maxFailures, minFailures, minFailureTime int) {
+	return detectRCONBanSettings(user)
+}
+
+// detectRCONBanSettings is the internal implementation.
+func detectRCONBanSettings(user string) (maxFailures, minFailures, minFailureTime int) {
+	cfg := filepath.Join("/home", user, "server-1", "game", "csgo", "cfg", "server.cfg")
+	data, err := os.ReadFile(cfg)
+	if err != nil {
+		return 0, 0, 0 // Default: disabled
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "sv_rcon_maxfailures ") {
+			if n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "sv_rcon_maxfailures "))); err == nil {
+				maxFailures = n
+			}
+		} else if strings.HasPrefix(line, "sv_rcon_minfailures ") {
+			if n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "sv_rcon_minfailures "))); err == nil {
+				minFailures = n
+			}
+		} else if strings.HasPrefix(line, "sv_rcon_minfailuretime ") {
+			if n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "sv_rcon_minfailuretime "))); err == nil {
+				minFailureTime = n
+			}
+		}
+	}
+	return maxFailures, minFailures, minFailureTime
+}
+
 // DetectMetamodEnabled inspects server-1's gameinfo.gi to see whether the
 // Metamod line is present. New servers follow the same setting.
 func DetectMetamodEnabled(user string) bool {
