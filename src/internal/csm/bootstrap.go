@@ -1403,16 +1403,41 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		return fmt.Errorf("failed to create master directory: %w", err)
 	}
 
+	// Check if steamcmd exists
+	if _, err := exec.LookPath("steamcmd"); err != nil {
+		return fmt.Errorf("steamcmd not found in PATH. Install it with: sudo apt-get install steamcmd")
+	}
+
+	// Check if the CS2 user exists and can access the directory
+	homeDir := filepath.Join("/home", cfg.CS2User)
+	if _, err := os.Stat(homeDir); os.IsNotExist(err) {
+		return fmt.Errorf("CS2 user home directory %s does not exist. User may not have been created properly", homeDir)
+	}
+
+	// Ensure the CS2 user owns the master directory
+	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), masterDir).Run(); err != nil {
+		fmt.Fprintf(w, "  [!] Warning: Failed to set ownership of %s: %v\n", masterDir, err)
+	}
+
 	cmd := exec.CommandContext(ctx, "sudo", "-u", cfg.CS2User, "steamcmd",
 		"+force_install_dir", masterDir,
 		"+login", "anonymous",
 		"+app_update", "730", "validate",
 		"+quit",
 	)
+	
+	// Capture both stdout and stderr
+	var stderrBuf bytes.Buffer
 	cmd.Stdout = w
-	cmd.Stderr = w
+	cmd.Stderr = io.MultiWriter(w, &stderrBuf)
+	
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("steamcmd failed: %w", err)
+		// Include stderr in the error message for better debugging
+		stderrStr := strings.TrimSpace(stderrBuf.String())
+		if stderrStr != "" {
+			return fmt.Errorf("steamcmd failed: %w\nSteamCMD stderr output:\n%s", err, stderrStr)
+		}
+		return fmt.Errorf("steamcmd failed: %w\nCheck the log output above for details", err)
 	}
 	fmt.Fprintf(w, "  [✓] Master CS2 installation ready\n")
 	return nil
