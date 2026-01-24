@@ -284,9 +284,22 @@ func runAttachServer(serverNum int) tea.Cmd {
 	return func() tea.Msg {
 		mgr, err := csm.NewTmuxManager()
 		if err != nil {
-			// Can't attach, show error and quit
-			fmt.Fprintf(os.Stderr, "Failed to attach: %v\n", err)
-			return tea.Quit()
+			return commandFinishedMsg{
+				item:   menuItem{title: "Attach to server console"},
+				output: fmt.Sprintf("Failed to create tmux manager: %v", err),
+				err:    err,
+			}
+		}
+
+		// If the server isn't running, keep the TUI open and show a clear error
+		// instead of quitting and "doing nothing".
+		if !mgr.IsRunning(serverNum) {
+			err := fmt.Errorf("server %d is not running; start it first, then attach", serverNum)
+			return commandFinishedMsg{
+				item:   menuItem{title: "Attach to server console"},
+				output: err.Error(),
+				err:    err,
+			}
 		}
 
 		// Quit the TUI first

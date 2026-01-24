@@ -156,6 +156,17 @@ func (m *TmuxManager) runAsCS2User(cmdline string) *exec.Cmd {
 	return exec.Command("su", "-", m.CS2User, "-c", cmdline)
 }
 
+// IsRunning reports whether the tmux session for the given server exists.
+// When running as root, it checks using the CS2 user's tmux server (via su).
+// When not root, it checks the current user's tmux server.
+func (m *TmuxManager) IsRunning(server int) bool {
+	session := m.sessionName(server)
+	if os.Geteuid() == 0 {
+		return m.runAsCS2User("tmux has-session -t " + session).Run() == nil
+	}
+	return exec.Command("tmux", "has-session", "-t", session).Run() == nil
+}
+
 // Status returns a human-readable status for all known servers/sessions.
 func (m *TmuxManager) Status() (string, error) {
 	var buf bytes.Buffer
@@ -376,7 +387,27 @@ func (m *TmuxManager) Logs(server, lines int) (string, error) {
 // Attach attaches the current terminal to a server's tmux session.
 func (m *TmuxManager) Attach(server int) error {
 	session := m.sessionName(server)
-	cmd := m.runAsCS2User("tmux attach -t " + session)
+	if !m.IsRunning(server) {
+		return fmt.Errorf("server %d is not running (no tmux session %q). Start it first, then attach", server, session)
+	}
+
+	// If the user launches CSM from inside an existing tmux session, tmux may
+	// refuse to attach ("sessions should be nested with care") unless TMUX is
+	// unset. Force a clean attach so this works from both tmux and a regular
+	// shell.
+	if os.Geteuid() == 0 {
+		cmd := m.runAsCS2User("TMUX= tmux attach -t " + session)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	// Non-root: avoid prompting for a cs2 user password via su. This will work
+	// when the caller is already the CS2 user (or otherwise has access to the
+	// relevant tmux server); otherwise it will return a normal tmux error.
+	cmd := exec.Command("tmux", "attach", "-t", session)
+	cmd.Env = append(os.Environ(), "TMUX=")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

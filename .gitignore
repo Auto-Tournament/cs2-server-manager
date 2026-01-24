@@ -37,7 +37,7 @@ build/
 game_files/
 extracted_csgo/
 .env
-cs2-tui
+/cs2-tui
 /csm
 csm.exe
 

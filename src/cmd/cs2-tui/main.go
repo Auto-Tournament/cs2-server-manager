@@ -622,7 +622,8 @@ func main() {
 	// Always enable Bubble Tea file logging so we can debug TUI behaviour even
 	// when stdout is occupied. Logs go to CSM_LOG_DIR (default: current
 	// directory) as csm.log, shared with other CSM log helpers.
-	logDir := getenvDefault("CSM_LOG_DIR", ".")
+	rootForLogs := getenvDefault("CSM_ROOT", ".")
+	logDir := getenvDefault("CSM_LOG_DIR", filepath.Join(rootForLogs, "logs"))
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "failed to create CSM_LOG_DIR:", err)
 	} else {
@@ -630,6 +631,9 @@ func main() {
 		if f, err := tea.LogToFile(logPath, "debug"); err != nil {
 			fmt.Fprintln(os.Stderr, "failed to enable debug logging:", err)
 		} else {
+			// Bubble Tea log files default to 0600; make them readable so users can
+			// quickly inspect why the TUI exited (common during setup).
+			_ = os.Chmod(logPath, 0o644)
 			defer f.Close()
 		}
 	}
