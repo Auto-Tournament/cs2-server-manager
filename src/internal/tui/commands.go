@@ -720,6 +720,11 @@ func withEnvLogTail(envKey, tempName string, run func() (string, error)) (string
 // tailInstallLog runs in a background goroutine and periodically reads the log
 // file at logPath, sending installLogTickMsg messages to the TUI program.
 // It stops when the done channel is closed.
+//
+// This function reads from the temp log file that commands write to (via
+// CSM_*_LOG environment variables) and sends only NEW lines to the TUI.
+// The TUI then accumulates these lines and shows the last N lines + parses
+// percentages for progress bars (e.g., "Downloaded 45%" or "progress: 67.5").
 func tailInstallLog(logPath string, done <-chan struct{}) {
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()

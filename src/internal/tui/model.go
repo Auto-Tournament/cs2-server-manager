@@ -54,6 +54,7 @@ const (
 	itemStopAllGo
 	itemRestartAllGo
 	itemPublicIPGo
+	itemViewRecentLogsGo
 	itemExtractThumbnailsGo
 	itemCleanupAllGo
 	itemAddServerGo
@@ -217,6 +218,11 @@ type model struct {
 	// other long-running tasks that stream logs via tailInstallLog.
 	logProgress progress.Model
 	logPercent  int
+
+	// Accumulated log lines from the current operation (for showing last N lines)
+	logLines []string
+	// Maximum number of log lines to keep in memory
+	maxLogLines int
 
 	// Terminal height (rows), captured from Bubble Tea's WindowSizeMsg so we
 	// can size scrollable views (like the install wizard) dynamically.
@@ -469,6 +475,11 @@ func buildItemsForTab(t tab) []menuItem {
 				title:       "Extract map thumbnails",
 				description: "",
 				kind:        itemExtractThumbnailsGo,
+			},
+			{
+				title:       "View recent command logs",
+				description: "List recent command logs with quick error/success status for easy debugging.",
+				kind:        itemViewRecentLogsGo,
 			},
 			{
 				title:       "Show public IP",
@@ -1121,6 +1132,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Extracting and converting map thumbnails..."
 				m.lastOutput = ""
 				cmds = append(cmds, runExtractThumbnailsGo(), m.spin.Tick)
+			case itemViewRecentLogsGo:
+				m.running = true
+				m.status = "Loading recent command logs..."
+				m.lastOutput = ""
+				cmds = append(cmds, runViewRecentLogsGo(), m.spin.Tick)
 			case itemEditMatchZyConfig:
 				cmds = append(cmds, runEditConfigFile("MatchZy config.cfg", "game/csgo/cfg/MatchZy/config.cfg"))
 			case itemEditMatchZyDatabase:
@@ -1193,6 +1209,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear any generic log-based progress so the bar disappears when the
 		// next command starts.
 		m.logPercent = 0
+		// Clear accumulated log lines from the previous operation
+		m.logLines = nil
 		// Any completed command that uses the scaling log tailer should clear
 		// the scaling flag so the progress bar disappears.
 		if msg.item.kind == itemAddServerGo || msg.item.kind == itemRemoveServerGo || msg.item.kind == itemReinstallServerGo {
@@ -1314,6 +1332,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.lastOutput = ""
 		}
+
+		// Log each install wizard step for debugging
+		stepName := "unknown-step"
+		switch msg.step {
+		case installStepPlugins:
+			stepName = "install-wizard-step-1-plugins"
+		case installStepBootstrap:
+			stepName = "install-wizard-step-2-bootstrap"
+		case installStepMonitor:
+			stepName = "install-wizard-step-3-monitor"
+		case installStepStartServers:
+			stepName = "install-wizard-step-4-start-servers"
+		}
+		csm.LogAction("tui-wizard", stepName, msg.out, msg.err)
 
 		if msg.err != nil {
 			m.confirmQuit = false
@@ -1438,11 +1470,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case installLogTickMsg:
 		// Live tail of the bootstrap log while steamcmd and other long-running
-		// operations are in progress. For fresh installs, prepend a static
-		// summary of what the step is doing so users can see the high-level
-		// actions (cleanup, Docker, etc.) alongside the live tail.
+		// operations are in progress. Accumulate log lines and show last N lines
+		// with live progress bars for SteamCMD downloads, rsync, etc.
 		out := strings.TrimSpace(msg.lines)
 		if out != "" {
+			// Split new output into lines and append to our accumulated log
+			newLines := strings.Split(out, "\n")
+			m.logLines = append(m.logLines, newLines...)
+
+			// Keep only the last N lines to prevent memory bloat
+			if len(m.logLines) > m.maxLogLines {
+				m.logLines = m.logLines[len(m.logLines)-m.maxLogLines:]
+			}
+
+			// Build the display output from accumulated lines
+			tailedOutput := strings.Join(m.logLines, "\n")
+			
 			if m.currentInstallStep == installStepBootstrap && m.wizard.cfg.freshInstall {
 				header := []string{
 					"[2/4] Performing fresh CS2 install (cleanup + steamcmd + bootstrap)...",
@@ -1452,17 +1495,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					"  • Provision a clean MatchZy database (Docker mode)",
 					"  • Recreate all servers from the new master",
 					"",
-					out,
+					fmt.Sprintf("Live output (showing last %d lines):", len(m.logLines)),
+					"",
+					tailedOutput,
 				}
 				m.lastOutput = strings.Join(header, "\n")
 			} else {
-				m.lastOutput = out
+				m.lastOutput = tailedOutput
 			}
 
 			// Parse a rsync- or wget-style progress line (searching from the
 			// bottom) to drive one or more progress bars. This is resilient to
 			// the final line being a partial write without a % token.
-			lines := strings.Split(out, "\n")
+			lines := newLines
 
 			// Scaling-specific progress bar (server Add/Remove).
 			if m.scaling {
@@ -1487,7 +1532,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Generic log-based progress bar for any operation that streams
 			// percent-bearing lines (plugin downloads, game updates, thumbnail
-			// extraction, dependency installs, etc.).
+			// extraction, dependency installs, etc.). This covers SteamCMD format:
+			// "Update state (0x61) downloading, progress: 45.67 (12345678 / 27012345)"
 			for i := len(lines) - 1; i >= 0; i-- {
 				lastLine := strings.TrimSpace(lines[i])
 				if lastLine == "" {
@@ -1838,6 +1884,8 @@ func (m model) View() string {
 			desc = "Bypass the cache and check GitHub for a newer CSM version."
 		case itemExtractThumbnailsGo:
 			desc = "Run the VPK/thumbnails pipeline and write PNG + WEBP (full + 1280px) into map_thumbnails/."
+		case itemViewRecentLogsGo:
+			desc = "Show a list of the 20 most recent command logs with quick error/success status for debugging."
 		case itemCleanupAllGo:
 			desc = "Wipe all servers and the dedicated CS2 user; use only when you want a full reset."
 		case itemCLIHelp:

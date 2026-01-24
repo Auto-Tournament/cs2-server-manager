@@ -437,6 +437,38 @@ func main() {
 			csm.LogAction("cli", fmt.Sprintf("logs-file server-%d", server), path, nil)
 			fmt.Println(path)
 			return
+	case "logdir":
+		// Show command logs directory and recent logs  
+		logDir := csm.ResolveRoot()
+		if d := os.Getenv("CSM_LOG_DIR"); d != "" {
+			logDir = d
+		} else {
+			logDir = filepath.Join(logDir, "logs")
+		}
+		
+		if _, err := os.Stat(logDir); os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Logs directory does not exist yet: %s\n\nRun some commands first to generate logs.\n", logDir)
+			os.Exit(1)
+		}
+		
+		logs, err := csm.ListRecentLogs(10)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to list logs: %v\n", err)
+			os.Exit(1)
+		}
+		
+		fmt.Printf("CS2 Server Manager - Command Logs\n==================================\n\nLog directory: %s\n\n", logDir)
+		
+		if len(logs) == 0 {
+			fmt.Println("No command logs found yet.\n\nRun some commands and their logs will appear here.")
+		} else {
+			fmt.Printf("Recent commands (10 most recent):\n\n")
+			for i, logName := range logs {
+				fmt.Printf("  %d. %s\n", i+1, logName)
+			}
+			fmt.Printf("\nTo view a log:\n  cat %s/<filename>\n\nTo navigate to logs directory:\n  cd %s\n\nTo follow live logs:\n  tail -f %s/csm.log\n", logDir, logDir, logDir)
+		}
+		return
 		case "attach":
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm attach <server>")
