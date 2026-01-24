@@ -1383,12 +1383,22 @@ func createCS2User(w *bytes.Buffer, user string) error {
 	cmd := exec.Command("id", "-u", user)
 	if err := cmd.Run(); err == nil {
 		fmt.Fprintf(w, "  [✓] User %s already exists\n", user)
+
+		// Ensure home directory ownership is correct. This is important because
+		// SteamCMD will try to create ~/.steam and will fail with "Permission denied"
+		// if /home/<user> is owned by root (common after partial/manual installs).
+		if err := fixServerOwnership(user); err != nil {
+			fmt.Fprintf(w, "  [!] Warning: Failed to fix ownership for %s: %v\n", user, err)
+		}
 		return nil
 	}
 
 	fmt.Fprintf(w, "  [*] Creating user %s...\n", user)
 	if err := runCmdLogged(w, "useradd", "-r", "-m", "-s", "/bin/bash", user); err != nil {
 		return fmt.Errorf("failed to create user %s: %w", user, err)
+	}
+	if err := fixServerOwnership(user); err != nil {
+		fmt.Fprintf(w, "  [!] Warning: Failed to fix ownership for %s: %v\n", user, err)
 	}
 	fmt.Fprintf(w, "  [✓] User %s created\n", user)
 	return nil
@@ -1414,12 +1424,19 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		return fmt.Errorf("CS2 user home directory %s does not exist. User may not have been created properly", homeDir)
 	}
 
+	// Ensure the CS2 user can write to their home directory (SteamCMD needs this
+	// to create ~/.steam and other state directories).
+	if err := fixServerOwnership(cfg.CS2User); err != nil {
+		fmt.Fprintf(w, "  [!] Warning: Failed to fix ownership of %s: %v\n", homeDir, err)
+	}
+
 	// Ensure the CS2 user owns the master directory
 	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), masterDir).Run(); err != nil {
 		fmt.Fprintf(w, "  [!] Warning: Failed to set ownership of %s: %v\n", masterDir, err)
 	}
 
-	cmd := exec.CommandContext(ctx, "sudo", "-u", cfg.CS2User, "steamcmd",
+	// Use -H so HOME is set to the target user's home (SteamCMD writes to ~/.steam).
+	cmd := exec.CommandContext(ctx, "sudo", "-u", cfg.CS2User, "-H", "steamcmd",
 		"+force_install_dir", masterDir,
 		"+login", "anonymous",
 		"+app_update", "730", "validate",
