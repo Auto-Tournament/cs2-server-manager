@@ -1052,19 +1052,20 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 		switch step {
 		case installStepPlugins:
 			if cfg.updatePlugins {
-				// UpdatePlugins doesn't have context support yet, but we still
-				// check context cancellation before/after to allow quick abort
-				// during install wizard.
+				// Update+deploy plugins so servers actually have addons/ populated.
+				// We still check context cancellation before/after to allow quick abort.
 				select {
 				case <-ctx.Done():
 					err = ctx.Err()
 					log("Plugin update cancelled: %v", err)
 				default:
-					_, err = csm.UpdatePlugins()
+					_, err = withPluginsLogTail(func() (string, error) {
+						return csm.UpdateAndDeployPluginsWithContext(ctx)
+					})
 					if err != nil {
-						log("Plugin update failed: %v", err)
+						log("Plugin update/deploy failed: %v", err)
 					} else {
-						log("Plugin update completed successfully.")
+						log("Plugin update/deploy completed successfully.")
 					}
 				}
 			} else {

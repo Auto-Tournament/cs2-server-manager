@@ -100,6 +100,32 @@ sudo csm logs 1 200
 
 Look in the CounterStrikeSharp logs under each server’s `game/csgo/addons/counterstrikesharp/logs` directory for stack traces or error messages.
 
+## Metamod / CounterStrikeSharp / MatchZy not installed (missing csgo/addons)
+
+Symptoms:
+
+- You enabled Metamod but the server has no `csgo/addons/` directory.
+- CounterStrikeSharp logs directory is missing.
+- MatchZy plugin folder is missing.
+
+Verify on disk (replace `cs2servermanager` if your CS2 user is different):
+
+```bash
+CS2USER=cs2servermanager
+for s in 1 2 3; do
+  echo "=== server-$s ==="
+  ls -la "/home/$CS2USER/server-$s/game/csgo/addons" || true
+  ls -la "/home/$CS2USER/server-$s/game/csgo/addons/metamod" 2>/dev/null || true
+  ls -la "/home/$CS2USER/server-$s/game/csgo/addons/counterstrikesharp" 2>/dev/null || true
+  ls -la "/home/$CS2USER/server-$s/game/csgo/addons/counterstrikesharp/plugins/MatchZy" 2>/dev/null || true
+done
+```
+
+Fix:
+
+- Run `sudo csm update-plugins` (this downloads + deploys plugins to all servers).
+- Then restart servers: `sudo csm restart`.
+
 ## Auto updates not working
 
 - Verify the cron job is installed and points to the correct path.

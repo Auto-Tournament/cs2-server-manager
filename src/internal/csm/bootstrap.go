@@ -1418,6 +1418,22 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		return fmt.Errorf("steamcmd not found in PATH. Install it with: sudo apt-get install steamcmd")
 	}
 
+	// When invoked from the TUI install wizard, CSM_BOOTSTRAP_LOG points at a
+	// temp file that the UI tails for live progress. SteamCMD can take a long
+	// time and prints useful progress output, so mirror its stdout/stderr into
+	// that log file too (not just the in-memory buffer).
+	var logFile *os.File
+	if logPath := strings.TrimSpace(os.Getenv("CSM_BOOTSTRAP_LOG")); logPath != "" {
+		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+			logFile = f
+			defer func() {
+				if cerr := logFile.Close(); cerr != nil {
+					fmt.Fprintf(os.Stderr, "CSM_BOOTSTRAP_LOG close failed: %v\n", cerr)
+				}
+			}()
+		}
+	}
+
 	// Check if the CS2 user exists and can access the directory
 	homeDir := filepath.Join("/home", cfg.CS2User)
 	if _, err := os.Stat(homeDir); os.IsNotExist(err) {
@@ -1447,6 +1463,10 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 	var stderrBuf bytes.Buffer
 	cmd.Stdout = w
 	cmd.Stderr = io.MultiWriter(w, &stderrBuf)
+	if logFile != nil {
+		cmd.Stdout = io.MultiWriter(w, logFile)
+		cmd.Stderr = io.MultiWriter(w, &stderrBuf, logFile)
+	}
 
 	if err := cmd.Run(); err != nil {
 		// Include stderr in the error message for better debugging
