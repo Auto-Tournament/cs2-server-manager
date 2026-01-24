@@ -1445,25 +1445,86 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 
 // setupSteamSDKLinksGo sets up Steam SDK symlinks for the CS2 user.
 func setupSteamSDKLinksGo(w *bytes.Buffer, user string) error {
-	masterDir := filepath.Join("/home", user, "master-install")
-	sdkLink := filepath.Join("/home", user, ".steam", "sdk64")
+	homeDir := filepath.Join("/home", user)
+	sdk64Dir := filepath.Join(homeDir, ".steam", "sdk64")
+	sdk32Dir := filepath.Join(homeDir, ".steam", "sdk32")
 
-	fmt.Fprintf(w, "  [*] Setting up Steam SDK symlinks...\n")
-	if err := os.MkdirAll(filepath.Dir(sdkLink), 0o755); err != nil {
-		return fmt.Errorf("failed to create .steam directory: %w", err)
+	fmt.Fprintf(w, "  [*] Setting up Steam SDK (steamclient.so) links...\n")
+
+	// Steamworks init looks specifically for ~/.steam/sdk64/steamclient.so (and sometimes sdk32).
+	// The CS2 dedicated server install does not always ship steamclient.so in its own tree;
+	// it is typically provided by SteamCMD under the user's Steam data directory.
+	findSteamClient := func(candidates []string) string {
+		for _, p := range candidates {
+			if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+				return p
+			}
+		}
+		return ""
 	}
 
-	sdkSource := filepath.Join(masterDir, "bin", "linuxsteamrt64")
-	if _, err := os.Stat(sdkSource); err != nil {
-		fmt.Fprintf(w, "  [i] SDK source not found at %s, skipping symlink\n", sdkSource)
+	linkOrCopy := func(src, dst string) error {
+		_ = os.Remove(dst)
+		if err := os.Symlink(src, dst); err == nil {
+			return nil
+		}
+
+		// Symlinks can fail on some systems/filesystems; fall back to copying.
+		in, err := os.Open(src)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+
+		out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+
+		_, err = io.Copy(out, in)
+		return err
+	}
+
+	src64 := findSteamClient([]string{
+		filepath.Join(homeDir, ".local", "share", "Steam", "steamcmd", "linux64", "steamclient.so"),
+		filepath.Join(homeDir, ".steam", "steamcmd", "linux64", "steamclient.so"),
+		filepath.Join(homeDir, ".steam", "root", "steamcmd", "linux64", "steamclient.so"),
+		"/usr/lib/steam/steamcmd/linux64/steamclient.so",
+		"/usr/lib64/steam/steamcmd/linux64/steamclient.so",
+	})
+	if src64 == "" {
+		fmt.Fprintf(w, "  [i] steamclient.so not found (steamcmd may not have run yet); skipping\n")
 		return nil
 	}
 
-	_ = os.Remove(sdkLink)
-	if err := os.Symlink(sdkSource, sdkLink); err != nil {
-		return fmt.Errorf("failed to create SDK symlink: %w", err)
+	if err := os.MkdirAll(sdk64Dir, 0o755); err != nil {
+		return fmt.Errorf("failed to create %s: %w", sdk64Dir, err)
 	}
-	fmt.Fprintf(w, "  [✓] Steam SDK symlinks ready\n")
+	dst64 := filepath.Join(sdk64Dir, "steamclient.so")
+	if err := linkOrCopy(src64, dst64); err != nil {
+		return fmt.Errorf("failed to set up %s from %s: %w", dst64, src64, err)
+	}
+
+	// Best-effort sdk32 (not always required, but cheap to provide if present).
+	src32 := findSteamClient([]string{
+		filepath.Join(homeDir, ".local", "share", "Steam", "steamcmd", "linux32", "steamclient.so"),
+		filepath.Join(homeDir, ".steam", "steamcmd", "linux32", "steamclient.so"),
+		filepath.Join(homeDir, ".steam", "root", "steamcmd", "linux32", "steamclient.so"),
+		"/usr/lib/steam/steamcmd/linux32/steamclient.so",
+		"/usr/lib32/steam/steamcmd/linux32/steamclient.so",
+	})
+	if src32 != "" {
+		if err := os.MkdirAll(sdk32Dir, 0o755); err != nil {
+			return fmt.Errorf("failed to create %s: %w", sdk32Dir, err)
+		}
+		dst32 := filepath.Join(sdk32Dir, "steamclient.so")
+		if err := linkOrCopy(src32, dst32); err != nil {
+			fmt.Fprintf(w, "  [!] Warning: Failed to set up %s from %s: %v\n", dst32, src32, err)
+		}
+	}
+
+	fmt.Fprintf(w, "  [✓] Steam SDK ready (sdk64 steamclient.so: %s)\n", src64)
 	return nil
 }
 

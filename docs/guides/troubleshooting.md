@@ -17,6 +17,36 @@ Check for:
 - Port conflicts if you changed defaults.
 - Corrupted game files (see "Corrupted game files" section below).
 
+## Steamworks SDK init failure (missing steamclient.so)
+
+If you see errors like:
+
+```
+SteamGameServer_Init()
+dlopen failed trying to load:
+steamclient.so
+steamclient.so: cannot open shared object file: No such file or directory
+[S_API] SteamAPI_Init(): Failed to load module '.../steamclient.so'
+FATAL ERROR: Failed to initialize Steamworks SDK for gameserver.
+Segmentation fault
+```
+
+This means the server can't find `~/.steam/sdk64/steamclient.so` for the CS2 user.
+
+Fix (replace `cs2servermanager` if your CS2 user is different):
+
+```bash
+sudo -u cs2servermanager mkdir -p /home/cs2servermanager/.steam/sdk64
+sudo -u cs2servermanager ln -sf /home/cs2servermanager/.local/share/Steam/steamcmd/linux64/steamclient.so /home/cs2servermanager/.steam/sdk64/steamclient.so
+sudo csm restart
+```
+
+If you still get the error, ensure `steamcmd` has been run at least once for that user (CSM `bootstrap` does this) and confirm the source file exists:
+
+```bash
+sudo -u cs2servermanager ls -la /home/cs2servermanager/.local/share/Steam/steamcmd/linux64/steamclient.so
+```
+
 ## Corrupted game files
 
 If you see errors like:
