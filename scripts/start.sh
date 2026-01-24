@@ -62,8 +62,9 @@ fi
 echo "[cs2-server-manager] Launching CSM with DEBUG logging enabled..."
 # Force stdio to the controlling TTY so the Bubble Tea renderer can initialize,
 # even when launched from tmux or other wrappers.
+# Pass through all command-line arguments (e.g., "debug 1", "status", etc.)
 if [ "$(id -u)" -eq 0 ]; then
-  CSM_ROOT="$PWD" CSM_LOG_DIR="$PWD/logs" DEBUG=1 exec "${BUILD_DIR}/csm" </dev/tty >/dev/tty 2>/dev/tty
+  CSM_ROOT="$PWD" CSM_LOG_DIR="$PWD/logs" DEBUG=1 exec "${BUILD_DIR}/csm" "$@" </dev/tty >/dev/tty 2>/dev/tty
 else
-  exec sudo -E env CSM_ROOT="$PWD" CSM_LOG_DIR="$PWD/logs" DEBUG=1 "${BUILD_DIR}/csm" </dev/tty >/dev/tty 2>/dev/tty
+  exec sudo -E env CSM_ROOT="$PWD" CSM_LOG_DIR="$PWD/logs" DEBUG=1 "${BUILD_DIR}/csm" "$@" </dev/tty >/dev/tty 2>/dev/tty
 fi

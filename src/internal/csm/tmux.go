@@ -6,9 +6,11 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // TmuxManager provides a Go-native interface for managing CS2 tmux sessions.
@@ -422,7 +424,7 @@ func (m *TmuxManager) ListSessions() (string, error) {
 }
 
 // Debug starts a single server in the foreground (no tmux) so all output goes
-// to the current terminal.
+// to the current terminal. It properly handles Ctrl+C (SIGINT) to stop the server.
 func (m *TmuxManager) Debug(server int) error {
 	serverDir := m.serverDir(server)
 	gameDir := filepath.Join(serverDir, "game")
@@ -445,5 +447,34 @@ func (m *TmuxManager) Debug(server int) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	
+	// Set up signal handling to forward Ctrl+C to the child process
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	
+	// Wait for either the process to finish or a signal
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+	
+	select {
+	case sig := <-sigChan:
+		// Signal received (Ctrl+C) - kill the process
+		log.Printf("[tmux] Debug: received signal %v, stopping server...", sig)
+		if err := cmd.Process.Kill(); err != nil {
+			log.Printf("[tmux] Debug: failed to kill process: %v", err)
+		}
+		// Wait for process to actually exit
+		<-done
+		return fmt.Errorf("server stopped by signal: %v", sig)
+	case err := <-done:
+		// Process finished normally
+		return err
+	}
 }
