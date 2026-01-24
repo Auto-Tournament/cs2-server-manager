@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -715,4 +716,195 @@ func detectServerPorts(user string, server int) (gamePort, tvPort int) {
 	baseGame := DefaultBaseGamePort
 	baseTV := DefaultBaseTVPort
 	return baseGame + (server-1)*10, baseTV + (server-1)*10
+}
+
+// UnbanIP removes an IP address from a server's banned_ip.cfg file.
+// If serverNum is 0, it removes the IP from all servers.
+func UnbanIP(serverNum int, ip string) (string, error) {
+	mgr, err := NewTmuxManager()
+	if err != nil {
+		return "", err
+	}
+
+	var result strings.Builder
+	removed := false
+
+	if serverNum == 0 {
+		// Unban from all servers
+		for i := 1; i <= mgr.NumServers; i++ {
+			if ok, _ := unbanIPFromServer(mgr.CS2User, i, ip); ok {
+				removed = true
+				fmt.Fprintf(&result, "Removed %s from server-%d\n", ip, i)
+				reloadBannedIPs(mgr.CS2User, i)
+			}
+		}
+	} else {
+		// Unban from specific server
+		if ok, err := unbanIPFromServer(mgr.CS2User, serverNum, ip); err != nil {
+			return "", err
+		} else if ok {
+			removed = true
+			fmt.Fprintf(&result, "Removed %s from server-%d\n", ip, serverNum)
+			reloadBannedIPs(mgr.CS2User, serverNum)
+		} else {
+			fmt.Fprintf(&result, "IP %s not found in server-%d banned list\n", ip, serverNum)
+		}
+	}
+
+	if !removed && serverNum != 0 {
+		fmt.Fprintf(&result, "IP %s was not banned on server-%d\n", ip, serverNum)
+	}
+
+	return result.String(), nil
+}
+
+// UnbanAllIPs clears all IP bans from a server's banned_ip.cfg file.
+// If serverNum is 0, it clears bans from all servers.
+func UnbanAllIPs(serverNum int) (string, error) {
+	mgr, err := NewTmuxManager()
+	if err != nil {
+		return "", err
+	}
+
+	var result strings.Builder
+
+	if serverNum == 0 {
+		// Clear all servers
+		for i := 1; i <= mgr.NumServers; i++ {
+			if err := clearBannedIPs(mgr.CS2User, i); err == nil {
+				fmt.Fprintf(&result, "Cleared all IP bans from server-%d\n", i)
+				reloadBannedIPs(mgr.CS2User, i)
+			}
+		}
+	} else {
+		// Clear specific server
+		if err := clearBannedIPs(mgr.CS2User, serverNum); err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&result, "Cleared all IP bans from server-%d\n", serverNum)
+		reloadBannedIPs(mgr.CS2User, serverNum)
+	}
+
+	return result.String(), nil
+}
+
+// unbanIPFromServer removes an IP from a specific server's banned_ip.cfg file.
+func unbanIPFromServer(user string, serverNum int, ip string) (bool, error) {
+	banFile := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg", "banned_ip.cfg")
+	
+	data, err := os.ReadFile(banFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil // File doesn't exist, IP not banned
+		}
+		return false, err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var newLines []string
+	found := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Skip comments and empty lines
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			newLines = append(newLines, line)
+			continue
+		}
+		// Check if this line contains the IP
+		if strings.Contains(trimmed, ip) {
+			found = true
+			continue // Skip this line (remove the ban)
+		}
+		newLines = append(newLines, line)
+	}
+
+	if !found {
+		return false, nil
+	}
+
+	// Write back the file without the banned IP
+	content := strings.Join(newLines, "\n")
+	if err := os.WriteFile(banFile, []byte(content), 0o644); err != nil {
+		return false, fmt.Errorf("failed to write banned_ip.cfg: %w", err)
+	}
+
+	return true, nil
+}
+
+// clearBannedIPs clears all IP bans from a server's banned_ip.cfg file.
+func clearBannedIPs(user string, serverNum int) error {
+	banFile := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg", "banned_ip.cfg")
+	
+	// If file doesn't exist, nothing to clear
+	if _, err := os.Stat(banFile); os.IsNotExist(err) {
+		return nil
+	}
+
+	// Write empty file (or just header comment)
+	content := "// Banned IP addresses for RCON access\n"
+	if err := os.WriteFile(banFile, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("failed to clear banned_ip.cfg: %w", err)
+	}
+
+	return nil
+}
+
+// reloadBannedIPs sends a command to reload banned_ip.cfg in a running server.
+func reloadBannedIPs(user string, serverNum int) {
+	session := fmt.Sprintf("cs2-%d", serverNum)
+	// Try to send the exec command to reload banned IPs
+	_ = exec.Command("su", "-", user, "-c", fmt.Sprintf("tmux send-keys -t %s 'exec banned_ip.cfg' C-m", session)).Run()
+}
+
+// ListBannedIPs returns a list of banned IP addresses for a server.
+func ListBannedIPs(serverNum int) (string, error) {
+	mgr, err := NewTmuxManager()
+	if err != nil {
+		return "", err
+	}
+
+	if serverNum < 1 || serverNum > mgr.NumServers {
+		return "", fmt.Errorf("server-%d not found (only %d server(s) detected)", serverNum, mgr.NumServers)
+	}
+
+	banFile := filepath.Join("/home", mgr.CS2User, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg", "banned_ip.cfg")
+	
+	data, err := os.ReadFile(banFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Sprintf("No banned IPs for server-%d (banned_ip.cfg not found)", serverNum), nil
+		}
+		return "", fmt.Errorf("failed to read banned_ip.cfg: %w", err)
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var bannedIPs []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Skip comments and empty lines
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		// Extract IP from lines like "addip 0 172.19.0.3"
+		if strings.HasPrefix(trimmed, "addip") {
+			parts := strings.Fields(trimmed)
+			if len(parts) >= 3 {
+				bannedIPs = append(bannedIPs, parts[2])
+			}
+		}
+	}
+
+	if len(bannedIPs) == 0 {
+		return fmt.Sprintf("No banned IPs for server-%d", serverNum), nil
+	}
+
+	var result strings.Builder
+	fmt.Fprintf(&result, "Banned IPs for server-%d:\n", serverNum)
+	for _, ip := range bannedIPs {
+		fmt.Fprintf(&result, "  %s\n", ip)
+	}
+
+	return result.String(), nil
 }

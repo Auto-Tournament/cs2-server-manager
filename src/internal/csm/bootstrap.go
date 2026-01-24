@@ -1374,3 +1374,124 @@ func stopTmuxServerGo(w *bytes.Buffer, user string, serverNum int) error {
 	_ = exec.Command("su", "-", user, "-c", "tmux kill-session -t "+session).Run()
 	return nil
 }
+
+// --- Bootstrap helper functions (previously moved to separate files) ---
+
+// createCS2User creates the CS2 service user if it doesn't exist.
+func createCS2User(w *bytes.Buffer, user string) error {
+	fmt.Fprintf(w, "  [*] Checking for user %s...\n", user)
+	cmd := exec.Command("id", "-u", user)
+	if err := cmd.Run(); err == nil {
+		fmt.Fprintf(w, "  [✓] User %s already exists\n", user)
+		return nil
+	}
+
+	fmt.Fprintf(w, "  [*] Creating user %s...\n", user)
+	if err := runCmdLogged(w, "useradd", "-r", "-m", "-s", "/bin/bash", user); err != nil {
+		return fmt.Errorf("failed to create user %s: %w", user, err)
+	}
+	fmt.Fprintf(w, "  [✓] User %s created\n", user)
+	return nil
+}
+
+// installMasterViaSteamCMD installs or updates the master CS2 installation via SteamCMD.
+func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg BootstrapConfig) error {
+	masterDir := filepath.Join("/home", cfg.CS2User, "master-install")
+	fmt.Fprintf(w, "  [*] Installing/updating master CS2 at %s...\n", masterDir)
+	
+	if err := os.MkdirAll(masterDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create master directory: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, "sudo", "-u", cfg.CS2User, "steamcmd",
+		"+force_install_dir", masterDir,
+		"+login", "anonymous",
+		"+app_update", "730", "validate",
+		"+quit",
+	)
+	cmd.Stdout = w
+	cmd.Stderr = w
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("steamcmd failed: %w", err)
+	}
+	fmt.Fprintf(w, "  [✓] Master CS2 installation ready\n")
+	return nil
+}
+
+// setupSteamSDKLinksGo sets up Steam SDK symlinks for the CS2 user.
+func setupSteamSDKLinksGo(w *bytes.Buffer, user string) error {
+	masterDir := filepath.Join("/home", user, "master-install")
+	sdkLink := filepath.Join("/home", user, ".steam", "sdk64")
+	
+	fmt.Fprintf(w, "  [*] Setting up Steam SDK symlinks...\n")
+	if err := os.MkdirAll(filepath.Dir(sdkLink), 0o755); err != nil {
+		return fmt.Errorf("failed to create .steam directory: %w", err)
+	}
+
+	sdkSource := filepath.Join(masterDir, "bin", "linuxsteamrt64")
+	if _, err := os.Stat(sdkSource); err != nil {
+		fmt.Fprintf(w, "  [i] SDK source not found at %s, skipping symlink\n", sdkSource)
+		return nil
+	}
+
+	_ = os.Remove(sdkLink)
+	if err := os.Symlink(sdkSource, sdkLink); err != nil {
+		return fmt.Errorf("failed to create SDK symlink: %w", err)
+	}
+	fmt.Fprintf(w, "  [✓] Steam SDK symlinks ready\n")
+	return nil
+}
+
+// copyMasterToServerGo copies the master installation to a server instance.
+func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverNum int, freshInstall bool) error {
+	masterDir := filepath.Join("/home", user, "master-install")
+	serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum))
+	serverGameDir := filepath.Join(serverDir, "game")
+
+	if freshInstall {
+		if err := os.RemoveAll(serverGameDir); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to clean server-%d: %w", serverNum, err)
+		}
+	}
+
+	if err := os.MkdirAll(serverGameDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create server directory: %w", err)
+	}
+
+	fmt.Fprintf(w, "  [*] Copying master install to server-%d...\n", serverNum)
+	masterGameDir := filepath.Join(masterDir, "game") + string(os.PathSeparator)
+	if err := runCmdLoggedContext(ctx, w, "rsync", "-a", "--delete",
+		"--exclude", "csgo/addons/",
+		masterGameDir,
+		serverGameDir+string(os.PathSeparator),
+	); err != nil {
+		return fmt.Errorf("rsync failed: %w", err)
+	}
+	fmt.Fprintf(w, "  [✓] Server-%d game files copied\n", serverNum)
+	return nil
+}
+
+// overlayConfigToServerGo applies configuration overlays to a server instance.
+func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serverNum int) error {
+	sharedCfgDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg")
+	serverCfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
+
+	if fi, err := os.Stat(sharedCfgDir); err != nil || !fi.IsDir() {
+		fmt.Fprintf(w, "  [i] No shared config found, skipping overlay for server-%d\n", serverNum)
+		return nil
+	}
+
+	fmt.Fprintf(w, "  [*] Applying config overlay to server-%d...\n", serverNum)
+	if err := os.MkdirAll(serverCfgDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create server cfg directory: %w", err)
+	}
+
+	if err := runCmdLoggedContext(ctx, w, "rsync", "-a",
+		sharedCfgDir+string(os.PathSeparator),
+		serverCfgDir+string(os.PathSeparator),
+	); err != nil {
+		return fmt.Errorf("rsync config failed: %w", err)
+	}
+	fmt.Fprintf(w, "  [✓] Config overlay applied to server-%d\n", serverNum)
+	return nil
+}

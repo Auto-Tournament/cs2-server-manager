@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -99,4 +101,136 @@ func improveErrorMessage(operation string, err error, additionalContext ...strin
 	msg += ": " + err.Error()
 	
 	return fmt.Errorf(msg)
+}
+
+// --- Mutex locks for concurrent operation protection ---
+
+var (
+	pluginUpdateMutex sync.Mutex
+	gameUpdateMutex   sync.Mutex
+	pluginDeployMutex sync.Mutex
+)
+
+// withPluginUpdateLock runs the provided function while holding a mutex to prevent
+// concurrent plugin updates.
+func withPluginUpdateLock(fn func() error) error {
+	pluginUpdateMutex.Lock()
+	defer pluginUpdateMutex.Unlock()
+	return fn()
+}
+
+// withGameUpdateLock runs the provided function while holding a mutex to prevent
+// concurrent game updates.
+func withGameUpdateLock(fn func() (string, error)) (string, error) {
+	gameUpdateMutex.Lock()
+	defer gameUpdateMutex.Unlock()
+	return fn()
+}
+
+// withPluginDeployLock runs the provided function while holding a mutex to prevent
+// concurrent plugin deployments.
+func withPluginDeployLock(fn func() (string, error)) (string, error) {
+	pluginDeployMutex.Lock()
+	defer pluginDeployMutex.Unlock()
+	return fn()
+}
+
+// --- HTTP retry configuration and helpers ---
+
+// RetryConfig holds configuration for HTTP retry operations.
+type RetryConfig struct {
+	MaxRetries      int
+	InitialDelay    time.Duration
+	MaxDelay        time.Duration
+	BackoffMultiplier float64
+}
+
+// DefaultRetryConfig returns a default retry configuration for HTTP operations.
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxRetries:        3,
+		InitialDelay:     1 * time.Second,
+		MaxDelay:         10 * time.Second,
+		BackoffMultiplier: 2.0,
+	}
+}
+
+// RetryHTTPRead performs an HTTP GET request with retry logic.
+func RetryHTTPRead(client *http.Client, url string, cfg RetryConfig) ([]byte, error) {
+	var lastErr error
+	delay := cfg.InitialDelay
+
+	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(delay)
+			if delay < cfg.MaxDelay {
+				delay = time.Duration(float64(delay) * cfg.BackoffMultiplier)
+				if delay > cfg.MaxDelay {
+					delay = cfg.MaxDelay
+				}
+			}
+		}
+
+		resp, err := client.Get(url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+			continue
+		}
+
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		return data, nil
+	}
+
+	return nil, fmt.Errorf("failed after %d retries: %w", cfg.MaxRetries+1, lastErr)
+}
+
+// RetryHTTPGet performs an HTTP GET request with retry logic and returns the response.
+func RetryHTTPGet(client *http.Client, url string, cfg RetryConfig) (*http.Response, error) {
+	var lastErr error
+	delay := cfg.InitialDelay
+
+	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
+		if attempt > 0 {
+			time.Sleep(delay)
+			if delay < cfg.MaxDelay {
+				delay = time.Duration(float64(delay) * cfg.BackoffMultiplier)
+				if delay > cfg.MaxDelay {
+					delay = cfg.MaxDelay
+				}
+			}
+		}
+
+		resp, err := client.Get(url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+			continue
+		}
+
+		return resp, nil
+	}
+
+	return nil, fmt.Errorf("failed after %d retries: %w", cfg.MaxRetries+1, lastErr)
+}
+
+// EnsureDirectoryExists creates a directory and all parent directories if they don't exist.
+func EnsureDirectoryExists(path string) error {
+	return os.MkdirAll(path, 0o755)
 }

@@ -9,7 +9,36 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
+
+// CheckDiskSpaceForGameUpdate checks if there's sufficient disk space
+// for game updates. It estimates space needed based on the number of servers.
+func CheckDiskSpaceForGameUpdate(cs2User string, numServers int) error {
+	path := "/"
+	if strings.TrimSpace(cs2User) != "" {
+		path = filepath.Join("/home", cs2User)
+	}
+
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return fmt.Errorf("failed to check disk space at %s: %w", path, err)
+	}
+
+	blockSize := float64(stat.Bsize)
+	freeGB := (float64(stat.Bavail) * blockSize) / (1024 * 1024 * 1024)
+
+	// Estimate space needed: master + per-server overhead
+	estimatedGB := DefaultMasterDiskGB + (DefaultPerServerDiskGB * float64(numServers))
+	
+	// Require at least the estimated space + 10% buffer
+	requiredGB := estimatedGB * 1.1
+	if freeGB < requiredGB {
+		return fmt.Errorf("insufficient disk space: %.2f GB free, need at least %.2f GB", freeGB, requiredGB)
+	}
+
+	return nil
+}
 
 // UpdateGame updates the master CS2 installation via SteamCMD and rsyncs
 // core game files to all server instances, preserving configs and addons.

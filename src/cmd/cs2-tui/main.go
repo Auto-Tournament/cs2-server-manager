@@ -379,14 +379,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "list-bans failed: %v\n", err)
 				os.Exit(1)
 			}
-			if len(ips) == 0 {
-				fmt.Printf("No banned IPs found for server-%d\n", server)
-			} else {
-				fmt.Printf("Banned IPs for server-%d:\n", server)
-				for _, ip := range ips {
-					fmt.Printf("  - %s\n", ip)
-				}
-			}
+			fmt.Print(ips)
 			return
 		case "logs":
 			if len(args) < 2 {
