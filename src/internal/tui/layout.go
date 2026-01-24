@@ -40,6 +40,3 @@ func (m *model) layoutViewport() {
 	// is managed directly by viewport methods in the PR version.
 	// The viewport is sized and updated directly where it's used.
 }
-
-
-

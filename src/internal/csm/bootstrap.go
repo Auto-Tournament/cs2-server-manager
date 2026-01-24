@@ -21,19 +21,19 @@ import (
 // ownership issues that can break server functionality.
 func fixServerOwnership(user string) error {
 	homeDir := filepath.Join("/home", user)
-	
+
 	// Check if home directory exists
 	if _, err := os.Stat(homeDir); os.IsNotExist(err) {
 		// Nothing to fix if home doesn't exist yet
 		return nil
 	}
-	
+
 	// Run chown recursively on the entire home directory
 	cmd := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", user, user), homeDir)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to fix ownership of %s: %w", homeDir, err)
 	}
-	
+
 	return nil
 }
 
@@ -49,7 +49,7 @@ type BootstrapConfig struct {
 	FreshInstall      bool
 	UpdateMaster      bool
 	RCONPassword      string
-	MaxPlayers        int // 0 means use default
+	MaxPlayers        int    // 0 means use default
 	GSLT              string // Game Server Login Token (optional)
 	MatchzySkipDocker bool
 	GameFilesDir      string // typically <root>/game_files
@@ -174,7 +174,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if err := ensureDefaultOverridesWithTracking(cfg.OverridesDir, &createdOverrideFiles); err != nil {
 		log("  [!] Failed to write default overrides to %s: %v", cfg.OverridesDir, err)
 	}
-	
+
 	// Track if bootstrap succeeded - we'll use this in defer to decide cleanup
 	bootstrapSucceeded := false
 	defer func() {
@@ -215,7 +215,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	// Add timeout to SteamCMD operation to prevent indefinite hanging
 	steamCtx, steamCancel := contextWithTimeout(ctx, TimeoutSteamCMD)
 	defer steamCancel()
-	
+
 	if err := installMasterViaSteamCMD(steamCtx, &buf, cfg); err != nil {
 		if steamCtx.Err() == context.DeadlineExceeded {
 			log("  [!] SteamCMD operation timed out after %v", TimeoutSteamCMD)
@@ -237,7 +237,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("")
 
 	log("[4/5] Provisioning MatchZy database (Docker)...")
-	
+
 	if err := setupMatchZyDatabaseGo(&buf, cfg); err != nil {
 		log("  [!] MatchZy database provisioning skipped or failed: %v", err)
 		log("      Install Docker and rerun bootstrap if you need the built-in database.")
@@ -566,22 +566,22 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 		lines := strings.Split(string(data), "\n")
 		var out []string
 		updatedHostname := false
-		
+
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
-			
+
 			// Update hostname if found
 			if strings.HasPrefix(trimmed, "hostname ") {
 				out = append(out, fullName)
 				updatedHostname = true
 				continue
 			}
-			
+
 			// Update or remove old rcon_password (we'll add it at the start)
 			if strings.HasPrefix(trimmed, "rcon_password") {
 				continue
 			}
-			
+
 			// Remove old RCON ban settings (we'll add them fresh with disabled values)
 			if strings.HasPrefix(trimmed, "sv_rcon_banpenalty") ||
 				strings.HasPrefix(trimmed, "sv_rcon_maxfailures") ||
@@ -589,7 +589,7 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 				strings.HasPrefix(trimmed, "sv_rcon_minfailuretime") {
 				continue
 			}
-			
+
 			// Remove old maxplayers/tv settings (we'll add them at the end)
 			if strings.HasPrefix(trimmed, "maxplayers") ||
 				strings.HasPrefix(trimmed, "sv_maxplayers") ||
@@ -598,10 +598,10 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 				strings.HasPrefix(trimmed, "tv_port") {
 				continue
 			}
-			
+
 			out = append(out, line)
 		}
-		
+
 		// Prepend rcon_password and RCON ban settings (must be first)
 		// Use default disabled values (will be overridden by customizeServerCfgGoWithRCONBans if called)
 		out = append([]string{
@@ -612,17 +612,17 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 			`sv_rcon_minfailures 0`,
 			`sv_rcon_minfailuretime 0`,
 		}, out...)
-		
+
 		// Add hostname if it wasn't in the file
 		if !updatedHostname {
 			out = append(out, "", fullName)
 		}
-		
+
 		// Add maxplayers if specified
 		if maxPlayers > 0 {
 			out = append(out, "", fmt.Sprintf("maxplayers %d", maxPlayers))
 		}
-		
+
 		// Append GOTV settings
 		out = append(out, "",
 			"// ========================================",
@@ -632,7 +632,7 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 			"tv_delay 90",
 			fmt.Sprintf("tv_port %d", tvPort),
 		)
-		
+
 		if err := os.WriteFile(serverCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 			return err
 		}
@@ -723,10 +723,10 @@ echo "==========================================="
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
-	
+
 	// Note: Ownership of cfg directory (and all other files) is fixed by the
 	// comprehensive fixServerOwnership call at the end of bootstrap/reinstall.
-	
+
 	return nil
 }
 
@@ -756,22 +756,22 @@ func customizeServerCfgGoWithRCONBans(w io.Writer, user string, serverNum int, r
 		lines := strings.Split(string(data), "\n")
 		var out []string
 		updatedHostname := false
-		
+
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
-			
+
 			// Update hostname if found
 			if strings.HasPrefix(trimmed, "hostname ") {
 				out = append(out, fullName)
 				updatedHostname = true
 				continue
 			}
-			
+
 			// Update or remove old rcon_password (we'll add it at the start)
 			if strings.HasPrefix(trimmed, "rcon_password") {
 				continue
 			}
-			
+
 			// Remove old RCON ban settings (we'll add them fresh)
 			if strings.HasPrefix(trimmed, "sv_rcon_banpenalty") ||
 				strings.HasPrefix(trimmed, "sv_rcon_maxfailures") ||
@@ -779,7 +779,7 @@ func customizeServerCfgGoWithRCONBans(w io.Writer, user string, serverNum int, r
 				strings.HasPrefix(trimmed, "sv_rcon_minfailuretime") {
 				continue
 			}
-			
+
 			// Remove old maxplayers/tv settings (we'll add them at the end)
 			if strings.HasPrefix(trimmed, "maxplayers") ||
 				strings.HasPrefix(trimmed, "sv_maxplayers") ||
@@ -788,10 +788,10 @@ func customizeServerCfgGoWithRCONBans(w io.Writer, user string, serverNum int, r
 				strings.HasPrefix(trimmed, "tv_port") {
 				continue
 			}
-			
+
 			out = append(out, line)
 		}
-		
+
 		// Prepend rcon_password and RCON ban settings (must be first)
 		out = append([]string{
 			fmt.Sprintf(`rcon_password "%s"`, rcon),
@@ -801,17 +801,17 @@ func customizeServerCfgGoWithRCONBans(w io.Writer, user string, serverNum int, r
 			fmt.Sprintf(`sv_rcon_minfailures %d`, rconMinFailures),
 			fmt.Sprintf(`sv_rcon_minfailuretime %d`, rconMinFailureTime),
 		}, out...)
-		
+
 		// Add hostname if it wasn't in the file
 		if !updatedHostname {
 			out = append(out, "", fullName)
 		}
-		
+
 		// Add maxplayers if specified
 		if maxPlayers > 0 {
 			out = append(out, "", fmt.Sprintf("maxplayers %d", maxPlayers))
 		}
-		
+
 		// Append GOTV settings
 		out = append(out, "",
 			"// ========================================",
@@ -821,7 +821,7 @@ func customizeServerCfgGoWithRCONBans(w io.Writer, user string, serverNum int, r
 			"tv_delay 90",
 			fmt.Sprintf("tv_port %d", tvPort),
 		)
-		
+
 		if err := os.WriteFile(serverCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 			return err
 		}
@@ -912,7 +912,7 @@ echo "==========================================="
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -1022,7 +1022,7 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		dbCfg.MySQLDatabase = DefaultMatchzyDBName
 		dbCfg.MySQLUsername = DefaultMatchzyDBUser
 		dbCfg.MySQLPassword = DefaultMatchzyDBPassword
-		
+
 		// Warn about default database passwords
 		if cfg.ExternalDBPassword == "" || cfg.ExternalDBPassword == DefaultMatchzyDBPassword {
 			fmt.Fprintf(w, "  [!] WARNING: Using default MatchZy database password!\n")
@@ -1398,7 +1398,7 @@ func createCS2User(w *bytes.Buffer, user string) error {
 func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg BootstrapConfig) error {
 	masterDir := filepath.Join("/home", cfg.CS2User, "master-install")
 	fmt.Fprintf(w, "  [*] Installing/updating master CS2 at %s...\n", masterDir)
-	
+
 	if err := os.MkdirAll(masterDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create master directory: %w", err)
 	}
@@ -1425,12 +1425,12 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 		"+app_update", "730", "validate",
 		"+quit",
 	)
-	
+
 	// Capture both stdout and stderr
 	var stderrBuf bytes.Buffer
 	cmd.Stdout = w
 	cmd.Stderr = io.MultiWriter(w, &stderrBuf)
-	
+
 	if err := cmd.Run(); err != nil {
 		// Include stderr in the error message for better debugging
 		stderrStr := strings.TrimSpace(stderrBuf.String())
@@ -1447,7 +1447,7 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 func setupSteamSDKLinksGo(w *bytes.Buffer, user string) error {
 	masterDir := filepath.Join("/home", user, "master-install")
 	sdkLink := filepath.Join("/home", user, ".steam", "sdk64")
-	
+
 	fmt.Fprintf(w, "  [*] Setting up Steam SDK symlinks...\n")
 	if err := os.MkdirAll(filepath.Dir(sdkLink), 0o755); err != nil {
 		return fmt.Errorf("failed to create .steam directory: %w", err)

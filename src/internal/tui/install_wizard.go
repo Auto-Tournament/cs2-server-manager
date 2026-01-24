@@ -83,7 +83,7 @@ func getWizardPages(dbMode string) []wizardPage {
 			wizardFieldUpdatePlugins, wizardFieldInstallMonitor,
 		},
 	}
-	
+
 	// Add external DB page if using external mode
 	if strings.EqualFold(dbMode, "external") {
 		externalPage := wizardPage{
@@ -96,7 +96,7 @@ func getWizardPages(dbMode string) []wizardPage {
 		// Insert before final page (which has Start install)
 		pages = append(pages[:len(pages)-1], externalPage, pages[len(pages)-1])
 	}
-	
+
 	return pages
 }
 
@@ -229,7 +229,7 @@ func (m model) viewInstallWizard() string {
 
 	// Build list of fields to show: navigation buttons first, then page fields
 	var visibleFields []int
-	
+
 	// Add navigation buttons at the top (Next first, then Previous)
 	if !isLastPage {
 		visibleFields = append(visibleFields, wizardFieldNext)
@@ -240,7 +240,7 @@ func (m model) viewInstallWizard() string {
 		visibleFields = append(visibleFields, wizardFieldPrevious)
 	}
 	visibleFields = append(visibleFields, wizardFieldCancel)
-	
+
 	// Add page fields after navigation
 	visibleFields = append(visibleFields, currentPage...)
 
@@ -624,7 +624,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	isLastPage := m.wizard.currentPage == len(pages)-1
 
 	var visibleFields []int
-	
+
 	// Add navigation buttons at the top (Next first, then Previous - same order as viewInstallWizard)
 	if !isLastPage {
 		visibleFields = append(visibleFields, wizardFieldNext)
@@ -635,7 +635,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		visibleFields = append(visibleFields, wizardFieldPrevious)
 	}
 	visibleFields = append(visibleFields, wizardFieldCancel)
-	
+
 	// Add page fields after navigation
 	visibleFields = append(visibleFields, currentPage...)
 
@@ -803,7 +803,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 		if m.wizard.editing {
 			// Commit the current edit.
 			value := strings.TrimSpace(m.wizard.input.Value())
-			
+
 			switch currentField {
 			case wizardFieldNumServers:
 				m.wizard.numServersStr = value

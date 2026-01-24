@@ -303,7 +303,7 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 	enableMetamod := detectMetamodEnabled(user)
 	maxPlayers := detectMaxPlayers(user)
 	gslt := detectGSLT(user)
-	
+
 	// Debug output
 	fmt.Printf("[DEBUG] Detected settings:\n")
 	fmt.Printf("  Metamod enabled: %v\n", enableMetamod)
@@ -336,21 +336,21 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 		if !strings.HasSuffix(line, "\n") {
 			line += "\n"
 		}
-		
+
 		// Write to buffer for return value
 		buf.WriteString(line)
-		
+
 		// Write to TUI log file if set
 		if logFile != nil {
 			_, _ = logFile.WriteString(line)
 		}
-		
+
 		// If running in CLI mode, print to stdout for real-time feedback
 		if isCLI {
 			fmt.Print(line)
 		}
 	}
-	
+
 	// For operations that write directly to the buffer (like rsync), we need
 	// to create a writer that also outputs to stdout in CLI mode
 	var writer io.Writer = &buf
@@ -791,7 +791,7 @@ func UnbanAllIPs(serverNum int) (string, error) {
 // unbanIPFromServer removes an IP from a specific server's banned_ip.cfg file.
 func unbanIPFromServer(user string, serverNum int, ip string) (bool, error) {
 	banFile := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg", "banned_ip.cfg")
-	
+
 	data, err := os.ReadFile(banFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -835,7 +835,7 @@ func unbanIPFromServer(user string, serverNum int, ip string) (bool, error) {
 // clearBannedIPs clears all IP bans from a server's banned_ip.cfg file.
 func clearBannedIPs(user string, serverNum int) error {
 	banFile := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg", "banned_ip.cfg")
-	
+
 	// If file doesn't exist, nothing to clear
 	if _, err := os.Stat(banFile); os.IsNotExist(err) {
 		return nil
@@ -869,7 +869,7 @@ func ListBannedIPs(serverNum int) (string, error) {
 	}
 
 	banFile := filepath.Join("/home", mgr.CS2User, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg", "banned_ip.cfg")
-	
+
 	data, err := os.ReadFile(banFile)
 	if err != nil {
 		if os.IsNotExist(err) {

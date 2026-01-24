@@ -13,17 +13,17 @@ import (
 
 // configEditorState holds the state for the server config editor
 type configEditorState struct {
-	rconPassword      string
-	maxPlayers        string
-	gslt              string
-	hostnamePrefix    string
-	rconMaxFailures   string
-	rconMinFailures   string
+	rconPassword       string
+	maxPlayers         string
+	gslt               string
+	hostnamePrefix     string
+	rconMaxFailures    string
+	rconMinFailures    string
 	rconMinFailureTime string
-	cursor            int // field index
-	editing           bool
-	input             textinput.Model
-	errMsg            string
+	cursor             int // field index
+	editing            bool
+	input              textinput.Model
+	errMsg             string
 }
 
 // configEditorField indices
@@ -318,13 +318,13 @@ func (m model) updateEditServerConfigs(msg tea.Msg) (model, tea.Cmd) {
 			m.lastOutput = ""
 
 			cfg := csm.UpdateServerConfigsConfig{
-				RCONPassword:        m.configEditor.rconPassword,
-				MaxPlayers:          maxPlayers,
-				GSLT:                m.configEditor.gslt,
-				HostnamePrefix:      strings.TrimSpace(m.configEditor.hostnamePrefix),
-				RCONMaxFailures:      rconMaxFailures,
-				RCONMinFailures:     rconMinFailures,
-				RCONMinFailureTime:  rconMinFailureTime,
+				RCONPassword:       m.configEditor.rconPassword,
+				MaxPlayers:         maxPlayers,
+				GSLT:               m.configEditor.gslt,
+				HostnamePrefix:     strings.TrimSpace(m.configEditor.hostnamePrefix),
+				RCONMaxFailures:    rconMaxFailures,
+				RCONMinFailures:    rconMinFailures,
+				RCONMinFailureTime: rconMinFailureTime,
 			}
 
 			return m, tea.Batch(runUpdateServerConfigsGo(cfg), m.spin.Tick)
@@ -391,7 +391,7 @@ func (m *model) initConfigEditor() {
 	m.configEditor.cursor = 0
 	m.configEditor.editing = false
 	m.configEditor.errMsg = ""
-	
+
 	// Reset input
 	m.configEditor.input = textinput.New()
 	m.configEditor.input.Placeholder = ""

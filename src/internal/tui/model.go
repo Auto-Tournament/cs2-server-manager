@@ -527,10 +527,10 @@ func (m *model) initWizardDefaults() {
 	mgr, err := csm.NewTmuxManager()
 	if err == nil && mgr.NumServers > 0 {
 		user := mgr.CS2User
-		
+
 		// Detect numServers
 		cfg.numServers = mgr.NumServers
-		
+
 		// Detect ports from server-1
 		if cfg.numServers >= 1 {
 			gamePort, tvPort := csm.DetectServerPorts(user, 1)
@@ -541,7 +541,7 @@ func (m *model) initWizardDefaults() {
 				cfg.tvPort = tvPort
 			}
 		}
-		
+
 		// Detect other config values
 		cfg.cs2User = user
 		cfg.hostnamePrefix = csm.DetectHostnamePrefix(user)
@@ -1720,25 +1720,25 @@ func (m model) View() string {
 	}
 	fmt.Fprintln(&b)
 
-		// Tab bar. While a long-running command is active, we hide the tabs to
-		// reduce visual clutter and focus attention on the status/output.
-		if !m.running {
-			tabs := []string{"Install", "Updates", "Servers", "Config", "Tools"}
-			var tabParts []string
-			for i, name := range tabs {
-				style := tabInactiveStyle
-				if tab(i) == m.tab {
-					style = tabActiveStyle
-				}
-				tabParts = append(tabParts, style.Render(name))
+	// Tab bar. While a long-running command is active, we hide the tabs to
+	// reduce visual clutter and focus attention on the status/output.
+	if !m.running {
+		tabs := []string{"Install", "Updates", "Servers", "Config", "Tools"}
+		var tabParts []string
+		for i, name := range tabs {
+			style := tabInactiveStyle
+			if tab(i) == m.tab {
+				style = tabActiveStyle
 			}
-			fmt.Fprintln(&b, tabBarStyle.Render(strings.Join(tabParts, "  ")))
-			fmt.Fprintln(&b)
-		} else {
-			fmt.Fprintln(&b)
+			tabParts = append(tabParts, style.Render(name))
 		}
+		fmt.Fprintln(&b, tabBarStyle.Render(strings.Join(tabParts, "  ")))
+		fmt.Fprintln(&b)
+	} else {
+		fmt.Fprintln(&b)
+	}
 
-	// Version / update banner: only on the main menu (viewMain) and Install tab, 
+	// Version / update banner: only on the main menu (viewMain) and Install tab,
 	// and only when not running any operations (to avoid showing it during installation, etc).
 	// Other views and tabs don't show this banner.
 	if m.view == viewMain && m.tab == tabInstall && !m.running {

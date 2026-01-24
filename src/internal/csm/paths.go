@@ -10,9 +10,9 @@ import (
 // state (overrides/, game_files/, logs/, etc.).
 //
 // Priority:
-//   1) CSM_ROOT environment variable, if set.
-//   2) A local overrides/ directory next to the csm binary (for dev/git checkouts).
-//   3) DefaultRootDir (typically /opt/cs2-server-manager).
+//  1. CSM_ROOT environment variable, if set.
+//  2. A local overrides/ directory next to the csm binary (for dev/git checkouts).
+//  3. DefaultRootDir (typically /opt/cs2-server-manager).
 func ResolveRoot() string {
 	if v := strings.TrimSpace(os.Getenv("CSM_ROOT")); v != "" {
 		return v
@@ -33,5 +33,3 @@ func ResolveRoot() string {
 	// bootstrap/update flows as needed.
 	return DefaultRootDir
 }
-
-

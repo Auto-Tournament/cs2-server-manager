@@ -22,10 +22,10 @@ const (
 var (
 	// logLevel controls the minimum log level (default: INFO)
 	logLevel LogLevel = LogLevelInfo
-	
+
 	// logOutput is where structured logs are written (default: stderr)
 	logOutput io.Writer = os.Stderr
-	
+
 	// logJSON controls whether logs are in JSON format
 	logJSON bool
 )
@@ -44,7 +44,7 @@ func init() {
 			logLevel = LogLevelError
 		}
 	}
-	
+
 	// Check for JSON logging
 	if os.Getenv("CSM_LOG_JSON") != "" {
 		logJSON = true
@@ -54,14 +54,14 @@ func init() {
 // formatLog formats a log entry with level, timestamp, and message
 func formatLog(level string, msg string, args ...any) string {
 	ts := time.Now().Format(time.RFC3339)
-	
+
 	if logJSON {
 		// Simple JSON format
 		var parts []string
 		parts = append(parts, fmt.Sprintf(`"time":"%s"`, ts))
 		parts = append(parts, fmt.Sprintf(`"level":"%s"`, level))
 		parts = append(parts, fmt.Sprintf(`"msg":%q`, msg))
-		
+
 		// Add key-value pairs
 		for i := 0; i < len(args); i += 2 {
 			if i+1 < len(args) {
@@ -70,23 +70,23 @@ func formatLog(level string, msg string, args ...any) string {
 				parts = append(parts, fmt.Sprintf(`%q:%q`, key, val))
 			}
 		}
-		
+
 		return "{" + strings.Join(parts, ",") + "}\n"
 	}
-	
+
 	// Text format
 	var parts []string
 	parts = append(parts, fmt.Sprintf("[%s]", ts))
 	parts = append(parts, fmt.Sprintf("[%s]", level))
 	parts = append(parts, msg)
-	
+
 	// Add key-value pairs
 	for i := 0; i < len(args); i += 2 {
 		if i+1 < len(args) {
 			parts = append(parts, fmt.Sprintf("%v=%v", args[i], args[i+1]))
 		}
 	}
-	
+
 	return strings.Join(parts, " ") + "\n"
 }
 
@@ -176,7 +176,7 @@ func LogAction(source, action, output string, err error) {
 	} else {
 		LogInfo("Action completed", "source", source, "action", action)
 	}
-	
+
 	// Also write to the consolidated log file for backwards compatibility
 	ts := time.Now().Format(time.RFC3339)
 

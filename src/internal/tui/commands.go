@@ -537,7 +537,7 @@ func runEditConfigFile(title, configPath string) tea.Cmd {
 		// Determine the full path - check if it's in overrides or shared config
 		root := csm.ResolveRoot()
 		var fullPath string
-		
+
 		// Try overrides first (user's custom configs)
 		overridePath := filepath.Join(root, "overrides", configPath)
 		if _, err := os.Stat(overridePath); err == nil {
@@ -558,7 +558,7 @@ func runEditConfigFile(title, configPath string) tea.Cmd {
 					// Create directory as root (we're running with sudo)
 					if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 						return commandFinishedMsg{
-							item: menuItem{title: title},
+							item:   menuItem{title: title},
 							output: fmt.Sprintf("Failed to create config directory: %v", err),
 							err:    err,
 						}
@@ -576,11 +576,11 @@ func runEditConfigFile(title, configPath string) tea.Cmd {
 		// We need to sync the edited file to all servers
 		// Copy from wherever it was edited to cs2-config, then sync to all servers
 		configPathInCs2Config := filepath.Join("/home", mgr.CS2User, "cs2-config", configPath)
-		
+
 		// Create a shell script that runs nano, fixes ownership, and syncs to all servers
 		// We'll use syscall.Exec to replace the current process with this script
 		// This ensures nano gets full terminal control (stdin/stdout/stderr)
-		
+
 		// Build sync commands to copy to cs2-config and then sync to all servers
 		syncCmds := fmt.Sprintf(`echo ""
 echo "Syncing config to all servers..."
@@ -598,7 +598,7 @@ for server_dir in /home/%s/server-*/; do
   fi
 done
 `, filepath.Dir(configPathInCs2Config), fullPath, configPathInCs2Config, mgr.CS2User, mgr.CS2User, filepath.Dir(configPathInCs2Config), mgr.CS2User, mgr.CS2User, mgr.CS2User, mgr.CS2User)
-		
+
 		script := fmt.Sprintf(`#!/bin/bash
 clear
 echo "Opening %s in nano..."
@@ -619,7 +619,7 @@ echo "Run 'sudo csm' to restart the TUI."
 		scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("csm-edit-%d.sh", os.Getpid()))
 		if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 			return commandFinishedMsg{
-				item: menuItem{title: title},
+				item:   menuItem{title: title},
 				output: fmt.Sprintf("Failed to create edit script: %v", err),
 				err:    err,
 			}
@@ -630,7 +630,7 @@ echo "Run 'sudo csm' to restart the TUI."
 		// Note: syscall.Exec never returns if successful
 		fmt.Printf("\nQuitting CSM TUI to edit %s...\n", title)
 		time.Sleep(200 * time.Millisecond)
-		
+
 		// Replace this process with bash running our script
 		// This gives nano full terminal control
 		if err := syscall.Exec("/bin/bash", []string{"bash", scriptPath}, os.Environ()); err != nil {
@@ -642,7 +642,7 @@ echo "Run 'sudo csm' to restart the TUI."
 			os.Remove(scriptPath)
 			return tea.Quit()
 		}
-		
+
 		// This should never be reached (syscall.Exec replaces the process)
 		return tea.Quit()
 	}

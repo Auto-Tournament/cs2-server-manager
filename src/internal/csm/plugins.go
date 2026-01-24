@@ -27,7 +27,7 @@ type PluginUpdater struct {
 // Temporary files are stored in /tmp to avoid creating root-owned files in user directories.
 func NewPluginUpdater() *PluginUpdater {
 	root := ResolveRoot()
-	
+
 	// Try to get the CS2 user for overrides location
 	overridesDir := ""
 	tempDir := ""
@@ -42,7 +42,7 @@ func NewPluginUpdater() *PluginUpdater {
 		// Use system temp directory with a generic name
 		tempDir = filepath.Join(os.TempDir(), "csm-plugin-downloads")
 	}
-	
+
 	return &PluginUpdater{
 		RootDir:      root,
 		GameDir:      filepath.Join(root, "game_files", "game"),
@@ -86,7 +86,7 @@ func CheckDiskSpaceForPluginUpdate(gameDir string) error {
 func UpdatePlugins() (string, error) {
 	var result string
 	var resultErr error
-	
+
 	err := withPluginUpdateLock(func() error {
 		up := NewPluginUpdater()
 		var buf bytes.Buffer
@@ -111,11 +111,11 @@ func UpdatePlugins() (string, error) {
 		}
 
 		log := func(format string, args ...any) {
-		fmt.Fprintf(w, format, args...)
-		if !strings.HasSuffix(format, "\n") {
-			fmt.Fprintln(w)
+			fmt.Fprintf(w, format, args...)
+			if !strings.HasSuffix(format, "\n") {
+				fmt.Fprintln(w)
+			}
 		}
-	}
 
 		log("=== Update Plugins ===")
 		log("")
@@ -179,7 +179,7 @@ func UpdatePlugins() (string, error) {
 			log("  • CounterStrikeSharp → game_files/game/csgo/addons/counterstrikesharp/")
 			log("  • MatchZy            → game_files/game/csgo/addons/counterstrikesharp/plugins/MatchZy/")
 			log("  • User overrides     → Applied to game_files/ and cs2-config/")
-			
+
 			// Fix ownership of all server files
 			log("")
 			log("[*] Fixing file ownership...")
@@ -192,7 +192,7 @@ func UpdatePlugins() (string, error) {
 			} else {
 				log("[!] Warning: Could not detect CS2 user, skipping ownership fix")
 			}
-			
+
 			result = buf.String()
 			return nil
 		}
@@ -202,7 +202,7 @@ func UpdatePlugins() (string, error) {
 		resultErr = fmt.Errorf("some plugins failed to update: %s", strings.Join(failed, ", "))
 		return resultErr
 	})
-	
+
 	if err != nil {
 		return result, resultErr
 	}
