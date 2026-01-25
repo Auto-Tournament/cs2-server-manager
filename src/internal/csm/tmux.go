@@ -166,7 +166,7 @@ func (m *TmuxManager) runAsCS2User(cmdline string) *exec.Cmd {
 func (m *TmuxManager) IsRunning(server int) bool {
 	session := m.sessionName(server)
 	if os.Geteuid() == 0 {
-		return m.runAsCS2User("tmux has-session -t " + session).Run() == nil
+		return m.runAsCS2User("tmux has-session -t "+session).Run() == nil
 	}
 	return exec.Command("tmux", "has-session", "-t", session).Run() == nil
 }
@@ -266,7 +266,7 @@ func (m *TmuxManager) Start(server int) error {
 	if maxPlayers == 0 {
 		maxPlayers = 10 // default from v1.4.5
 	}
-	
+
 	cmdline := fmt.Sprintf(
 		"cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s'",
 		gameDir,
@@ -434,14 +434,14 @@ func portInUse(port int) bool {
 		tcpConn.Close()
 		return true // TCP port is in use
 	}
-	
+
 	// Check UDP (try to connect, but UDP doesn't have a real "connection" state)
 	// We use netstat/ss via exec as a fallback since Go's net package can't reliably detect UDP listeners
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("netstat -tuln 2>/dev/null | grep -q ':%d ' || ss -tuln 2>/dev/null | grep -q ':%d '", port, port))
 	if err := cmd.Run(); err == nil {
 		return true // Port is in use (found via netstat/ss)
 	}
-	
+
 	return false // Port appears to be free
 }
 
@@ -450,14 +450,14 @@ func portInUse(port int) bool {
 func (m *TmuxManager) Debug(server int) error {
 	serverDir := m.serverDir(server)
 	gameDir := filepath.Join(serverDir, "game")
-	
+
 	// Detect ports for this server from its config
 	gamePort, tvPort := detectServerPorts(m.CS2User, server)
-	
+
 	// Check if port is already in use before starting
 	if portInUse(gamePort) {
 		log.Printf("[tmux] Debug: WARNING - port %d is already in use, attempting to free it...", gamePort)
-		
+
 		// Try multiple cleanup methods
 		cleanupMethods := []*exec.Cmd{
 			exec.Command("pkill", "-9", "-f", fmt.Sprintf("cs2.sh.*-port %d", gamePort)),
@@ -465,11 +465,11 @@ func (m *TmuxManager) Debug(server int) error {
 			exec.Command("sh", "-c", fmt.Sprintf("lsof -ti :%d | xargs -r kill -9", gamePort)),
 			exec.Command("sh", "-c", fmt.Sprintf("fuser -k %d/tcp %d/udp 2>/dev/null", gamePort, gamePort)),
 		}
-		
+
 		for _, cmd := range cleanupMethods {
 			_ = cmd.Run() // Ignore errors, just try all methods
 		}
-		
+
 		// Wait and retry checking the port multiple times
 		for i := 0; i < 5; i++ {
 			time.Sleep(300 * time.Millisecond)
@@ -478,13 +478,13 @@ func (m *TmuxManager) Debug(server int) error {
 				break
 			}
 		}
-		
+
 		// Final check
 		if portInUse(gamePort) {
 			return fmt.Errorf("port %d is still in use after cleanup attempts. Please manually stop the server:\n  pkill -9 -f 'cs2.sh.*-port %d'\n  lsof -ti :%d | xargs kill -9", gamePort, gamePort, gamePort)
 		}
 	}
-	
+
 	gslt := m.getGSLT(server)
 	gsltArg := ""
 	if gslt != "" {
@@ -495,52 +495,52 @@ func (m *TmuxManager) Debug(server int) error {
 	if maxPlayers == 0 {
 		maxPlayers = 10
 	}
-	
+
 	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s", gameDir, gamePort, tvPort, maxPlayers, gsltArg))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	// Set process group so we can kill all children when Ctrl+C is pressed
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
 	}
-	
+
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	
+
 	// Set up signal handling to forward Ctrl+C to the child process
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	
+
 	// Wait for either the process to finish or a signal
 	done := make(chan error, 1)
 	go func() {
 		done <- cmd.Wait()
 	}()
-	
+
 	select {
 	case sig := <-sigChan:
 		// Signal received (Ctrl+C) - kill the process and all its children
 		log.Printf("[tmux] Debug: received signal %v, stopping server...", sig)
-		
+
 		// Kill the process group to ensure all child processes (including the actual CS2 server) are terminated
 		if cmd.Process != nil {
 			// Send SIGTERM first for graceful shutdown
 			if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 				log.Printf("[tmux] Debug: failed to send SIGTERM: %v", err)
 			}
-			
+
 			// Wait a moment for graceful shutdown
 			time.Sleep(500 * time.Millisecond)
-			
+
 			// Force kill if still running
 			if err := cmd.Process.Kill(); err != nil {
 				log.Printf("[tmux] Debug: failed to kill process: %v", err)
 			}
-			
+
 			// Also kill the process group (negative PID kills the entire group)
 			if pgid, err := syscall.Getpgid(cmd.Process.Pid); err == nil {
 				syscall.Kill(-pgid, syscall.SIGTERM)
@@ -548,17 +548,17 @@ func (m *TmuxManager) Debug(server int) error {
 				syscall.Kill(-pgid, syscall.SIGKILL)
 			}
 		}
-		
+
 		// Wait for process to actually exit
 		<-done
-		
+
 		// Give the port a moment to be released
 		time.Sleep(500 * time.Millisecond)
-		
+
 		// Verify the server actually stopped by checking if the port is still in use
 		if portInUse(gamePort) {
 			log.Printf("[tmux] Debug: WARNING - port %d still appears to be in use, attempting to kill CS2 server process...", gamePort)
-			
+
 			// Try to kill any CS2 server process running on this port
 			// Use pkill -f to match the full command line (more reliable than process name)
 			killCmd := exec.Command("pkill", "-9", "-f", fmt.Sprintf("cs2.sh.*-port %d", gamePort))
@@ -576,7 +576,7 @@ func (m *TmuxManager) Debug(server int) error {
 		} else {
 			log.Printf("[tmux] Debug: confirmed server stopped (port %d is free)", gamePort)
 		}
-		
+
 		return fmt.Errorf("server stopped by signal: %v", sig)
 	case err := <-done:
 		// Process finished normally

@@ -130,9 +130,12 @@ if [[ "$MODE" =~ ^(patch|minor|major)$ ]]; then
   confirm_release "${TAG}"
 
   # Update currentVersion in version.go to match the new tag.
+  # IMPORTANT: Strip the 'v' prefix from TAG since the UI code adds it when displaying.
+  # The version constant should be "1.6.4", not "v1.6.4".
+  VERSION_WITHOUT_V="${TAG#v}"
   # Use a portable in-place edit (creates a .bak on macOS/BSD).
   # We anchor on the const line to avoid touching comments.
-  sed -i.bak -E 's/^(const[[:space:]]+currentVersion[[:space:]]*=[[:space:]]*")([^"]+)(")/\1'"${TAG}"'\3/' "$VERSION_FILE"
+  sed -i.bak -E 's/^(const[[:space:]]+currentVersion[[:space:]]*=[[:space:]]*")([^"]+)(")/\1'"${VERSION_WITHOUT_V}"'\3/' "$VERSION_FILE"
   rm -f "${VERSION_FILE}.bak"
 
   # Commit and tag the version bump.
@@ -152,8 +155,11 @@ elif [[ "$MODE" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 
   # Update currentVersion in version.go to match the requested tag so the
   # consistency check passes and the binary reports the correct version.
+  # IMPORTANT: Strip the 'v' prefix from TAG since the UI code adds it when displaying.
+  # The version constant should be "1.6.4", not "v1.6.4".
+  VERSION_WITHOUT_V="${TAG#v}"
   if [[ -f "$VERSION_FILE" ]]; then
-    sed -i.bak -E 's/^(const[[:space:]]+currentVersion[[:space:]]*=[[:space:]]*")([^"]+)(")/\1'"${TAG}"'\3/' "$VERSION_FILE"
+    sed -i.bak -E 's/^(const[[:space:]]+currentVersion[[:space:]]*=[[:space:]]*")([^"]+)(")/\1'"${VERSION_WITHOUT_V}"'\3/' "$VERSION_FILE"
     rm -f "${VERSION_FILE}.bak"
   else
     echo "Warning: $VERSION_FILE not found; skipping version.go update."
@@ -195,14 +201,16 @@ DIST_DIR="dist/releases/${TAG}"
 mkdir -p "${DIST_DIR}"
 
 # Verify version.go was updated correctly before building
+# The version constant should NOT have the 'v' prefix (UI adds it when displaying)
+VERSION_WITHOUT_V="${TAG#v}"
 VERIFIED_VERSION=$(grep 'const[[:space:]]\+currentVersion' "$VERSION_FILE" | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)
-if [[ "$VERIFIED_VERSION" != "$TAG" ]]; then
-  echo "[csm] ERROR: version.go contains ${VERIFIED_VERSION} but expected ${TAG}"
+if [[ "$VERIFIED_VERSION" != "$VERSION_WITHOUT_V" ]]; then
+  echo "[csm] ERROR: version.go contains ${VERIFIED_VERSION} but expected ${VERSION_WITHOUT_V} (tag: ${TAG})"
   echo "[csm] Aborting build to prevent incorrect version in binaries."
   exit 1
 fi
 
-echo "[csm] Verified version.go matches tag: ${TAG}"
+echo "[csm] Verified version.go matches tag: ${TAG} (constant: ${VERSION_WITHOUT_V})"
 echo "[csm] Building release binaries for ${TAG}..."
 
 # Linux amd64
