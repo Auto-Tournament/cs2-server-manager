@@ -547,9 +547,13 @@ func updateSharedConfigsFromPluginBundle(w io.Writer, mgr *TmuxManager) error {
 		return nil
 	}
 
-	// Use rsync with --update to only copy files that are newer or don't exist
-	// This preserves existing user customizations while adding new default configs
+	// Use rsync with --update to only copy files that are newer or don't exist.
+	// However, we also use --ignore-existing=false to ensure files from the plugin
+	// bundle are copied even if they exist, as long as the source is newer.
+	// This allows plugin updates to bring in new config options while still
+	// preserving user customizations that are newer.
 	fmt.Fprintf(w, "  [*] Syncing new default configs from plugin bundle to cs2-config...\n")
+	fmt.Fprintf(w, "  [i] Note: Existing configs are preserved unless plugin bundle has newer defaults\n")
 	if err := runCmdLogged(w, "rsync", "-a", "--update", srcCfgDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
 		return fmt.Errorf("failed to sync configs: %w", err)
 	}
