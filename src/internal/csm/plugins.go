@@ -427,12 +427,74 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 		return nil
 	})
 	if matchzyRoot == "" {
-		matchzyRoot = extractDir
+		// Fallback: look for any directory that contains MatchZy files
+		// The zip might extract to a versioned subdirectory like MatchZy-1.4.10/
+		entries, err := os.ReadDir(extractDir)
+		if err == nil && len(entries) == 1 && entries[0].IsDir() {
+			// Single subdirectory - likely the versioned folder
+			matchzyRoot = filepath.Join(extractDir, entries[0].Name())
+			// Check if this subdirectory has the structure we need
+			if _, err := os.Stat(filepath.Join(matchzyRoot, "csgo", "addons")); err == nil {
+				// Found csgo/addons structure, use this
+			} else if _, err := os.Stat(filepath.Join(matchzyRoot, "addons")); err == nil {
+				// Found addons at root, need to go up one level conceptually
+				// But actually the structure might be matchzyRoot/csgo/addons or matchzyRoot/addons
+				// Let's check for csgo first
+				matchzyRoot = extractDir // Use extract dir and let rsync handle it
+			} else {
+				matchzyRoot = extractDir
+			}
+		} else {
+			matchzyRoot = extractDir
+		}
 	}
 
-	// Sync into game_files/game/csgo/.
-	if err := runCmdLogged(w, "rsync", "-a", matchzyRoot+string(os.PathSeparator), filepath.Join(up.GameDir, "csgo")+string(os.PathSeparator)); err != nil {
-		return err
+	// Verify the source directory exists before rsync
+	if fi, err := os.Stat(matchzyRoot); err != nil || !fi.IsDir() {
+		return fmt.Errorf("MatchZy extract directory not found or invalid: %s (error: %v)", matchzyRoot, err)
+	}
+
+	// Ensure destination exists - use absolute paths to avoid rsync getcwd() errors
+	dstDir := filepath.Join(up.GameDir, "csgo")
+	dstDirAbs, err := filepath.Abs(dstDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path for destination: %w", err)
+	}
+	
+	if err := EnsureDirectoryExists(dstDirAbs); err != nil {
+		return fmt.Errorf("failed to create destination directory %s: %w", dstDirAbs, err)
+	}
+
+	// Verify destination exists and is a directory
+	if fi, err := os.Stat(dstDirAbs); err != nil || !fi.IsDir() {
+		return fmt.Errorf("destination directory does not exist or is not a directory: %s (error: %v)", dstDirAbs, err)
+	}
+
+	// Use absolute paths for rsync to avoid getcwd() errors
+	matchzyRootAbs, err := filepath.Abs(matchzyRoot)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path for source: %w", err)
+	}
+
+	fmt.Fprintf(w, "[MatchZy] Syncing from %s to %s...\n", matchzyRootAbs, dstDirAbs)
+	fmt.Fprintf(w, "[MatchZy] Root dir: %s, Game dir: %s\n", up.RootDir, up.GameDir)
+	
+	// Sync into game_files/game/csgo/ using absolute paths
+	// Change to a safe directory before rsync to avoid getcwd() errors
+	originalWd, _ := os.Getwd()
+	defer func() {
+		if originalWd != "" {
+			_ = os.Chdir(originalWd)
+		}
+	}()
+	
+	// Change to /tmp (a safe, always-existing directory) before rsync
+	if err := os.Chdir(os.TempDir()); err != nil {
+		return fmt.Errorf("failed to change to temp directory: %w", err)
+	}
+	
+	if err := runCmdLogged(w, "rsync", "-a", matchzyRootAbs+string(os.PathSeparator), dstDirAbs+string(os.PathSeparator)); err != nil {
+		return fmt.Errorf("rsync failed: %w (source: %s, dest: %s, root: %s)", err, matchzyRootAbs, dstDirAbs, up.RootDir)
 	}
 	return nil
 }
