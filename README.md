@@ -98,14 +98,14 @@ sudo csm logs-file 1     # Print the log file path for server 1
 
 ---
 
-## 📚 Documentation & Links
+## 📚 Documentation & Links (docs.sivert.io)
 
-- [Full documentation site](https://sivert-io.github.io/cs2-server-manager/) – hosted docs and guides.
-- [Getting Started](docs/getting-started/quick-start.md) – installation and first run.
-- [Managing Servers](docs/guides/managing-servers.md) – day-to-day operations.
-- [Configuration & Overrides](docs/guides/configuration.md) – customizing configs.
-- [Auto Updates](docs/guides/auto-updates.md) – how the monitor and updates work.
-- [Troubleshooting](docs/guides/troubleshooting.md) – common issues and fixes.
+- [Docs home](https://docs.sivert.io/docs/csm) – hosted docs and guides.
+- [Quick Start](https://docs.sivert.io/docs/csm/quick-start) – installation and first run.
+- [Managing Servers](https://docs.sivert.io/docs/csm/user/managing-servers) – day-to-day operations.
+- [Configuration & Overrides](https://docs.sivert.io/docs/csm/user/configuration) – customizing configs.
+- [Auto Updates](https://docs.sivert.io/docs/csm/user/auto-updates) – how the monitor and updates work.
+- [Troubleshooting](https://docs.sivert.io/docs/csm/user/troubleshooting) – common issues and fixes.
 - [MatchZy Enhanced Fork](https://github.com/sivert-io/MatchZy-Enhanced)
 - [MatchZy Auto Tournament](https://github.com/sivert-io/matchzy-auto-tournament)
 - [Project Roadmap & Status](https://kan.sivert.io/MAT) – kanban board (auto-updates from GitHub issues)
