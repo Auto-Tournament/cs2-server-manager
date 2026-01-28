@@ -59,6 +59,11 @@ func (m model) viewActionResult() string {
 		title = "Action result"
 	}
 
+	if m.detailIsError {
+		fmt.Fprintln(&b, errorBannerStyle.Render("OPERATION FAILED"))
+		fmt.Fprintln(&b)
+	}
+
 	// For generic action results, keep the header simple (title only) and show
 	// the "Press Enter to continue." hint in the status bar to avoid
 	// duplicating the message on screen.

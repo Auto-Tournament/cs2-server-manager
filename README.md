@@ -36,6 +36,27 @@ sudo csm          # launches the interactive TUI installer
 
 By default, CSM stores its data under `/opt/cs2-server-manager` (creating it on demand) so overrides, game files, and logs are kept in one place.
 
+### If `steamcmd` can’t be installed (Debian/Ubuntu)
+
+If you see `E: Unable to locate package steamcmd`, your apt sources likely don’t include the component that provides SteamCMD.
+
+- **Debian (Bookworm)**: ensure your apt sources include `contrib` + `non-free` (and often `non-free-firmware`), then:
+
+```bash
+sudo apt-get update
+sudo apt-get install steamcmd
+```
+
+- **Ubuntu**: enable `multiverse`, then:
+
+```bash
+sudo add-apt-repository multiverse
+sudo apt-get update
+sudo apt-get install steamcmd
+```
+
+CSM will also show a targeted hint when it detects this specific failure. Full logs are written to `/opt/cs2-server-manager/logs/csm.log` by default.
+
 ---
 
 ## ✨ Features

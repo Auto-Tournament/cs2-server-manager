@@ -378,7 +378,35 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 	args := append([]string{"install", "-y"}, pkgs...)
 
 	fmt.Fprintf(w, "[deps] Running: apt-get %s\n", strings.Join(args, " "))
-	if err := runCmdLoggedContext(ctx, w, "apt-get", args...); err != nil {
+	var installOut bytes.Buffer
+	installWriter := io.MultiWriter(w, &installOut)
+	if err := runCmdLoggedContext(ctx, installWriter, "apt-get", args...); err != nil {
+		// SteamCMD is not available in default Debian sources unless the right
+		// repo components are enabled (commonly contrib/non-free*). On Ubuntu it
+		// is typically in multiverse. When we detect this specific failure,
+		// return a much more actionable hint.
+		out := strings.ToLower(installOut.String())
+		if strings.Contains(out, "unable to locate package steamcmd") ||
+			(strings.Contains(out, "package steamcmd") && strings.Contains(out, "no installation candidate")) {
+			return fmt.Errorf(
+				"steamcmd package not found in your apt repositories.\n\n"+
+					"This usually means your apt sources don't include the components that provide SteamCMD.\n\n"+
+					"Debian:\n"+
+					"  - Enable contrib + non-free (and often non-free-firmware on Bookworm) in /etc/apt/sources.list\n"+
+					"    or /etc/apt/sources.list.d/*.list, then run:\n"+
+					"      sudo apt-get update\n"+
+					"      sudo apt-get install steamcmd\n\n"+
+					"Ubuntu:\n"+
+					"  - Enable multiverse, then run:\n"+
+					"      sudo add-apt-repository multiverse\n"+
+					"      sudo apt-get update\n"+
+					"      sudo apt-get install steamcmd\n\n"+
+					"After installing SteamCMD, rerun this CSM action.\n\n"+
+					"Tip: full logs are written to <CSM root>/logs/csm.log (default /opt/cs2-server-manager/logs/csm.log).\n\n"+
+					"Original error: %w",
+				err,
+			)
+		}
 		return err
 	}
 

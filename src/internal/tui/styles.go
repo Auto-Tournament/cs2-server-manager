@@ -48,6 +48,14 @@ var (
 	outputBodyStyle = lipgloss.NewStyle().
 			MarginTop(1)
 
+	// errorBannerStyle is used to show a very prominent failure indicator on
+	// result screens so users don't miss that an operation failed.
+	errorBannerStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("15")).
+				Background(lipgloss.Color("196")).
+				Padding(0, 2)
+
 	versionBannerStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("0")).
 				Background(lipgloss.Color("220")).

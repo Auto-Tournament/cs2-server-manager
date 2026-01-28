@@ -6,7 +6,7 @@ Thank you for your interest in contributing! 🎉
 
 For detailed contribution guidelines, please see:
 
-**[Development → Contributing](https://mat.sivert.io/development/contributing/)**
+**[Documentation](https://docs.sivert.io/docs/csm)**
 
 ## 🚀 Quick Start
 
@@ -54,7 +54,7 @@ For detailed contribution guidelines, please see:
 
 ## 🐛 Reporting Issues
 
-Found a bug? Please [open an issue](https://github.com/sivert-io/matchzy-auto-tournament/issues/new) with:
+Found a bug? Please [open an issue](https://github.com/sivert-io/cs2-server-manager/issues/new) with:
 
 - Clear description
 - Steps to reproduce
@@ -73,8 +73,8 @@ Need help testing something or getting feedback? Use the **Community Request** i
 
 ## 💬 Questions?
 
-- [GitHub Discussions](https://github.com/sivert-io/matchzy-auto-tournament/discussions) - Ask questions
-- [Documentation](https://mat.sivert.io/) - Read the docs
+- [GitHub Discussions](https://github.com/sivert-io/cs2-server-manager/discussions) - Ask questions
+- [Documentation](https://docs.sivert.io/docs/csm) - Read the docs
 
 ## 📖 Code of Conduct
 
@@ -82,4 +82,4 @@ Be respectful and constructive. We're all here to build something awesome for th
 
 ---
 
-**Full Contribution Guide:** https://mat.sivert.io/development/contributing/
+**Full Contribution Guide:** https://docs.sivert.io/docs/csm

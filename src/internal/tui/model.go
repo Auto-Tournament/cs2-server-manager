@@ -245,6 +245,9 @@ type model struct {
 	// Enter (or q/Esc), similar to a separate page on a website.
 	detailTitle   string
 	detailContent string
+	// detailIsError controls whether the action result screen should show a
+	// prominent failure banner. Context-cancelled operations should not set this.
+	detailIsError bool
 
 	// Live timing info for the multi-step install wizard so we can display
 	// "elapsed vs expected" while each step is running.
@@ -1272,6 +1275,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// servers) as "cancelled" rather than a hard failure so the UI copy
 			// matches user intent and doesn't look like an error.
 			isCanceled := msg.err != nil && errors.Is(msg.err, context.Canceled)
+			m.detailIsError = msg.err != nil && !isCanceled
 
 			if msg.err != nil {
 				if isCanceled {
@@ -1294,6 +1298,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			} else {
+				m.detailIsError = false
 				if msg.item.title != "" {
 					m.detailTitle = msg.item.title
 				} else {
@@ -1351,6 +1356,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.confirmQuit = false
 			CancelInstall()
 			m.running = false
+			m.detailIsError = true
 
 			// Show a dedicated error page with the full log output from the
 			// failing step so users can scroll back through what happened.
@@ -1485,7 +1491,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Build the display output from accumulated lines
 			tailedOutput := strings.Join(m.logLines, "\n")
-			
+
 			if m.currentInstallStep == installStepBootstrap && m.wizard.cfg.freshInstall {
 				header := []string{
 					"[2/4] Performing fresh CS2 install (cleanup + steamcmd + bootstrap)...",
