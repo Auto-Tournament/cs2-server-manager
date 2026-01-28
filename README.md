@@ -40,6 +40,8 @@ By default, CSM stores its data under `/opt/cs2-server-manager` (creating it on 
 
 If you see `E: Unable to locate package steamcmd`, your apt sources likely don’t include the component that provides SteamCMD.
 
+- **Note**: When run via `sudo csm install-deps` (or the TUI equivalent), CSM will attempt to **automatically enable the required component(s)** in `/etc/apt/sources.list`, write a timestamped backup (e.g. `/etc/apt/sources.list.csm.bak-YYYYMMDD-HHMMSS`), then rerun `apt-get update` and retry the install.
+
 - **Debian (Bookworm)**: ensure your apt sources include `contrib` + `non-free` (and often `non-free-firmware`), then:
 
 ```bash
@@ -55,7 +57,7 @@ sudo apt-get update
 sudo apt-get install steamcmd
 ```
 
-CSM will also show a targeted hint when it detects this specific failure. Full logs are written to `/opt/cs2-server-manager/logs/csm.log` by default.
+If auto-fix can’t update your sources (or you don’t want it to), CSM will show a targeted hint. Full logs are written to `/opt/cs2-server-manager/logs/csm.log` by default.
 
 ---
 

@@ -351,6 +351,197 @@ func ensureBootstrapDependencies(w io.Writer) error {
 	return ensureBootstrapDependenciesContext(context.Background(), w)
 }
 
+type osReleaseInfo struct {
+	ID              string
+	VersionCodename string
+}
+
+func readOSRelease() osReleaseInfo {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return osReleaseInfo{}
+	}
+	var info osReleaseInfo
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		val = strings.Trim(val, `"'`)
+		switch key {
+		case "ID":
+			info.ID = strings.ToLower(val)
+		case "VERSION_CODENAME":
+			info.VersionCodename = strings.ToLower(val)
+		}
+	}
+	return info
+}
+
+func readAptSourcesText() string {
+	var b strings.Builder
+	if data, err := os.ReadFile("/etc/apt/sources.list"); err == nil {
+		b.WriteString(string(data))
+		b.WriteString("\n")
+	}
+	entries, err := os.ReadDir("/etc/apt/sources.list.d")
+	if err != nil {
+		return b.String()
+	}
+	for _, ent := range entries {
+		if ent.IsDir() {
+			continue
+		}
+		name := ent.Name()
+		if !strings.HasSuffix(name, ".list") {
+			continue
+		}
+		p := filepath.Join("/etc/apt/sources.list.d", name)
+		if data, err := os.ReadFile(p); err == nil {
+			b.WriteString(string(data))
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func aptSourcesContainToken(sourcesText, token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" {
+		return false
+	}
+	// Very simple heuristic: check for the token as a standalone-ish word.
+	// Good enough for "contrib", "non-free", "non-free-firmware", "multiverse".
+	for _, field := range strings.Fields(strings.ToLower(sourcesText)) {
+		if field == token {
+			return true
+		}
+	}
+	return false
+}
+
+func updateAptSourcesListFile(path string, addTokens []string) (backupPath string, changed bool, _ error) {
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		return "", false, err
+	}
+
+	backupPath = fmt.Sprintf("%s.csm.bak-%s", path, time.Now().Format("20060102-150405"))
+	if err := os.WriteFile(backupPath, orig, 0o644); err != nil {
+		return "", false, err
+	}
+
+	lines := strings.Split(string(orig), "\n")
+	for i, line := range lines {
+		raw := line
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if !(strings.HasPrefix(trimmed, "deb ") || strings.HasPrefix(trimmed, "deb-src ")) {
+			continue
+		}
+
+		// Preserve inline comments by only modifying the content before '#'.
+		content, comment, hasComment := strings.Cut(raw, "#")
+		content = strings.TrimSpace(content)
+		if content == "" {
+			continue
+		}
+		fields := strings.Fields(content)
+		// Expected format:
+		//   deb <uri> <suite> <component...>
+		//   deb-src <uri> <suite> <component...>
+		// We only modify lines that already specify at least one component.
+		if len(fields) < 4 {
+			continue
+		}
+
+		existing := map[string]bool{}
+		for _, c := range fields[3:] {
+			existing[strings.ToLower(c)] = true
+		}
+		var toAdd []string
+		for _, t := range addTokens {
+			tt := strings.ToLower(strings.TrimSpace(t))
+			if tt == "" {
+				continue
+			}
+			if !existing[tt] {
+				toAdd = append(toAdd, tt)
+			}
+		}
+		if len(toAdd) == 0 {
+			continue
+		}
+
+		changed = true
+		newFields := append(append([]string{}, fields...), toAdd...)
+		newLine := strings.Join(newFields, " ")
+		if hasComment {
+			newLine = strings.TrimSpace(newLine) + " #" + comment
+		}
+		lines[i] = newLine
+	}
+
+	if !changed {
+		// We still created a backup; keep it, but write nothing.
+		return backupPath, false, nil
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		return backupPath, false, err
+	}
+	return backupPath, true, nil
+}
+
+func tryEnableSteamcmdAptComponents(w io.Writer) (attempted bool, backupPath string, _ error) {
+	osr := readOSRelease()
+	sourcesText := readAptSourcesText()
+
+	switch osr.ID {
+	case "debian":
+		need := []string{"contrib", "non-free", "non-free-firmware"}
+		missing := false
+		for _, t := range need {
+			if !aptSourcesContainToken(sourcesText, t) {
+				missing = true
+				break
+			}
+		}
+		if !missing {
+			return false, "", nil
+		}
+		backup, changed, err := updateAptSourcesListFile("/etc/apt/sources.list", need)
+		if err != nil {
+			return true, backup, err
+		}
+		if changed {
+			fmt.Fprintf(w, "[deps] Updated /etc/apt/sources.list to include: %s\n", strings.Join(need, ", "))
+		}
+		return true, backup, nil
+	case "ubuntu":
+		if aptSourcesContainToken(sourcesText, "multiverse") {
+			return false, "", nil
+		}
+		backup, changed, err := updateAptSourcesListFile("/etc/apt/sources.list", []string{"multiverse"})
+		if err != nil {
+			return true, backup, err
+		}
+		if changed {
+			fmt.Fprintln(w, "[deps] Updated /etc/apt/sources.list to include: multiverse")
+		}
+		return true, backup, nil
+	default:
+		return false, "", nil
+	}
+}
+
 // ensureBootstrapDependenciesContext is like ensureBootstrapDependencies but
 // accepts a context so long-running apt-get operations can be cancelled by
 // callers such as the TUI.
@@ -388,6 +579,80 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 		out := strings.ToLower(installOut.String())
 		if strings.Contains(out, "unable to locate package steamcmd") ||
 			(strings.Contains(out, "package steamcmd") && strings.Contains(out, "no installation candidate")) {
+			// Try to fix it automatically when running as root: update apt sources
+			// to include the needed components, then retry apt-get update + install.
+			fmt.Fprintln(w, "[deps] steamcmd not found; attempting to enable required apt components automatically...")
+			attempted, backup, fixErr := tryEnableSteamcmdAptComponents(w)
+			if attempted {
+				if strings.TrimSpace(backup) != "" {
+					fmt.Fprintf(w, "[deps] Backup written: %s\n", backup)
+				}
+				if fixErr == nil {
+					fmt.Fprintln(w, "[deps] Running: apt-get update (after sources change)")
+					if err2 := runCmdLoggedContext(ctx, w, "apt-get", "update"); err2 == nil {
+						fmt.Fprintf(w, "[deps] Retrying: apt-get %s\n", strings.Join(args, " "))
+						var retryOut bytes.Buffer
+						retryWriter := io.MultiWriter(w, &retryOut)
+						if err3 := runCmdLoggedContext(ctx, retryWriter, "apt-get", args...); err3 == nil {
+							// Success after auto-fix.
+							goto steamcmdWrapper
+						}
+						// If retry failed, fall through to the user-facing error message below.
+					}
+				}
+				// If the auto-fix failed, fall through to the user-facing error message below.
+				if fixErr != nil {
+					fmt.Fprintf(w, "[deps] Auto-fix failed: %v\n", fixErr)
+				}
+			}
+
+			osr := readOSRelease()
+			sourcesText := readAptSourcesText()
+
+			var detectedHint string
+			if osr.ID == "debian" {
+				missing := []string{}
+				if !aptSourcesContainToken(sourcesText, "contrib") {
+					missing = append(missing, "contrib")
+				}
+				if !aptSourcesContainToken(sourcesText, "non-free") {
+					missing = append(missing, "non-free")
+				}
+				// Bookworm often needs this enabled too for firmware packages.
+				if !aptSourcesContainToken(sourcesText, "non-free-firmware") {
+					missing = append(missing, "non-free-firmware")
+				}
+				if len(missing) > 0 {
+					codename := osr.VersionCodename
+					if codename == "" {
+						codename = "bookworm"
+					}
+					detectedHint = fmt.Sprintf(
+						"\nDetected Debian (%s). Your apt sources appear to be missing: %s\n\n"+
+							"Example /etc/apt/sources.list entries:\n"+
+							"  deb http://deb.debian.org/debian %s main contrib non-free non-free-firmware\n"+
+							"  deb http://deb.debian.org/debian %s-updates main contrib non-free non-free-firmware\n"+
+							"  deb http://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n",
+						codename,
+						strings.Join(missing, ", "),
+						codename,
+						codename,
+						codename,
+					)
+				}
+			} else if osr.ID == "ubuntu" {
+				if !aptSourcesContainToken(sourcesText, "multiverse") {
+					codename := osr.VersionCodename
+					if codename == "" {
+						codename = "your-release-codename"
+					}
+					detectedHint = fmt.Sprintf(
+						"\nDetected Ubuntu (%s). Your apt sources appear to be missing: multiverse\n",
+						codename,
+					)
+				}
+			}
+
 			return fmt.Errorf(
 				"steamcmd package not found in your apt repositories.\n\n"+
 					"This usually means your apt sources don't include the components that provide SteamCMD.\n\n"+
@@ -403,7 +668,9 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 					"      sudo apt-get install steamcmd\n\n"+
 					"After installing SteamCMD, rerun this CSM action.\n\n"+
 					"Tip: full logs are written to <CSM root>/logs/csm.log (default /opt/cs2-server-manager/logs/csm.log).\n\n"+
+					"%s\n"+
 					"Original error: %w",
+				strings.TrimSpace(detectedHint),
 				err,
 			)
 		}
@@ -411,6 +678,7 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 	}
 
 	// Ensure /usr/bin/steamcmd wrapper exists (linking to /usr/games/steamcmd).
+steamcmdWrapper:
 	const wrapper = "/usr/bin/steamcmd"
 	if fi, err := os.Stat(wrapper); err != nil || fi.Mode()&0o111 == 0 {
 		_ = os.Remove(wrapper)
