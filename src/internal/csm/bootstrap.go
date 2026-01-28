@@ -556,6 +556,14 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 	fmt.Fprintln(w, "[deps] Enabling i386 architecture: dpkg --add-architecture i386")
 	_ = exec.Command("dpkg", "--add-architecture", "i386").Run()
 
+	// Recover from interrupted dpkg operations (common when a previous apt run
+	// was killed). Without this, apt-get install will fail with:
+	// "E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a'".
+	fmt.Fprintln(w, "[deps] Ensuring dpkg is configured: dpkg --configure -a")
+	if err := runCmdLoggedContext(ctx, w, "dpkg", "--configure", "-a"); err != nil {
+		return fmt.Errorf("dpkg --configure -a failed: %w", err)
+	}
+
 	fmt.Fprintln(w, "[deps] Running: apt-get update")
 	if err := runCmdLoggedContext(ctx, w, "apt-get", "update"); err != nil {
 		return err
