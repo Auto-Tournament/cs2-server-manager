@@ -30,7 +30,7 @@ func CheckDiskSpaceForGameUpdate(cs2User string, numServers int) error {
 
 	// Estimate space needed: master + per-server overhead
 	estimatedGB := DefaultMasterDiskGB + (DefaultPerServerDiskGB * float64(numServers))
-	
+
 	// Require at least the estimated space + 10% buffer
 	requiredGB := estimatedGB * 1.1
 	if freeGB < requiredGB {
@@ -219,10 +219,10 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	}
 	log("[OK] All servers started after game update.")
 
-		logOut := buf.String()
-		AppendLog("update-game.log", logOut)
-		return logOut, nil
-	}
+	logOut := buf.String()
+	AppendLog("update-game.log", logOut)
+	return logOut, nil
+}
 
 // DeployPluginsToServers stops all servers, rsyncs plugin content from the
 // shared game_files tree into each server instance, then restarts servers.
@@ -290,6 +290,7 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 	up := NewPluginUpdater()
 	gameDir := up.GameDir
 	sharedCfgDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "cfg")
+	sharedAddonsDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "addons")
 
 	// Preserve the current Metamod enabled/disabled state so we can re-apply
 	// it on each server after syncing updated plugins/configs.
@@ -321,6 +322,33 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 	}
 	log("All servers stopped.")
 
+	// Keep cs2-config's addons in sync with the plugin bundle so bootstrap and
+	// other flows that use cs2-config as the canonical overlay have the full
+	// Metamod + CounterStrikeSharp tree available.
+	if err := checkCtx(); err != nil {
+		return buf.String(), err
+	}
+	srcAddons := filepath.Join(gameDir, "csgo", "addons")
+	if fi, err := os.Stat(srcAddons); err == nil && fi.IsDir() {
+		log("Syncing plugin addons into shared cs2-config...")
+		if err := os.MkdirAll(sharedAddonsDir, 0o755); err != nil {
+			log("  [WARN] Failed to create %s: %v", sharedAddonsDir, err)
+		} else {
+			cfgRsyncCtx, cfgRsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
+			if err := runCmdLoggedContext(cfgRsyncCtx, w, "rsync", "-a", "--delete",
+				srcAddons+string(os.PathSeparator),
+				sharedAddonsDir+string(os.PathSeparator),
+			); err != nil {
+				log("  [WARN] Failed to sync addons to cs2-config: %v", err)
+			} else {
+				log("  [OK] Shared addons updated (%s)", sharedAddonsDir)
+			}
+			cfgRsyncCancel()
+		}
+	} else {
+		log("  [i] Plugin bundle addons directory not found at %s; skipping shared addons sync", srcAddons)
+	}
+
 	for i := 1; i <= mgr.NumServers; i++ {
 		if err := checkCtx(); err != nil {
 			return buf.String(), err
@@ -347,8 +375,16 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 
 		// Add timeout for rsync operations
 		rsyncCtx, rsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
-		srcAddons := filepath.Join(gameDir, "csgo", "addons") + string(os.PathSeparator)
-		if err := runCmdLoggedContext(rsyncCtx, w, "rsync", "-a", "--delete", srcAddons, dstAddons+string(os.PathSeparator)); err != nil {
+		// Prefer the shared cs2-config addons as the canonical source (keeps
+		// server copies consistent with what bootstrap overlays).
+		src := sharedAddonsDir
+		if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
+			src = filepath.Join(gameDir, "csgo", "addons")
+		}
+		if err := runCmdLoggedContext(rsyncCtx, w, "rsync", "-a", "--delete",
+			src+string(os.PathSeparator),
+			dstAddons+string(os.PathSeparator),
+		); err != nil {
 			if rsyncCtx.Err() == context.DeadlineExceeded {
 				log("  [ERROR] rsync addons for server-%d timed out after %v", i, TimeoutRsync)
 			} else {
@@ -412,10 +448,10 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 	}
 	log("[OK] All servers restarted after plugin update.")
 
-		out := buf.String()
-		AppendLog("deploy-plugins.log", out)
-		return out, nil
-	}
+	out := buf.String()
+	AppendLog("deploy-plugins.log", out)
+	return out, nil
+}
 
 // UpdateAndDeployPlugins downloads the latest plugin bundle into game_files/
 // and then deploys those plugins to all servers.

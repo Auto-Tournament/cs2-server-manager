@@ -141,27 +141,11 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		log("  [!] SECURITY: Please change it to a strong, unique password immediately!")
 	}
 
-	// Determine the project root for game_files/ and overrides/.
-	// Priority:
-	//   1) Explicit cfg.GameFilesDir / cfg.OverridesDir (from CLI env or caller)
-	//   2) CSM_ROOT environment variable, if set
-	//   3) Directory of the CSM executable
-	//   4) Current working directory
-	root := ""
-	if v, ok := os.LookupEnv("CSM_ROOT"); ok && v != "" {
-		root = v
-	} else if exe, err := os.Executable(); err == nil && exe != "" {
-		if dir := filepath.Dir(exe); dir != "" {
-			root = dir
-		}
-	}
-	if root == "" {
-		if wd, err := os.Getwd(); err == nil && wd != "" {
-			root = wd
-		} else {
-			root = "."
-		}
-	}
+	// Determine the persistent project root for game_files/ and logs/.
+	// Use ResolveRoot so bootstrap matches the same on-disk layout as other
+	// flows (notably plugin updates), and so global installs default to
+	// /opt/cs2-server-manager instead of the directory containing the binary.
+	root := ResolveRoot()
 	if cfg.GameFilesDir == "" {
 		cfg.GameFilesDir = filepath.Join(root, "game_files")
 	}
@@ -1899,10 +1883,12 @@ func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverN
 func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serverNum int) error {
 	sharedCfgDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg")
 	serverCfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
+	sharedAddonsDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "addons")
+	serverAddonsDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "addons")
 
 	if fi, err := os.Stat(sharedCfgDir); err != nil || !fi.IsDir() {
 		fmt.Fprintf(w, "  [i] No shared config found, skipping overlay for server-%d\n", serverNum)
-		return nil
+		// Still try to sync addons if present; config overlay is optional.
 	}
 
 	fmt.Fprintf(w, "  [*] Applying config overlay to server-%d...\n", serverNum)
@@ -1910,12 +1896,31 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 		return fmt.Errorf("failed to create server cfg directory: %w", err)
 	}
 
-	if err := runCmdLoggedContext(ctx, w, "rsync", "-a",
-		sharedCfgDir+string(os.PathSeparator),
-		serverCfgDir+string(os.PathSeparator),
-	); err != nil {
-		return fmt.Errorf("rsync config failed: %w", err)
+	if fi, err := os.Stat(sharedCfgDir); err == nil && fi.IsDir() {
+		if err := runCmdLoggedContext(ctx, w, "rsync", "-a",
+			sharedCfgDir+string(os.PathSeparator),
+			serverCfgDir+string(os.PathSeparator),
+		); err != nil {
+			return fmt.Errorf("rsync config failed: %w", err)
+		}
 	}
-	fmt.Fprintf(w, "  [✓] Config overlay applied to server-%d\n", serverNum)
+
+	// Also sync addons (Metamod + CounterStrikeSharp + plugins) from the shared
+	// cs2-config tree. The master install sync explicitly excludes csgo/addons/,
+	// so without this step servers will not have Metamod/CSS installed.
+	if fi, err := os.Stat(sharedAddonsDir); err == nil && fi.IsDir() {
+		fmt.Fprintf(w, "  [*] Syncing addons to server-%d...\n", serverNum)
+		if err := os.MkdirAll(serverAddonsDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create server addons directory: %w", err)
+		}
+		if err := runCmdLoggedContext(ctx, w, "rsync", "-a", "--delete",
+			sharedAddonsDir+string(os.PathSeparator),
+			serverAddonsDir+string(os.PathSeparator),
+		); err != nil {
+			return fmt.Errorf("rsync addons failed: %w", err)
+		}
+	}
+
+	fmt.Fprintf(w, "  [✓] Overlay applied to server-%d\n", serverNum)
 	return nil
 }
