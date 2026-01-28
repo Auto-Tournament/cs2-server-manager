@@ -283,8 +283,12 @@ func initialModel() model {
 		status:         "",
 		spin:           spin,
 		updateProgress: up,
-		version:        currentVersion,
-		updateChecked:  false,
+		// Keep a reasonable in-memory tail of streaming logs so users can see
+		// progress for long-running operations (deps install, plugin downloads,
+		// steamcmd, etc.).
+		maxLogLines:   200,
+		version:       currentVersion,
+		updateChecked: false,
 	}
 
 	// Initialize wizard defaults
@@ -1478,6 +1482,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Live tail of the bootstrap log while steamcmd and other long-running
 		// operations are in progress. Accumulate log lines and show last N lines
 		// with live progress bars for SteamCMD downloads, rsync, etc.
+		if m.maxLogLines <= 0 {
+			m.maxLogLines = 200
+		}
 		out := strings.TrimSpace(msg.lines)
 		if out != "" {
 			// Split new output into lines and append to our accumulated log
