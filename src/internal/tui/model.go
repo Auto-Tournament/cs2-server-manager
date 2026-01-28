@@ -144,6 +144,12 @@ type installWizard struct {
 	input            textinput.Model
 	errMsg           string
 	lowDiskConfirmed bool
+
+	// Disk estimate state for the install wizard (computed asynchronously so
+	// the UI never blocks on filesystem scans).
+	diskEstimating bool
+	diskEstimate   diskEstimate
+	diskEstimateAt time.Time
 }
 
 // installStep represents the high-level phases of the install wizard so we can
@@ -1016,6 +1022,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.wizard.currentPage = 0
 				m.wizard.editing = false
 				m.wizard.errMsg = ""
+				m.wizard.diskEstimating = true
+				cmds = append(cmds, calcDiskEstimateCmd(m.wizard))
 				m.status = "Install wizard: configure your servers, then choose Start install."
 			case itemServersStatusViewport:
 				m.running = true
@@ -1567,6 +1575,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// No new commands scheduled here; the tailer goroutine drives further
 		// updates by sending more installLogTickMsg values.
+		return m, tea.Batch(cmds...)
+
+	case diskEstimateMsg:
+		m.wizard.diskEstimating = false
+		m.wizard.diskEstimate = msg.estimate
+		m.wizard.diskEstimateAt = time.Now()
+		// If the disk estimate changed materially, reset low-disk confirmation
+		// so users aren't forced into a stale "press again" flow.
+		m.wizard.lowDiskConfirmed = false
 		return m, tea.Batch(cmds...)
 
 	case installElapsedMsg:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +15,221 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 )
+
+type diskEstimate struct {
+	Ok bool
+
+	// Filesystem stats for the target path.
+	FSPath  string
+	TotalGB float64
+	FreeGB  float64
+
+	// Existing footprint under /home/<cs2User>.
+	ExistingMasterGB  float64
+	ExistingServersGB float64
+	ExistingServersN  int
+	ExistingConfigGB  float64
+
+	// Estimate for requested layout.
+	RequestedServersN int
+	PerServerGB       float64
+	MasterGB          float64
+	RequiredTotalGB   float64
+
+	// Plan for this run.
+	FreshInstall bool
+	AdditionalGB float64 // additional space needed now (after accounting for reuse/cleanup)
+	AfterGB      float64 // projected free space after the operation's expected additional usage
+	ShortByGB    float64 // how much we're short by (0 when sufficient)
+
+	Notes []string
+}
+
+type diskEstimateMsg struct {
+	estimate diskEstimate
+}
+
+func bytesToGB(b int64) float64 {
+	if b <= 0 {
+		return 0
+	}
+	return float64(b) / (1024 * 1024 * 1024)
+}
+
+func duBytes(path string) (int64, bool) {
+	// Prefer GNU coreutils format: "<bytes>\t<path>"
+	out, err := exec.Command("du", "-s", "-B1", path).CombinedOutput()
+	if err == nil {
+		fields := strings.Fields(string(out))
+		if len(fields) > 0 {
+			if n, perr := strconv.ParseInt(strings.TrimSpace(fields[0]), 10, 64); perr == nil && n >= 0 {
+				return n, true
+			}
+		}
+	}
+	// Fallback: BusyBox often supports "-sb".
+	out, err = exec.Command("du", "-sb", path).CombinedOutput()
+	if err == nil {
+		fields := strings.Fields(string(out))
+		if len(fields) > 0 {
+			if n, perr := strconv.ParseInt(strings.TrimSpace(fields[0]), 10, 64); perr == nil && n >= 0 {
+				return n, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func calcDiskEstimateCmd(w installWizard) tea.Cmd {
+	return func() tea.Msg {
+		est := computeDiskEstimate(w)
+		return diskEstimateMsg{estimate: est}
+	}
+}
+
+func computeDiskEstimate(w installWizard) diskEstimate {
+	// Requested server count
+	requested := w.cfg.numServers
+	if n, err := strconv.Atoi(strings.TrimSpace(w.numServersStr)); err == nil && n > 0 {
+		requested = n
+	}
+	if requested <= 0 {
+		requested = 1
+	}
+
+	user := strings.TrimSpace(w.cfg.cs2User)
+	if user == "" {
+		user = csm.DefaultCS2User
+	}
+
+	fsPath := filepath.Join("/home", user)
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(fsPath, &stat); err != nil {
+		// Fall back to root filesystem.
+		fsPath = "/"
+		if err2 := syscall.Statfs(fsPath, &stat); err2 != nil {
+			return diskEstimate{
+				Ok:                false,
+				RequestedServersN: requested,
+				FreshInstall:      w.cfg.freshInstall,
+				Notes:             []string{"Disk space check failed (statfs unavailable)."},
+			}
+		}
+	}
+
+	blockSize := float64(stat.Bsize)
+	totalGB := (float64(stat.Blocks) * blockSize) / (1024 * 1024 * 1024)
+	freeGB := (float64(stat.Bavail) * blockSize) / (1024 * 1024 * 1024)
+
+	home := filepath.Join("/home", user)
+
+	// Existing footprint
+	var masterBytes int64
+	if fi, err := os.Stat(filepath.Join(home, "master-install")); err == nil && fi.IsDir() {
+		if b, ok := duBytes(filepath.Join(home, "master-install")); ok {
+			masterBytes = b
+		}
+	}
+
+	var configBytes int64
+	if fi, err := os.Stat(filepath.Join(home, "cs2-config")); err == nil && fi.IsDir() {
+		if b, ok := duBytes(filepath.Join(home, "cs2-config")); ok {
+			configBytes = b
+		}
+	}
+
+	var serversBytes int64
+	serversN := 0
+	if entries, err := os.ReadDir(home); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() || !strings.HasPrefix(e.Name(), "server-") {
+				continue
+			}
+			serversN++
+			p := filepath.Join(home, e.Name())
+			if b, ok := duBytes(p); ok {
+				serversBytes += b
+			}
+		}
+	}
+
+	existingMasterGB := bytesToGB(masterBytes)
+	existingServersGB := bytesToGB(serversBytes)
+	existingConfigGB := bytesToGB(configBytes)
+
+	masterGB := existingMasterGB
+	if masterGB <= 0 {
+		masterGB = csm.DefaultMasterDiskGB
+	}
+	perServerGB := csm.DefaultPerServerDiskGB
+	if serversN > 0 && existingServersGB > 0 {
+		perServerGB = existingServersGB / float64(serversN)
+	}
+
+	requiredTotalGB := masterGB + perServerGB*float64(requested)
+	// cs2-config is small relative to game installs, but include whatever exists today.
+	if existingConfigGB > 0 {
+		requiredTotalGB += existingConfigGB
+	}
+
+	est := diskEstimate{
+		Ok:                true,
+		FSPath:            fsPath,
+		TotalGB:           totalGB,
+		FreeGB:            freeGB,
+		ExistingMasterGB:  existingMasterGB,
+		ExistingServersGB: existingServersGB,
+		ExistingServersN:  serversN,
+		ExistingConfigGB:  existingConfigGB,
+		RequestedServersN: requested,
+		PerServerGB:       perServerGB,
+		MasterGB:          masterGB,
+		RequiredTotalGB:   requiredTotalGB,
+		FreshInstall:      w.cfg.freshInstall,
+	}
+
+	// Compute "additional needed" depending on whether we will reuse or clean up.
+	if est.FreshInstall {
+		// Fresh install deletes existing master/server dirs first, so we treat
+		// current footprint as reclaimable.
+		reclaimable := est.ExistingMasterGB + est.ExistingServersGB + est.ExistingConfigGB
+		afterCleanupFree := est.FreeGB + reclaimable
+		est.AdditionalGB = 0
+		est.AfterGB = afterCleanupFree - est.RequiredTotalGB
+		if est.AfterGB < 0 {
+			est.ShortByGB = -est.AfterGB
+		}
+		est.Notes = append(est.Notes, fmt.Sprintf("Fresh install: assumes reclaiming ~%.1f GB from existing CS2 directories.", reclaimable))
+	} else {
+		// Non-fresh: reuse whatever already exists and only require extra for
+		// growth beyond the current footprint.
+		toKeepGB := 0.0
+		if est.ExistingMasterGB > 0 {
+			toKeepGB += est.MasterGB
+		}
+		keepServers := est.ExistingServersN
+		if keepServers > est.RequestedServersN {
+			keepServers = est.RequestedServersN
+		}
+		if keepServers > 0 {
+			toKeepGB += est.PerServerGB * float64(keepServers)
+		}
+		if est.ExistingConfigGB > 0 {
+			toKeepGB += est.ExistingConfigGB
+		}
+
+		est.AdditionalGB = est.RequiredTotalGB - toKeepGB
+		if est.AdditionalGB < 0 {
+			est.AdditionalGB = 0
+		}
+		est.AfterGB = est.FreeGB - est.AdditionalGB
+		if est.AfterGB < 0 {
+			est.ShortByGB = -est.AfterGB
+		}
+	}
+
+	return est
+}
 
 // applyWizardNumericFields parses the string fields coming from the wizard
 // into the concrete numeric fields on the config.
@@ -204,6 +420,31 @@ func (m model) viewInstallWizard() string {
 
 	fmt.Fprintln(&b, header)
 	fmt.Fprintln(&b)
+
+	// Disk estimate (always visible near the top).
+	if m.wizard.diskEstimating && !m.wizard.diskEstimate.Ok {
+		fmt.Fprintln(&b, subtleStyle.Render("Disk space: calculating..."))
+		fmt.Fprintln(&b)
+	} else if m.wizard.diskEstimate.Ok {
+		e := m.wizard.diskEstimate
+		fmt.Fprintln(&b, subtleStyle.Render("Disk space estimate:"))
+		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("  Filesystem (%s): ~%.1f GB free / %.1f GB total", e.FSPath, e.FreeGB, e.TotalGB)))
+		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("  Existing CS2 footprint: master ~%.1f GB, servers (%d) ~%.1f GB, cs2-config ~%.1f GB", e.ExistingMasterGB, e.ExistingServersN, e.ExistingServersGB, e.ExistingConfigGB)))
+		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("  Estimate: master ~%.1f GB + per-server ~%.1f GB × %d servers = ~%.1f GB total", e.MasterGB, e.PerServerGB, e.RequestedServersN, e.RequiredTotalGB)))
+		if e.ShortByGB > 0 {
+			fmt.Fprintln(&b, warningStyle.Render(fmt.Sprintf("  Warning: short by ~%.1f GB (projected free after: ~%.1f GB).", e.ShortByGB, e.AfterGB)))
+		} else {
+			fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("  Additional needed now: ~%.1f GB (projected free after: ~%.1f GB).", e.AdditionalGB, e.AfterGB)))
+		}
+		if len(e.Notes) > 0 {
+			for _, n := range e.Notes {
+				if strings.TrimSpace(n) != "" {
+					fmt.Fprintln(&b, subtleStyle.Render("  "+n))
+				}
+			}
+		}
+		fmt.Fprintln(&b)
+	}
 
 	// Ensure numeric string fields have sensible defaults for display.
 	if strings.TrimSpace(m.wizard.numServersStr) == "" && m.wizard.cfg.numServers > 0 {
@@ -509,73 +750,6 @@ func (m model) viewInstallWizard() string {
 		fmt.Fprintln(&b, subtleStyle.Render(desc))
 	}
 
-	// Rough disk space estimate based on a master install and N servers.
-	const masterGB = csm.DefaultMasterDiskGB
-	const perServerGB = csm.DefaultPerServerDiskGB
-
-	numServers := m.wizard.cfg.numServers
-	if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil && n > 0 {
-		numServers = n
-	}
-	if numServers <= 0 {
-		numServers = 1
-	}
-
-	totalRequiredGB := masterGB + perServerGB*float64(numServers)
-
-	// Estimate how much of this footprint is already present on disk so we can
-	// show a more realistic "additional space needed" number instead of
-	// double-counting an existing install.
-	hasMaster, existingServers := existingInstallLayout(m.wizard.cfg.cs2User)
-
-	var alreadyGB float64
-	if hasMaster && !m.wizard.cfg.freshInstall {
-		alreadyGB += masterGB
-	}
-	if existingServers > 0 && !m.wizard.cfg.freshInstall {
-		// Only subtract up to the number of servers we plan to have; if we're
-		// shrinking, we won't keep more than numServers servers after the run.
-		if existingServers > numServers {
-			existingServers = numServers
-		}
-		alreadyGB += perServerGB * float64(existingServers)
-	}
-
-	if m.wizard.cfg.freshInstall && (hasMaster || existingServers > 0) {
-		// For a full fresh install we will delete the existing master and
-		// server-* directories before recreating them, so the on-disk footprint
-		// stays roughly the same. Model this as "already present" to avoid
-		// double-counting.
-		alreadyGB = totalRequiredGB
-	}
-
-	additionalGB := totalRequiredGB - alreadyGB
-	if additionalGB < 0 {
-		additionalGB = 0
-	}
-
-	// Try to estimate disk space on the filesystem that will hold /home/<cs2User>.
-	baseLine := fmt.Sprintf("Estimated total footprint for this layout: ~%.1f GB (master + %d server(s)).", totalRequiredGB, numServers)
-	diskLine := fmt.Sprintf("Estimated additional space needed: ~%.1f GB.", additionalGB)
-
-	_, freeGB, ok := estimateDiskSpace(m.wizard.cfg.cs2User)
-	if ok {
-		afterGB := freeGB - additionalGB
-		if afterGB >= 0 {
-			diskLine += fmt.Sprintf(" (will leave ~%.1f GB free)", afterGB)
-		} else {
-			needed := -afterGB
-			diskLine2 := fmt.Sprintf("Warning: estimated additional space is short by ~%.1f GB (currently ~%.1f GB free).", needed, freeGB)
-			fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-			fmt.Fprintln(&b, warningStyle.Render(diskLine))
-			fmt.Fprintln(&b, warningStyle.Render(diskLine2))
-		}
-	} else {
-		fmt.Fprintln(&b, subtleStyle.Render(baseLine))
-		fmt.Fprintln(&b, subtleStyle.Render(diskLine))
-	}
-	fmt.Fprintln(&b)
-
 	// Optional inline error at the bottom of the wizard.
 	if strings.TrimSpace(m.wizard.errMsg) != "" {
 		fmt.Fprintln(&b, statusBarStyle.Render("Error: "+m.wizard.errMsg))
@@ -697,6 +871,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil && n > 1 {
 					m.wizard.numServersStr = fmt.Sprintf("%d", n-1)
 					m.wizard.errMsg = ""
+					m.wizard.diskEstimating = true
+					return m, calcDiskEstimateCmd(m.wizard)
 				}
 			case wizardFieldBasePort:
 				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.basePortStr)); err == nil && p > 1 {
@@ -732,6 +908,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			case wizardFieldFreshInstall:
 				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
 				m.wizard.errMsg = ""
+				m.wizard.diskEstimating = true
+				return m, calcDiskEstimateCmd(m.wizard)
 			case wizardFieldUpdateMaster:
 				m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
 				m.wizard.errMsg = ""
@@ -753,6 +931,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil {
 					m.wizard.numServersStr = fmt.Sprintf("%d", n+1)
 					m.wizard.errMsg = ""
+					m.wizard.diskEstimating = true
+					return m, calcDiskEstimateCmd(m.wizard)
 				}
 			case wizardFieldBasePort:
 				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.basePortStr)); err == nil {
@@ -787,6 +967,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			case wizardFieldFreshInstall:
 				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
 				m.wizard.errMsg = ""
+				m.wizard.diskEstimating = true
+				return m, calcDiskEstimateCmd(m.wizard)
 			case wizardFieldUpdateMaster:
 				m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
 				m.wizard.errMsg = ""
@@ -807,6 +989,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			switch currentField {
 			case wizardFieldNumServers:
 				m.wizard.numServersStr = value
+				m.wizard.diskEstimating = true
 			case wizardFieldBasePort:
 				m.wizard.basePortStr = value
 			case wizardFieldTVPort:
@@ -834,10 +1017,14 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.cfg.externalDBPassword = value
 			case wizardFieldCS2User:
 				m.wizard.cfg.cs2User = value
+				m.wizard.diskEstimating = true
 			}
 
 			m.wizard.editing = false
 			m.wizard.errMsg = ""
+			if m.wizard.diskEstimating {
+				return m, calcDiskEstimateCmd(m.wizard)
+			}
 			return m, nil
 		}
 
@@ -876,6 +1063,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
 			case wizardFieldFreshInstall:
 				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
+				m.wizard.diskEstimating = true
 			case wizardFieldUpdateMaster:
 				m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
 			case wizardFieldUpdatePlugins:
@@ -884,6 +1072,9 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.cfg.installMonitor = !m.wizard.cfg.installMonitor
 			}
 			m.wizard.errMsg = ""
+			if m.wizard.diskEstimating {
+				return m, calcDiskEstimateCmd(m.wizard)
+			}
 			return m, nil
 		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort,
 			wizardFieldHostnamePrefix, wizardFieldRCONPassword, wizardFieldMaxPlayers,
@@ -951,49 +1142,12 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				return m, nil
 			}
 
-			// Low disk space confirmation: reuse the same rough estimate used in
-			// the wizard view. If we estimate that the install will exceed the
-			// available space, show a warning and require the user to press
-			// Start install again to continue anyway.
-			const masterGB = csm.DefaultMasterDiskGB
-			const perServerGB = csm.DefaultPerServerDiskGB
-
-			numServers := m.wizard.cfg.numServers
-			if n, err := strconv.Atoi(strings.TrimSpace(m.wizard.numServersStr)); err == nil && n > 0 {
-				numServers = n
-			}
-			if numServers <= 0 {
-				numServers = 1
-			}
-			totalRequiredGB := masterGB + perServerGB*float64(numServers)
-
-			hasMaster, existingServers := existingInstallLayout(m.wizard.cfg.cs2User)
-
-			var alreadyGB float64
-			if hasMaster && !m.wizard.cfg.freshInstall {
-				alreadyGB += masterGB
-			}
-			if existingServers > 0 && !m.wizard.cfg.freshInstall {
-				if existingServers > numServers {
-					existingServers = numServers
-				}
-				alreadyGB += perServerGB * float64(existingServers)
-			}
-
-			if m.wizard.cfg.freshInstall && (hasMaster || existingServers > 0) {
-				alreadyGB = totalRequiredGB
-			}
-
-			additionalGB := totalRequiredGB - alreadyGB
-			if additionalGB < 0 {
-				additionalGB = 0
-			}
-
-			_, freeGB, ok := estimateDiskSpace(m.wizard.cfg.cs2User)
-			if ok && freeGB < additionalGB && !m.wizard.lowDiskConfirmed {
+			// Disk space confirmation: if the estimate indicates we are short,
+			// require a second press to continue anyway.
+			if m.wizard.diskEstimate.Ok && m.wizard.diskEstimate.ShortByGB > 0 && !m.wizard.lowDiskConfirmed {
 				m.wizard.errMsg = fmt.Sprintf(
-					"Estimated additional space needed is ~%.1f GB but only ~%.1f GB is free.\nPress Start install again if you are sure you want to continue anyway.",
-					additionalGB, freeGB,
+					"Disk space is likely insufficient (short by ~%.1f GB).\nPress Start install again if you are sure you want to continue anyway.",
+					m.wizard.diskEstimate.ShortByGB,
 				)
 				m.wizard.lowDiskConfirmed = true
 				return m, nil
