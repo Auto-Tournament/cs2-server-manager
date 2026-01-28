@@ -128,14 +128,15 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if strings.TrimSpace(cfg.HostnamePrefix) == "" {
 		cfg.HostnamePrefix = "CS2 Server"
 	}
-	if cfg.RCONPassword == "" {
+	switch cfg.RCONPassword {
+	case "":
 		// Use a neutral fallback rather than an event-specific password; the
 		// install wizard will normally require users to set this explicitly.
 		log("  [!] WARNING: No RCON password supplied; using default %q", DefaultRCONPassword)
 		log("  [!] SECURITY: You MUST change the RCON password after installation!")
 		log("  [!] SECURITY: Default passwords are insecure and publicly known!")
 		cfg.RCONPassword = DefaultRCONPassword
-	} else if cfg.RCONPassword == DefaultRCONPassword {
+	case DefaultRCONPassword:
 		log("  [!] WARNING: You are using the default RCON password!")
 		log("  [!] SECURITY: Please change it to a strong, unique password immediately!")
 	}
@@ -305,7 +306,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 
 		// Store GSLT token if provided
 		if cfg.GSLT != "" {
-			if err := storeGSLTGo(&buf, cfg.CS2User, i, cfg.GSLT); err != nil {
+			if err := storeGSLTGo(&buf, cfg.CS2User, cfg.GSLT); err != nil {
 				log("  [!] Failed to store GSLT for server-%d: %v", i, err)
 			}
 		}
@@ -346,10 +347,6 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 // - setupSteamSDKLinksGo -> steam.go
 // - copyMasterToServerGo -> server_deployment.go
 // - overlayConfigToServerGo -> server_deployment.go
-
-func ensureBootstrapDependencies(w io.Writer) error {
-	return ensureBootstrapDependenciesContext(context.Background(), w)
-}
 
 type osReleaseInfo struct {
 	ID              string
@@ -618,7 +615,8 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 			sourcesText := readAptSourcesText()
 
 			var detectedHint string
-			if osr.ID == "debian" {
+			switch osr.ID {
+			case "debian":
 				missing := []string{}
 				if !aptSourcesContainToken(sourcesText, "contrib") {
 					missing = append(missing, "contrib")
@@ -648,7 +646,7 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 						codename,
 					)
 				}
-			} else if osr.ID == "ubuntu" {
+			case "ubuntu":
 				if !aptSourcesContainToken(sourcesText, "multiverse") {
 					codename := osr.VersionCodename
 					if codename == "" {
@@ -1221,8 +1219,7 @@ echo "==========================================="
 }
 
 // storeGSLTGo writes the GSLT token to the shared cs2-config location.
-// The serverNum parameter is kept for compatibility but all servers share the same GSLT.
-func storeGSLTGo(w io.Writer, user string, serverNum int, gslt string) error {
+func storeGSLTGo(w io.Writer, user string, gslt string) error {
 	configDir := filepath.Join("/home", user, "cs2-config")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return err

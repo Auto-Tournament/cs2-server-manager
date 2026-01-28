@@ -460,7 +460,7 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve absolute path for destination: %w", err)
 	}
-	
+
 	if err := EnsureDirectoryExists(dstDirAbs); err != nil {
 		return fmt.Errorf("failed to create destination directory %s: %w", dstDirAbs, err)
 	}
@@ -478,7 +478,7 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 
 	fmt.Fprintf(w, "[MatchZy] Syncing from %s to %s...\n", matchzyRootAbs, dstDirAbs)
 	fmt.Fprintf(w, "[MatchZy] Root dir: %s, Game dir: %s\n", up.RootDir, up.GameDir)
-	
+
 	// Sync into game_files/game/csgo/ using absolute paths
 	// Change to a safe directory before rsync to avoid getcwd() errors
 	originalWd, _ := os.Getwd()
@@ -487,12 +487,12 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 			_ = os.Chdir(originalWd)
 		}
 	}()
-	
+
 	// Change to /tmp (a safe, always-existing directory) before rsync
 	if err := os.Chdir(os.TempDir()); err != nil {
 		return fmt.Errorf("failed to change to temp directory: %w", err)
 	}
-	
+
 	if err := runCmdLogged(w, "rsync", "-a", matchzyRootAbs+string(os.PathSeparator), dstDirAbs+string(os.PathSeparator)); err != nil {
 		return fmt.Errorf("rsync failed: %w (source: %s, dest: %s, root: %s)", err, matchzyRootAbs, dstDirAbs, up.RootDir)
 	}
@@ -506,12 +506,6 @@ func (up *PluginUpdater) applyOverrides(w io.Writer) {
 	}
 	fmt.Fprintln(w, "[Overrides] Applying custom config overrides from overrides/game/ ...")
 	_ = runCmdLogged(w, "rsync", "-a", src+string(os.PathSeparator), filepath.Join(up.GameDir, "csgo")+string(os.PathSeparator))
-}
-
-// cleanupTemp is deprecated - cleanup is now handled via defer in UpdatePlugins
-// This function is kept for backwards compatibility but does nothing.
-func (up *PluginUpdater) cleanupTemp() {
-	// Cleanup is now handled via defer in UpdatePlugins to ensure it always runs
 }
 
 // downloadProgressWriter wraps a destination writer so that as bytes are

@@ -131,13 +131,13 @@ func (m *TmuxManager) serverStatusFile(server int) string {
 }
 
 // serverGSLTFile returns the path to the shared GSLT file (all servers use the same token).
-func (m *TmuxManager) serverGSLTFile(server int) string {
+func (m *TmuxManager) serverGSLTFile() string {
 	return filepath.Join("/home", m.CS2User, "cs2-config", "server.gslt")
 }
 
 // getGSLT reads the GSLT token for a server from its config file.
 func (m *TmuxManager) getGSLT(server int) string {
-	gsltFile := m.serverGSLTFile(server)
+	gsltFile := m.serverGSLTFile()
 	data, err := os.ReadFile(gsltFile)
 	if err != nil {
 		return ""

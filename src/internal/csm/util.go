@@ -76,7 +76,7 @@ func contextWithTimeout(parent context.Context, timeout time.Duration) (context.
 	if parent == nil {
 		parent = context.Background()
 	}
-	
+
 	// If parent already has a deadline, use the shorter of the two
 	if deadline, ok := parent.Deadline(); ok {
 		remaining := time.Until(deadline)
@@ -84,23 +84,8 @@ func contextWithTimeout(parent context.Context, timeout time.Duration) (context.
 			timeout = remaining
 		}
 	}
-	
-	return context.WithTimeout(parent, timeout)
-}
 
-// improveErrorMessage adds context to error messages to make them more actionable
-func improveErrorMessage(operation string, err error, additionalContext ...string) error {
-	if err == nil {
-		return nil
-	}
-	
-	msg := fmt.Sprintf("%s failed", operation)
-	if len(additionalContext) > 0 {
-		msg += ": " + strings.Join(additionalContext, "; ")
-	}
-	msg += ": " + err.Error()
-	
-	return fmt.Errorf(msg)
+	return context.WithTimeout(parent, timeout)
 }
 
 // --- Mutex locks for concurrent operation protection ---
@@ -139,9 +124,9 @@ func withPluginDeployLock(fn func() (string, error)) (string, error) {
 
 // RetryConfig holds configuration for HTTP retry operations.
 type RetryConfig struct {
-	MaxRetries      int
-	InitialDelay    time.Duration
-	MaxDelay        time.Duration
+	MaxRetries        int
+	InitialDelay      time.Duration
+	MaxDelay          time.Duration
 	BackoffMultiplier float64
 }
 
@@ -149,8 +134,8 @@ type RetryConfig struct {
 func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
 		MaxRetries:        3,
-		InitialDelay:     1 * time.Second,
-		MaxDelay:         10 * time.Second,
+		InitialDelay:      1 * time.Second,
+		MaxDelay:          10 * time.Second,
 		BackoffMultiplier: 2.0,
 	}
 }

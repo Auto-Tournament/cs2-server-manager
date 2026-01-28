@@ -123,7 +123,7 @@ func UpdateServerConfigsWithContext(ctx context.Context, cfg UpdateServerConfigs
 
 		// Update GSLT if provided or if we detected one
 		if cfg.GSLT != "" || (cfg.GSLT == "" && gslt != "") {
-			if err := storeGSLTGo(&buf, user, i, gslt); err != nil {
+			if err := storeGSLTGo(&buf, user, gslt); err != nil {
 				log("  [!] Failed to update GSLT for server-%d: %v", i, err)
 			}
 		}

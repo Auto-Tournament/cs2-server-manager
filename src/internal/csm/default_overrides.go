@@ -17,14 +17,6 @@ import (
 //go:embed defaults/overrides/**
 var defaultOverridesFS embed.FS
 
-// ensureDefaultOverrides makes sure the overrides directory exists and, when
-// empty, seeds it with the built-in defaults embedded in the binary. Existing
-// user-provided overrides are never overwritten; the embedded files are only
-// written when the target path does not already exist.
-func ensureDefaultOverrides(overridesDir string) error {
-	return ensureDefaultOverridesWithTracking(overridesDir, nil)
-}
-
 // ensureDefaultOverridesWithTracking is like ensureDefaultOverrides but tracks
 // which files were created for cleanup on cancellation.
 func ensureDefaultOverridesWithTracking(overridesDir string, createdFiles *[]string) error {

@@ -138,7 +138,7 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 
 	// Store GSLT token if one was detected
 	if gslt != "" {
-		if err := storeGSLTGo(&buf, user, newIdx, gslt); err != nil {
+		if err := storeGSLTGo(&buf, user, gslt); err != nil {
 			log("  [!] Failed to store GSLT for server-%d: %v", newIdx, err)
 		}
 	}
@@ -413,7 +413,7 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 
 	// Store GSLT token if one exists
 	if gslt != "" {
-		if err := storeGSLTGo(writer, user, serverNum, gslt); err != nil {
+		if err := storeGSLTGo(writer, user, gslt); err != nil {
 			log("  [!] Failed to store GSLT for server-%d: %v", serverNum, err)
 		}
 	}
