@@ -334,6 +334,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 
 type osReleaseInfo struct {
 	ID              string
+	VersionID       string
 	VersionCodename string
 }
 
@@ -358,11 +359,73 @@ func readOSRelease() osReleaseInfo {
 		switch key {
 		case "ID":
 			info.ID = strings.ToLower(val)
+		case "VERSION_ID":
+			info.VersionID = strings.ToLower(val)
 		case "VERSION_CODENAME":
 			info.VersionCodename = strings.ToLower(val)
 		}
 	}
 	return info
+}
+
+func parseUbuntuVersionID(versionID string) (major, minor int, ok bool) {
+	versionID = strings.TrimSpace(strings.Trim(versionID, `"'`))
+	parts := strings.Split(versionID, ".")
+	if len(parts) < 2 {
+		return 0, 0, false
+	}
+	maj, err1 := strconv.Atoi(parts[0])
+	min, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	return maj, min, true
+}
+
+func parseDebianMajor(versionID string) (major int, ok bool) {
+	versionID = strings.TrimSpace(strings.Trim(versionID, `"'`))
+	maj, err := strconv.Atoi(versionID)
+	if err != nil {
+		return 0, false
+	}
+	return maj, true
+}
+
+// shouldUseSteamRuntimeLauncher reports whether we should prefer launching the
+// CS2 server via Steam Runtime (SteamRT3) for CounterStrikeSharp compatibility.
+//
+// It can be overridden via CSM_STEAMRT:
+//   - "1"/"true"/"on"  => force enable
+//   - "0"/"false"/"off" => force disable
+//   - empty/other      => auto
+func shouldUseSteamRuntimeLauncher() (enabled bool, mode string) {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CSM_STEAMRT"))) {
+	case "1", "true", "on", "yes":
+		return true, "forced_on"
+	case "0", "false", "off", "no":
+		return false, "forced_off"
+	}
+
+	osr := readOSRelease()
+	switch osr.ID {
+	case "debian":
+		// Debian 13 (trixie) and newer have reported issues with CSS needing
+		// Steam Runtime for compatibility.
+		if maj, ok := parseDebianMajor(osr.VersionID); ok && maj >= 13 {
+			return true, "auto_debian13plus"
+		}
+		if osr.VersionCodename == "trixie" || osr.VersionCodename == "forky" {
+			return true, "auto_debian_new"
+		}
+	case "ubuntu":
+		// Ubuntu 25.04+ has reported similar issues.
+		if maj, min, ok := parseUbuntuVersionID(osr.VersionID); ok {
+			if maj > 25 || (maj == 25 && min >= 4) {
+				return true, "auto_ubuntu2504plus"
+			}
+		}
+	}
+	return false, "auto_off"
 }
 
 func readAptSourcesText() string {

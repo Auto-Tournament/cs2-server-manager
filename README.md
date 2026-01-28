@@ -61,6 +61,15 @@ If auto-fix can’t update your sources (or you don’t want it to), CSM will sh
 
 ---
 
+### Newer distros: CounterStrikeSharp compatibility (Steam Runtime)
+
+On newer Linux distributions (for example Debian 13 / Ubuntu 25.04+), CounterStrikeSharp may fail to load under the system runtime. CSM can automatically launch the server using **Steam Runtime (SteamRT3)** as a workaround, based on upstream findings in [CounterStrikeSharp issue #1024](https://github.com/roflmuffin/CounterStrikeSharp/issues/1024).
+
+- **Auto behavior**: on affected OS versions, CSM installs Steam Runtime (app `1628350`) into `/home/<cs2user>/steamrt` (if missing) and starts servers via the runtime wrapper.
+- **Override**: set `CSM_STEAMRT=1` to force-enable, or `CSM_STEAMRT=0` to force-disable.
+
+---
+
 ## ✨ Features
 
 💣 **Multi-Server Deployment** — 3–5 servers with one command  

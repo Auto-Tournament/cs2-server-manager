@@ -2,6 +2,7 @@ package csm
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -267,16 +268,49 @@ func (m *TmuxManager) Start(server int) error {
 		maxPlayers = 10 // default from v1.4.5
 	}
 
-	cmdline := fmt.Sprintf(
-		"cd %s && tmux new-session -d -s %s './cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s'",
-		gameDir,
-		session,
+	useSteamRT, mode := shouldUseSteamRuntimeLauncher()
+	launchCmd := fmt.Sprintf("./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s",
 		gamePort,
 		tvPort,
 		maxPlayers,
 		gsltArg,
 	)
+	if useSteamRT {
+		// Ensure Steam Runtime is present before attempting to use it.
+		var buf bytes.Buffer
+		if err := ensureSteamRuntimeInstalled(context.Background(), &buf, m.CS2User); err != nil {
+			log.Printf("[tmux] Start: steam runtime install failed (falling back to default launcher): %v", err)
+			useSteamRT = false
+		} else if strings.TrimSpace(buf.String()) != "" {
+			log.Printf("[tmux] Start: steam runtime install output:\n%s", buf.String())
+		}
+
+	}
+	if useSteamRT {
+		// Launch via Steam Runtime for newer-distro CounterStrikeSharp compatibility.
+		// This runs the actual cs2 binary inside SteamRT3.
+		cs2Bin := filepath.Join(gameDir, "bin", "linuxsteamrt64", "cs2")
+		rtRun := steamRuntimeRunPath(m.CS2User)
+		launchCmd = fmt.Sprintf("%s %s --graphics-provider \"\" -- -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s",
+			rtRun,
+			cs2Bin,
+			gamePort,
+			tvPort,
+			maxPlayers,
+			gsltArg,
+		)
+	}
+
+	cmdline := fmt.Sprintf(
+		"cd %s && tmux new-session -d -s %s '%s'",
+		gameDir,
+		session,
+		launchCmd,
+	)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
+	if useSteamRT {
+		log.Printf("[tmux] Start: Steam Runtime launcher enabled (%s)", mode)
+	}
 	if err := m.runAsCS2User(cmdline).Run(); err != nil {
 		log.Printf("[tmux] Start: failed to start server %d: %v", server, err)
 		return fmt.Errorf("failed to start server %d in tmux session %q: %w (check server logs at %s)", server, session, err, logFile)
