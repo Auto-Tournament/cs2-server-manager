@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/icon.svg" alt="CS2 Server Manager" width="140" height="140">
+  <img src="assets/icon.svg" alt="CS2 Server Manager" width="140" height="140">
   
   # CS2 Server Manager
   
