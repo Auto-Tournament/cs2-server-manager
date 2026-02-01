@@ -50,35 +50,61 @@ func RunAutoUpdateMonitor() error {
 
 	log("Detected %d CS2 servers for user %s", mgr.NumServers, mgr.CS2User)
 
-	// Step 1: For each server, if its tmux session is NOT running, inspect the
-	// corresponding tmux log for the AutoUpdater shutdown marker. This allows
-	// per-server updates without requiring all servers to be down at once.
+	// Step 1: Inspect each server log for update markers.
+	// - Legacy workflow: server shuts down with an AutoUpdater shutdown marker.
+	// - MAT workflow (default): MatchZy Enhanced emits an "available" marker in warn-only mode.
+	//
+	// This monitor only runs the update when the tmux session is NOT running.
+	// If we see the "available" marker while the session is running, we log a
+	// targeted hint (stop the server or switch MatchZy to restart mode).
 	const shutdownMarker = "plugin:AutoUpdater Shutting the server down due to the new game update"
+	const matchzyAvailableMarker = "[MATCHZY_UPDATE_AVAILABLE] required_version="
 
 	for i := 1; i <= mgr.NumServers; i++ {
-		session := mgr.sessionName(i)
-		cmd := mgr.runAsCS2User("tmux has-session -t " + session)
-		if err := cmd.Run(); err == nil {
-			// Session still running; skip this server for now.
-			continue
-		}
-
 		logPath := mgr.ServerLogPath(i)
 		if strings.TrimSpace(logPath) == "" {
 			log("Server-%d: no tmux log path available; skipping.", i)
 			continue
 		}
 
-		found, err := tailContains(logPath, shutdownMarker, 64*1024)
+		session := mgr.sessionName(i)
+		cmd := mgr.runAsCS2User("tmux has-session -t " + session)
+		if err := cmd.Run(); err == nil {
+			// Session still running. In warn-only mode MatchZy will not quit the server,
+			// so the shutdown marker never appears. If we detect the MatchZy marker
+			// while running, provide actionable guidance.
+			foundAvailable, err := tailContains(logPath, matchzyAvailableMarker, 64*1024)
+			if err != nil {
+				log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
+				continue
+			}
+			if foundAvailable {
+				log("Server-%d: MatchZy update marker found, but server is still running. (Default MAT behavior is warn-only.)", i)
+				log("  - To proceed automatically: set matchzy_safeautoupdater_action restart (MatchZy will quit once idle/postgame).")
+				log("  - To proceed manually: stop server-%d, then rerun: sudo csm monitor", i)
+			}
+			continue
+		}
+
+		foundShutdown, err := tailContains(logPath, shutdownMarker, 64*1024)
 		if err != nil {
 			log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
 			continue
 		}
-		if !found {
+		foundAvailable, err := tailContains(logPath, matchzyAvailableMarker, 64*1024)
+		if err != nil {
+			log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
+			continue
+		}
+		if !foundShutdown && !foundAvailable {
 			continue
 		}
 
-		log("Server-%d: AutoUpdater shutdown marker found in tmux log (%s).", i, logPath)
+		if foundShutdown {
+			log("Server-%d: AutoUpdater shutdown marker found in tmux log (%s).", i, logPath)
+		} else {
+			log("Server-%d: MatchZy update marker found in tmux log (%s).", i, logPath)
+		}
 
 		info, err := os.Stat(logPath)
 		if err != nil {
