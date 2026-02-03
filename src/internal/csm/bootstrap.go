@@ -1749,7 +1749,11 @@ func createCS2User(w *bytes.Buffer, user string) error {
 // installMasterViaSteamCMD installs or updates the master CS2 installation via SteamCMD.
 func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg BootstrapConfig) error {
 	masterDir := filepath.Join("/home", cfg.CS2User, "master-install")
-	fmt.Fprintf(w, "  [*] Installing/updating master CS2 at %s...\n", masterDir)
+	validateStr := "on"
+	if !SteamcmdShouldValidate() {
+		validateStr = "off"
+	}
+	fmt.Fprintf(w, "  [*] Installing/updating master CS2 at %s (steamcmd validate: %s)...\n", masterDir, validateStr)
 
 	if err := os.MkdirAll(masterDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create master directory: %w", err)
@@ -1794,12 +1798,17 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 	}
 
 	// Use -H so HOME is set to the target user's home (SteamCMD writes to ~/.steam).
-	cmd := exec.CommandContext(ctx, "sudo", "-u", cfg.CS2User, "-H", "steamcmd",
+	args := []string{
+		"sudo", "-u", cfg.CS2User, "-H", "steamcmd",
 		"+force_install_dir", masterDir,
 		"+login", "anonymous",
-		"+app_update", "730", "validate",
-		"+quit",
-	)
+		"+app_update", "730",
+	}
+	if SteamcmdShouldValidate() {
+		args = append(args, "validate")
+	}
+	args = append(args, "+quit")
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 
 	// Capture both stdout and stderr
 	var stderrBuf bytes.Buffer

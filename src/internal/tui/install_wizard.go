@@ -262,6 +262,8 @@ const (
 	wizardFieldMetamod
 	wizardFieldFreshInstall
 	wizardFieldUpdateMaster
+	wizardFieldFastCopy
+	wizardFieldSteamValidate
 	wizardFieldUpdatePlugins
 	wizardFieldInstallMonitor
 	wizardFieldDBExternalHost
@@ -296,7 +298,7 @@ func getWizardPages(dbMode string) []wizardPage {
 		},
 		// Page 3: Update options (4 items)
 		{
-			wizardFieldUpdatePlugins, wizardFieldInstallMonitor,
+			wizardFieldSteamValidate, wizardFieldFastCopy, wizardFieldUpdatePlugins, wizardFieldInstallMonitor,
 		},
 	}
 
@@ -603,6 +605,24 @@ func (m model) viewInstallWizard() string {
 				return "[ ] No"
 			}
 			renderRow(wizardFieldUpdateMaster, "Update master:", boolLabel(m.wizard.cfg.updateMaster))
+
+		case wizardFieldSteamValidate:
+			boolLabel := func(v bool) string {
+				if v {
+					return "[x] Safe (validate ON)"
+				}
+				return "[ ] Fast (validate OFF)"
+			}
+			renderRow(wizardFieldSteamValidate, "SteamCMD validate:", boolLabel(m.wizard.cfg.steamcmdValidate))
+
+		case wizardFieldFastCopy:
+			boolLabel := func(v bool) string {
+				if v {
+					return "[x] Yes (auto)"
+				}
+				return "[ ] No (legacy)"
+			}
+			renderRow(wizardFieldFastCopy, "Fast copy mode:", boolLabel(m.wizard.cfg.fastCopy))
 
 		case wizardFieldUpdatePlugins:
 			boolLabel := func(v bool) string {
@@ -1045,7 +1065,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			}
 			return m, nil
 		case wizardFieldDBMode, wizardFieldMetamod, wizardFieldFreshInstall,
-			wizardFieldUpdateMaster, wizardFieldUpdatePlugins, wizardFieldInstallMonitor:
+			wizardFieldUpdateMaster, wizardFieldSteamValidate, wizardFieldFastCopy,
+			wizardFieldUpdatePlugins, wizardFieldInstallMonitor:
 			// Toggle boolean fields or DB mode on Enter
 			switch currentField {
 			case wizardFieldDBMode:
@@ -1066,6 +1087,10 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.diskEstimating = true
 			case wizardFieldUpdateMaster:
 				m.wizard.cfg.updateMaster = !m.wizard.cfg.updateMaster
+			case wizardFieldSteamValidate:
+				m.wizard.cfg.steamcmdValidate = !m.wizard.cfg.steamcmdValidate
+			case wizardFieldFastCopy:
+				m.wizard.cfg.fastCopy = !m.wizard.cfg.fastCopy
 			case wizardFieldUpdatePlugins:
 				m.wizard.cfg.updatePlugins = !m.wizard.cfg.updatePlugins
 			case wizardFieldInstallMonitor:
@@ -1156,12 +1181,26 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			// Parse numeric fields into cfg.
 			m.wizard.applyWizardNumericFields()
 
-			// Prompt for fast copy mode right before starting the install.
-			// This keeps the wizard pages simple while still offering a big speedup.
+			// Apply the wizard's runtime options (copy mode, steamcmd validate)
+			// for this install run, then start step 1.
+			m.applyWizardRuntimeEnv()
+
+			// Initialize live timing for step 1.
+			m.currentInstallStep = installStepPlugins
+			m.installStepStart = time.Now()
+			m.installStatusBase = "Step 1/4: Preparing plugin update..."
+			m.installExpected = "~1–5 minutes"
+
 			m.wizard.active = false
-			m.view = viewFastCopyConfirm
-			m.wizard.errMsg = ""
-			return m, nil
+			m.view = viewMain
+			m.running = true
+			m.status = m.installStatusBase
+			m.lastOutput = ""
+
+			cfg := m.wizard.cfg
+			return m, tea.Batch(runInstallStep(cfg, installStepPlugins), m.spin.Tick, tea.Tick(time.Second, func(time.Time) tea.Msg {
+				return installElapsedMsg{}
+			}))
 		case wizardFieldCancel:
 			m.wizard.active = false
 			m.view = viewMain

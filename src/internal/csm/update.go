@@ -794,13 +794,22 @@ func updateMasterInstallWithContext(ctx context.Context, w *bytes.Buffer, logFil
 		}
 	}
 
-	log("Updating master install at %s via SteamCMD...", masterDir)
-	cmd := exec.CommandContext(ctx, "sudo", "-u", cs2User, "steamcmd",
+	validateStr := "on"
+	if !SteamcmdShouldValidate() {
+		validateStr = "off"
+	}
+	log("Updating master install at %s via SteamCMD (validate: %s)...", masterDir, validateStr)
+	args := []string{
+		"sudo", "-u", cs2User, "steamcmd",
 		"+force_install_dir", masterDir,
 		"+login", "anonymous",
-		"+app_update", "730", "validate",
-		"+quit",
-	)
+		"+app_update", "730",
+	}
+	if SteamcmdShouldValidate() {
+		args = append(args, "validate")
+	}
+	args = append(args, "+quit")
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 
 	var steamOut io.Writer = w
 	if logFile != nil {

@@ -63,7 +63,8 @@ func FixLibV8WithContext(ctx context.Context, server int) (string, error) {
 	fmt.Fprintf(&buf, "    Targets:  %v\n\n", servers)
 
 	// 1) Validate master install so missing libraries are re-downloaded.
-	fmt.Fprintf(&buf, "[*] Validating master install via SteamCMD (app 730)...\n")
+	// This repair intentionally forces validate regardless of CSM_STEAMCMD_VALIDATE.
+	fmt.Fprintf(&buf, "[*] Validating master install via SteamCMD (app 730, validate forced)...\n")
 	if err := runCmdLoggedContext(ctx, &buf,
 		"sudo", "-u", user, "-H", "steamcmd",
 		"+force_install_dir", masterDir,

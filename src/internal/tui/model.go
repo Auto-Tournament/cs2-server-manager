@@ -26,7 +26,7 @@ const (
 	viewActionResult
 	viewPublicIP
 	viewCleanupConfirm
-	viewFastCopyConfirm
+	viewDoctorConfirm
 	viewLogsPrompt
 	viewAddServersPrompt
 	viewRemoveServersPrompt
@@ -71,6 +71,7 @@ const (
 	itemUnbanIP
 	itemUnbanAllIPs
 	itemCLIHelp
+	itemDoctorViewport
 )
 
 // top-level tabs for grouping actions
@@ -117,6 +118,8 @@ type installConfig struct {
 	rconPassword       string
 	maxPlayers         int    // 0 means use default
 	gslt               string // Game Server Login Token
+	fastCopy           bool   // enable fastest copy method (reflink/rsync auto)
+	steamcmdValidate   bool   // include "validate" in steamcmd app_update 730
 	updatePlugins      bool
 	installMonitor     bool
 	matchzySkipDocker  bool
@@ -275,6 +278,11 @@ type model struct {
 	// to fastest copy behaviour. Restored when the wizard finishes/cancels.
 	installCopyModeHadPrev bool
 	installCopyModePrev    string
+
+	// Temporary SteamCMD validate override used by the install wizard. Restored
+	// when the wizard finishes/cancels.
+	installValidateHadPrev bool
+	installValidatePrev    string
 }
 
 // New constructs the initial Bubble Tea model for the CS2 TUI.
@@ -502,6 +510,11 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemViewRecentLogsGo,
 			},
 			{
+				title:       "Doctor (diagnose + fix)",
+				description: "Scan for common issues (steamcmd, ownership, SteamRT, libv8) and optionally apply fixes.",
+				kind:        itemDoctorViewport,
+			},
+			{
 				title:       "Show public IP",
 				description: "",
 				kind:        itemPublicIPGo,
@@ -544,6 +557,8 @@ func (m *model) initWizardDefaults() {
 		// event-specific default.
 		rconPassword:       "",
 		maxPlayers:         15, // Default max players per server
+		fastCopy:           true,
+		steamcmdValidate:   true,
 		updatePlugins:      true,
 		installMonitor:     true,
 		matchzySkipDocker:  false,
@@ -698,6 +713,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Second Q (or ctrl+c twice): cancel and return to wizard instead of quitting
 				CancelInstall()
 				m.restoreCopyModeEnvIfNeeded()
+				m.restoreSteamValidateEnvIfNeeded()
 				// Clean up install state and return to wizard
 				if !m.installStepStart.IsZero() {
 					m.currentInstallStep = 0
@@ -731,6 +747,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if installCancel != nil {
 					CancelInstall()
 					m.restoreCopyModeEnvIfNeeded()
+					m.restoreSteamValidateEnvIfNeeded()
 					if !m.installStepStart.IsZero() {
 						// Reset install wizard state and return to wizard when canceling
 						m.currentInstallStep = 0
@@ -772,9 +789,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		if m.view == viewFastCopyConfirm {
+		if m.view == viewDoctorConfirm {
 			var cmd tea.Cmd
-			m, cmd = m.updateFastCopyConfirmKey(msg)
+			m, cmd = m.updateDoctorConfirmKey(msg)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -1168,6 +1185,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Loading recent command logs..."
 				m.lastOutput = ""
 				cmds = append(cmds, runViewRecentLogsGo(), m.spin.Tick)
+			case itemDoctorViewport:
+				// Enter a small confirmation screen so users can choose report-only
+				// vs applying fixes (since fixes can modify system files).
+				m.view = viewDoctorConfirm
+				m.status = ""
+				m.lastOutput = ""
 			case itemEditMatchZyConfig:
 				cmds = append(cmds, runEditConfigFile("MatchZy config.cfg", "game/csgo/cfg/MatchZy/config.cfg"))
 			case itemEditMatchZyDatabase:
@@ -1385,6 +1408,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			CancelInstall()
 			m.running = false
 			m.restoreCopyModeEnvIfNeeded()
+			m.restoreSteamValidateEnvIfNeeded()
 			m.detailIsError = true
 
 			// Show a dedicated error page with the full log output from the
@@ -1466,6 +1490,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.running = false
 			m.confirmQuit = false
 			m.restoreCopyModeEnvIfNeeded()
+			m.restoreSteamValidateEnvIfNeeded()
 			m.status = ""
 
 			// Build a summary page the user can review after the wizard
@@ -1487,6 +1512,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return v
 					}
 					return "legacy"
+				}()),
+				fmt.Sprintf("  Steam validate : %s", func() string {
+					if v := strings.TrimSpace(os.Getenv("CSM_STEAMCMD_VALIDATE")); v != "" {
+						return v
+					}
+					return "1"
 				}()),
 				fmt.Sprintf("  Copy observed  : %s", csm.CopyStatsSummary()),
 				fmt.Sprintf("  Base ports     : game %d, GOTV %d", m.wizard.cfg.basePort, m.wizard.cfg.tvPort),
@@ -1792,8 +1823,8 @@ func (m model) View() string {
 		return m.viewPublicIP()
 	case viewCleanupConfirm:
 		return m.viewCleanupConfirm()
-	case viewFastCopyConfirm:
-		return m.viewFastCopyConfirm()
+	case viewDoctorConfirm:
+		return m.viewDoctorConfirm()
 	case viewLogsPrompt:
 		return m.viewLogsPrompt()
 	case viewAddServersPrompt:
@@ -1947,6 +1978,8 @@ func (m model) View() string {
 			desc = "Wipe all servers and the dedicated CS2 user; use only when you want a full reset."
 		case itemCLIHelp:
 			desc = "Cheatsheet of CLI-only commands like csm attach, debug, logs, and more."
+		case itemDoctorViewport:
+			desc = "Scan for common problems and optionally apply safe automated fixes."
 		}
 		if strings.TrimSpace(desc) != "" {
 			fmt.Fprintln(&b, subtleStyle.Render(desc))
