@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -20,7 +21,9 @@ func parsePercentFromLine(line string) (int, bool) {
 			tok = strings.Trim(tok, "[](),")
 			if tok != "" {
 				if f, err := strconv.ParseFloat(tok, 64); err == nil && f >= 0 && f <= 100 {
-					return int(f + 0.5), true
+					// Floor instead of rounding so we only show 65% once progress is >= 65.0,
+					// not at 64.6%.
+					return int(math.Floor(f)), true
 				}
 			}
 		}
