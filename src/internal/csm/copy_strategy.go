@@ -23,15 +23,22 @@ func rsyncArgsLegacyCopy(srcRoot, dstRoot string, progress2 bool) []string {
 	return args
 }
 
-func rsyncArgsTunedCopy(srcRoot, dstRoot string, progress2 bool) []string {
+func rsyncArgsTunedCopy(srcRoot, dstRoot string, progress2 bool, chownUser string) []string {
 	args := []string{
 		"-a",
 		"--whole-file",
-		"--no-owner",
-		"--no-group",
 		"--omit-dir-times",
 		"--delete",
 		"--exclude", "csgo/addons/",
+	}
+	// When running as root, have rsync write the correct ownership directly so
+	// we can avoid a slow recursive chown over large game trees.
+	if os.Geteuid() == 0 && strings.TrimSpace(chownUser) != "" {
+		args = append(args, "--chown="+strings.TrimSpace(chownUser)+":"+strings.TrimSpace(chownUser))
+	} else {
+		// Fall back to the older tuned behaviour (avoid trying to preserve
+		// ownership/group when we cannot set them).
+		args = append(args, "--no-owner", "--no-group")
 	}
 	if progress2 {
 		args = append(args, "--info=PROGRESS2")
@@ -42,7 +49,7 @@ func rsyncArgsTunedCopy(srcRoot, dstRoot string, progress2 bool) []string {
 
 // copyMasterGameToServerGame replicates <masterDir>/game/ into <serverGameDir>/.
 // It respects CSM_COPY_MODE for the copy strategy.
-func copyMasterGameToServerGame(ctx context.Context, w io.Writer, masterDir, serverGameDir string, allowReflink bool, progress2 bool) error {
+func copyMasterGameToServerGame(ctx context.Context, w io.Writer, cs2User, masterDir, serverGameDir string, allowReflink bool, progress2 bool) error {
 	mode := CopyModeFromEnv()
 	recordCopyNote(string(mode))
 
@@ -91,7 +98,7 @@ func copyMasterGameToServerGame(ctx context.Context, w io.Writer, masterDir, ser
 		args = rsyncArgsLegacyCopy(srcRoot, dstRoot, progress2)
 		RecordCopyRsyncLegacy("rsync legacy")
 	default:
-		args = rsyncArgsTunedCopy(srcRoot, dstRoot, progress2)
+		args = rsyncArgsTunedCopy(srcRoot, dstRoot, progress2, cs2User)
 		RecordCopyRsyncTuned("rsync tuned")
 	}
 

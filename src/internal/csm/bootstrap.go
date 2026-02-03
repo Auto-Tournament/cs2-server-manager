@@ -310,15 +310,13 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("Custom configs: %s/game -> /home/%s/cs2-config/game", cfg.OverridesDir, cfg.CS2User)
 	log("Metamod       : %v", cfg.EnableMetamod)
 
-	// Fix ownership of all server files to ensure everything is owned by cs2servermanager
-	log("")
-	log("[*] Fixing file ownership...")
-	if err := fixServerOwnership(cfg.CS2User); err != nil {
-		log("[!] Warning: Failed to fix ownership: %v", err)
-		log("[!] You may need to manually run: sudo chown -R %s:%s /home/%s", cfg.CS2User, cfg.CS2User, cfg.CS2User)
-	} else {
-		log("[✓] File ownership fixed")
-	}
+	// Avoid an expensive recursive chown over /home/<user>. We ensure the
+	// directories we create are owned by the CS2 user at creation time and
+	// rsync writes correct ownership directly for copied game files.
+	_ = ensureHomeWritable(cfg.CS2User)
+	_ = ensureOwnedByUser(cfg.CS2User, filepath.Join("/home", cfg.CS2User, "master-install"))
+	_ = ensureOwnedByUser(cfg.CS2User, filepath.Join("/home", cfg.CS2User, "cs2-config"))
+	_ = ensureOwnedByUser(cfg.CS2User, cfg.OverridesDir)
 
 	bootstrapSucceeded = true
 	return buf.String(), nil
@@ -1726,10 +1724,10 @@ func createCS2User(w *bytes.Buffer, user string) error {
 	if err := cmd.Run(); err == nil {
 		fmt.Fprintf(w, "  [✓] User %s already exists\n", user)
 
-		// Ensure home directory ownership is correct. This is important because
-		// SteamCMD will try to create ~/.steam and will fail with "Permission denied"
-		// if /home/<user> is owned by root (common after partial/manual installs).
-		if err := fixServerOwnership(user); err != nil {
+		// Ensure the home directory itself is owned by the CS2 user. SteamCMD
+		// writes state under ~/.steam and will fail if /home/<user> is root-owned
+		// (common after partial/manual installs).
+		if err := ensureHomeWritable(user); err != nil {
 			fmt.Fprintf(w, "  [!] Warning: Failed to fix ownership for %s: %v\n", user, err)
 		}
 		return nil
@@ -1739,7 +1737,7 @@ func createCS2User(w *bytes.Buffer, user string) error {
 	if err := runCmdLogged(w, "useradd", "-r", "-m", "-s", "/bin/bash", user); err != nil {
 		return fmt.Errorf("failed to create user %s: %w", user, err)
 	}
-	if err := fixServerOwnership(user); err != nil {
+	if err := ensureHomeWritable(user); err != nil {
 		fmt.Fprintf(w, "  [!] Warning: Failed to fix ownership for %s: %v\n", user, err)
 	}
 	fmt.Fprintf(w, "  [✓] User %s created\n", user)
@@ -1788,12 +1786,13 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 
 	// Ensure the CS2 user can write to their home directory (SteamCMD needs this
 	// to create ~/.steam and other state directories).
-	if err := fixServerOwnership(cfg.CS2User); err != nil {
+	if err := ensureHomeWritable(cfg.CS2User); err != nil {
 		fmt.Fprintf(w, "  [!] Warning: Failed to fix ownership of %s: %v\n", homeDir, err)
 	}
 
-	// Ensure the CS2 user owns the master directory
-	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cfg.CS2User, cfg.CS2User), masterDir).Run(); err != nil {
+	// Ensure the CS2 user owns the master directory itself (SteamCMD runs as the
+	// user and needs to be able to write inside it).
+	if err := ensureOwnedByUser(cfg.CS2User, masterDir); err != nil {
 		fmt.Fprintf(w, "  [!] Warning: Failed to set ownership of %s: %v\n", masterDir, err)
 	}
 
@@ -1931,12 +1930,16 @@ func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverN
 	if err := os.MkdirAll(serverGameDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create server directory: %w", err)
 	}
+	// The directory tree may be created by root. Ensure the CS2 user can write
+	// to the server directory before we populate it.
+	_ = ensureOwnedByUser(user, serverDir)
+	_ = ensureOwnedByUser(user, serverGameDir)
 
 	fmt.Fprintf(w, "  [*] Copying master install to server-%d...\n", serverNum)
 	// Install-like copy: allow reflink when the destination is empty/clean.
 	// Fresh installs remove the directory; new servers are also typically empty.
 	allowReflink := true
-	if err := copyMasterGameToServerGame(ctx, w, masterDir, serverGameDir, allowReflink, false); err != nil {
+	if err := copyMasterGameToServerGame(ctx, w, user, masterDir, serverGameDir, allowReflink, false); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "  [✓] Server-%d game files copied\n", serverNum)
@@ -1959,6 +1962,7 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 	if err := os.MkdirAll(serverCfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create server cfg directory: %w", err)
 	}
+	_ = ensureOwnedByUser(user, serverCfgDir)
 
 	if fi, err := os.Stat(sharedCfgDir); err == nil && fi.IsDir() {
 		if err := runCmdLoggedContext(ctx, w, "rsync", "-a",
@@ -1977,6 +1981,7 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 		if err := os.MkdirAll(serverAddonsDir, 0o755); err != nil {
 			return fmt.Errorf("failed to create server addons directory: %w", err)
 		}
+		_ = ensureOwnedByUser(user, serverAddonsDir)
 		if err := runCmdLoggedContext(ctx, w, "rsync", "-a", "--delete",
 			sharedAddonsDir+string(os.PathSeparator),
 			serverAddonsDir+string(os.PathSeparator),

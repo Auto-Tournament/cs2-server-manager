@@ -154,15 +154,6 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 	}
 	log("  [✓] Server-%d started via tmux", newIdx)
 
-	// Fix ownership of all server files
-	log("")
-	log("  [*] Fixing file ownership...")
-	if err := fixServerOwnership(user); err != nil {
-		log("  [!] Warning: Failed to fix ownership: %v", err)
-	} else {
-		log("  [✓] File ownership fixed")
-	}
-
 	return buf.String(), nil
 }
 
@@ -427,15 +418,6 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 		return buf.String(), err
 	}
 	log("  [✓] Server-%d started", serverNum)
-
-	// Fix ownership of all server files
-	log("")
-	log("  [*] Fixing file ownership...")
-	if err := fixServerOwnership(user); err != nil {
-		log("  [!] Warning: Failed to fix ownership: %v", err)
-	} else {
-		log("  [✓] File ownership fixed")
-	}
 
 	return buf.String(), nil
 }

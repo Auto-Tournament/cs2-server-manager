@@ -180,19 +180,6 @@ func UpdatePlugins() (string, error) {
 			log("  • MatchZy            → game_files/game/csgo/addons/counterstrikesharp/plugins/MatchZy/")
 			log("  • User overrides     → Applied to game_files/ and cs2-config/")
 
-			// Fix ownership of all server files
-			log("")
-			log("[*] Fixing file ownership...")
-			if mgr, err := NewTmuxManager(); err == nil {
-				if err := fixServerOwnership(mgr.CS2User); err != nil {
-					log("[!] Warning: Failed to fix ownership: %v", err)
-				} else {
-					log("[✓] File ownership fixed")
-				}
-			} else {
-				log("[!] Warning: Could not detect CS2 user, skipping ownership fix")
-			}
-
 			result = buf.String()
 			return nil
 		}

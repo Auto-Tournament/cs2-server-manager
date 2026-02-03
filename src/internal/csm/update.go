@@ -198,14 +198,10 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
-	// As a safety net, ensure the CS2 user owns everything under its home
-	// directory. This avoids subtle permission issues after rsync/SteamCMD
-	// operations run as root.
-	homeDir := filepath.Join("/home", cs2User)
-	log("Ensuring ownership of %s for user %s", homeDir, cs2User)
-	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), homeDir).Run(); err != nil {
-		log("  [!] Warning: Failed to set ownership of %s: %v", homeDir, err)
-	}
+	// Avoid an expensive recursive chown over /home/<user>. We chown specific
+	// directories at creation time and rsync writes correct ownership directly.
+	_ = ensureHomeWritable(cs2User)
+	_ = ensureOwnedByUser(cs2User, masterDir)
 
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
@@ -429,13 +425,10 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 		return buf.String(), err
 	}
 
-	// Ensure the CS2 user owns everything under its home directory after
-	// rsyncing plugins/configs as root.
-	homeDir := filepath.Join("/home", mgr.CS2User)
-	log("Ensuring ownership of %s for user %s", homeDir, mgr.CS2User)
-	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", mgr.CS2User, mgr.CS2User), homeDir).Run(); err != nil {
-		log("  [!] Warning: Failed to set ownership of %s: %v", homeDir, err)
-	}
+	// Avoid an expensive recursive chown over /home/<user>. Ensure the shared
+	// cs2-config directory stays writable.
+	_ = ensureHomeWritable(mgr.CS2User)
+	_ = ensureOwnedByUser(mgr.CS2User, filepath.Join("/home", mgr.CS2User, "cs2-config"))
 
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
@@ -756,13 +749,10 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 
 	log("")
 
-	// As a safety net, ensure the CS2 user owns everything under its home
-	// directory after rsync/SteamCMD work.
-	homeDir := filepath.Join("/home", cs2User)
-	log("Ensuring ownership of %s for user %s", homeDir, cs2User)
-	if err := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), homeDir).Run(); err != nil {
-		log("  [!] Warning: Failed to set ownership of %s: %v", homeDir, err)
-	}
+	// Avoid an expensive recursive chown over /home/<user>. Ensure the key dirs
+	// are still owned/writable.
+	_ = ensureHomeWritable(cs2User)
+	_ = ensureOwnedByUser(cs2User, masterDir)
 
 	log("")
 	log("Restarting server-%d...", server)
@@ -866,7 +856,7 @@ func syncMasterToServerWithContext(ctx context.Context, w *bytes.Buffer, logFile
 	if logFile != nil {
 		rsyncOut = &teeWriter{buf: w, file: logFile}
 	}
-	if err := copyMasterGameToServerGame(ctx, rsyncOut, masterDir, dst, false, true); err != nil {
+	if err := copyMasterGameToServerGame(ctx, rsyncOut, mgr.CS2User, masterDir, dst, false, true); err != nil {
 		log("  [ERROR] sync to server-%d failed: %v", server, err)
 		return err
 	}
