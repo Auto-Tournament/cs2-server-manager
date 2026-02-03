@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -437,38 +438,159 @@ func main() {
 			csm.LogAction("cli", fmt.Sprintf("logs-file server-%d", server), path, nil)
 			fmt.Println(path)
 			return
-	case "logdir":
-		// Show command logs directory and recent logs  
-		logDir := csm.ResolveRoot()
-		if d := os.Getenv("CSM_LOG_DIR"); d != "" {
-			logDir = d
-		} else {
-			logDir = filepath.Join(logDir, "logs")
-		}
-		
-		if _, err := os.Stat(logDir); os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Logs directory does not exist yet: %s\n\nRun some commands first to generate logs.\n", logDir)
-			os.Exit(1)
-		}
-		
-		logs, err := csm.ListRecentLogs(10)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to list logs: %v\n", err)
-			os.Exit(1)
-		}
-		
-		fmt.Printf("CS2 Server Manager - Command Logs\n==================================\n\nLog directory: %s\n\n", logDir)
-		
-		if len(logs) == 0 {
-			fmt.Println("No command logs found yet.\n\nRun some commands and their logs will appear here.")
-		} else {
-			fmt.Printf("Recent commands (10 most recent):\n\n")
-			for i, logName := range logs {
-				fmt.Printf("  %d. %s\n", i+1, logName)
+		case "doctor":
+			// Doctor is intended to run with sudo since fixes require root.
+			if os.Geteuid() != 0 {
+				fmt.Fprintln(os.Stderr, "csm doctor must be run with sudo so it can apply fixes.")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Run:")
+				fmt.Fprintln(os.Stderr, "  sudo csm doctor")
+				os.Exit(1)
 			}
-			fmt.Printf("\nTo view a log:\n  cat %s/<filename>\n\nTo navigate to logs directory:\n  cd %s\n\nTo follow live logs:\n  tail -f %s/csm.log\n", logDir, logDir, logDir)
-		}
-		return
+
+			dfs := flag.NewFlagSet("doctor", flag.ExitOnError)
+			assumeYes := dfs.Bool("yes", false, "apply all available fixes without prompting")
+			server := dfs.Int("server", 0, "server number to check (0 = all)")
+			_ = dfs.Parse(args[1:])
+
+			ctx := context.Background()
+			meta, checks, scanErr := csm.DoctorScan(ctx, csm.DoctorOptions{Server: *server})
+			report := csm.FormatDoctorReport(meta, checks)
+			fmt.Print(report)
+
+			var fullOut strings.Builder
+			fullOut.WriteString(report)
+			if scanErr != nil {
+				fullOut.WriteString("\n[!] Doctor scan error: ")
+				fullOut.WriteString(scanErr.Error())
+				fullOut.WriteString("\n")
+			}
+
+			isInteractive := isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
+			appliedAny := false
+
+			for _, chk := range checks {
+				if chk.Status == csm.DoctorOK || chk.Fix == nil {
+					continue
+				}
+
+				if !*assumeYes {
+					// Without a TTY we don't prompt; require --yes for non-interactive fixing.
+					if !isInteractive {
+						continue
+					}
+					if !promptYesNo(fmt.Sprintf("Fix now: %s? [y/N] ", chk.Title)) {
+						continue
+					}
+				}
+
+				fmt.Println()
+				fmt.Printf("[*] Applying fix: %s\n", chk.Title)
+				out, err := chk.Fix(ctx)
+				if strings.TrimSpace(out) != "" {
+					fmt.Print(out)
+					if !strings.HasSuffix(out, "\n") {
+						fmt.Println()
+					}
+				}
+
+				fullOut.WriteString("\n--- fix: ")
+				fullOut.WriteString(chk.ID)
+				fullOut.WriteString(" ---\n")
+				fullOut.WriteString(out)
+
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Fix failed: %v\n", err)
+					fullOut.WriteString("\nFix failed: ")
+					fullOut.WriteString(err.Error())
+					fullOut.WriteString("\n")
+					csm.LogAction("cli", "doctor", fullOut.String(), err)
+					os.Exit(1)
+				}
+				appliedAny = true
+			}
+
+			if appliedAny {
+				fmt.Println()
+				fmt.Println("[*] Re-scanning after fixes...")
+				meta2, checks2, scanErr2 := csm.DoctorScan(ctx, csm.DoctorOptions{Server: *server})
+				report2 := csm.FormatDoctorReport(meta2, checks2)
+				fmt.Print(report2)
+				fullOut.WriteString("\n--- rescan ---\n")
+				fullOut.WriteString(report2)
+				if scanErr2 != nil {
+					fullOut.WriteString("\nRescan error: ")
+					fullOut.WriteString(scanErr2.Error())
+					fullOut.WriteString("\n")
+				}
+			} else if !*assumeYes && !isInteractive {
+				fmt.Fprintln(os.Stderr, "\n[i] Non-interactive session: no fixes applied. Re-run with `--yes` to auto-fix.")
+			}
+
+			csm.LogAction("cli", "doctor", fullOut.String(), scanErr)
+			if scanErr != nil {
+				fmt.Fprintf(os.Stderr, "doctor scan error: %v\n", scanErr)
+				os.Exit(1)
+			}
+			return
+		case "fix-libv8":
+			if len(args) < 2 {
+				fmt.Fprintln(os.Stderr, "usage: csm fix-libv8 <server|0>")
+				fmt.Fprintln(os.Stderr, "")
+				fmt.Fprintln(os.Stderr, "Repairs missing libv8.so by validating the master install (SteamCMD app 730) and re-syncing game files to server(s).")
+				fmt.Fprintln(os.Stderr, "Use 0 to repair all discovered servers.")
+				os.Exit(1)
+			}
+			server, serr := strconv.Atoi(args[1])
+			if serr != nil || server < 0 {
+				fmt.Fprintf(os.Stderr, "invalid server number %q (must be 0 for all servers, or a positive integer)\n", args[1])
+				os.Exit(1)
+			}
+			out, err := csm.FixLibV8WithContext(context.Background(), server)
+			csm.LogAction("cli", fmt.Sprintf("fix-libv8 %d", server), out, err)
+			if out != "" {
+				fmt.Print(out)
+				if !strings.HasSuffix(out, "\n") {
+					fmt.Println()
+				}
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "fix-libv8 failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "logdir":
+			// Show command logs directory and recent logs
+			logDir := csm.ResolveRoot()
+			if d := os.Getenv("CSM_LOG_DIR"); d != "" {
+				logDir = d
+			} else {
+				logDir = filepath.Join(logDir, "logs")
+			}
+
+			if _, err := os.Stat(logDir); os.IsNotExist(err) {
+				fmt.Fprintf(os.Stderr, "Logs directory does not exist yet: %s\n\nRun some commands first to generate logs.\n", logDir)
+				os.Exit(1)
+			}
+
+			logs, err := csm.ListRecentLogs(10)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to list logs: %v\n", err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("CS2 Server Manager - Command Logs\n==================================\n\nLog directory: %s\n\n", logDir)
+
+			if len(logs) == 0 {
+				fmt.Println("No command logs found yet.\n\nRun some commands and their logs will appear here.")
+			} else {
+				fmt.Printf("Recent commands (10 most recent):\n\n")
+				for i, logName := range logs {
+					fmt.Printf("  %d. %s\n", i+1, logName)
+				}
+				fmt.Printf("\nTo view a log:\n  cat %s/<filename>\n\nTo navigate to logs directory:\n  cd %s\n\nTo follow live logs:\n  tail -f %s/csm.log\n", logDir, logDir, logDir)
+			}
+			return
 		case "attach":
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm attach <server>")
@@ -726,6 +848,7 @@ func printUsage() {
 	fmt.Println("  start|stop|restart     Control servers via tmux")
 	fmt.Println("  logs                   Tail server logs (scrolling)")
 	fmt.Println("  logs-file              Show the raw log file path for a server")
+	fmt.Println("  fix-libv8              Validate+sync to fix missing libv8.so")
 	fmt.Println("  attach                 Attach to a server tmux session")
 	fmt.Println("  list-sessions          List tmux sessions")
 	fmt.Println("  debug                  Run a server in foreground debug mode")
@@ -734,6 +857,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Printf("%sCommands (require sudo for typical setups):%s\n", yellow, reset)
 	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
+	fmt.Println("  doctor                 Diagnose and offer fixes for common issues")
 	fmt.Println("  cleanup-all            Remove all servers and related resources")
 	fmt.Println("  reinstall <server>     Rebuild a single server from master (fixes corrupted files)")
 	fmt.Println("  update-config <server> Regenerate server configs without reinstalling")
@@ -747,4 +871,20 @@ func printUsage() {
 	fmt.Println("  install-deps           Install system dependencies")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")
+}
+
+func promptYesNo(question string) bool {
+	fmt.Fprint(os.Stdout, question)
+	r := bufio.NewReader(os.Stdin)
+	line, _ := r.ReadString('\n')
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return false
+	}
+	switch strings.ToLower(line) {
+	case "y", "yes":
+		return true
+	default:
+		return false
+	}
 }

@@ -647,7 +647,10 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 						retryWriter := io.MultiWriter(w, &retryOut)
 						if err3 := runCmdLoggedContext(ctx, retryWriter, "apt-get", args...); err3 == nil {
 							// Success after auto-fix.
-							goto steamcmdWrapper
+							if werr := EnsureSteamcmdWrapper(w); werr != nil {
+								return werr
+							}
+							return nil
 						}
 						// If retry failed, fall through to the user-facing error message below.
 					}
@@ -731,16 +734,7 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 	}
 
 	// Ensure /usr/bin/steamcmd wrapper exists (linking to /usr/games/steamcmd).
-steamcmdWrapper:
-	const wrapper = "/usr/bin/steamcmd"
-	if fi, err := os.Stat(wrapper); err != nil || fi.Mode()&0o111 == 0 {
-		_ = os.Remove(wrapper)
-		content := "#!/usr/bin/env bash\nexec /usr/games/steamcmd \"$@\"\n"
-		if err := os.WriteFile(wrapper, []byte(content), 0o755); err != nil {
-			return err
-		}
-	}
-	return nil
+	return EnsureSteamcmdWrapper(w)
 }
 
 // setupSteamSDKLinksGo is now in steam.go
