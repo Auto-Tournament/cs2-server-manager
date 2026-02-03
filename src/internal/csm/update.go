@@ -853,22 +853,12 @@ func syncMasterToServerWithContext(ctx context.Context, w *bytes.Buffer, logFile
 
 	// Use the provided masterDir as the authoritative source for updated game
 	// files so callers can control which master install to sync from.
-	srcRoot := filepath.Join(masterDir, "game") + string(os.PathSeparator)
-	dstRoot := dst + string(os.PathSeparator)
-
-	args := []string{
-		"-a", "--delete",
-		"--info=PROGRESS2",
-		"--exclude", "csgo/addons/",
-		srcRoot,
-		dstRoot,
-	}
 	var rsyncOut io.Writer = w
 	if logFile != nil {
 		rsyncOut = &teeWriter{buf: w, file: logFile}
 	}
-	if err := runCmdLoggedContext(ctx, rsyncOut, "rsync", args...); err != nil {
-		log("  [ERROR] rsync to server-%d failed: %v", server, err)
+	if err := copyMasterGameToServerGame(ctx, rsyncOut, masterDir, dst, false, true); err != nil {
+		log("  [ERROR] sync to server-%d failed: %v", server, err)
 		return err
 	}
 	log("  [OK] Server-%d game files updated", server)

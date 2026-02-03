@@ -1156,22 +1156,12 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			// Parse numeric fields into cfg.
 			m.wizard.applyWizardNumericFields()
 
-			// Initialize live timing for step 1.
-			m.currentInstallStep = installStepPlugins
-			m.installStepStart = time.Now()
-			m.installStatusBase = "Step 1/4: Preparing plugin update..."
-			m.installExpected = "~1–5 minutes"
-
+			// Prompt for fast copy mode right before starting the install.
+			// This keeps the wizard pages simple while still offering a big speedup.
 			m.wizard.active = false
-			m.view = viewMain
-			m.running = true
-			m.status = m.installStatusBase
-			m.lastOutput = ""
-
-			cfg := m.wizard.cfg
-			return m, tea.Batch(runInstallStep(cfg, installStepPlugins), m.spin.Tick, tea.Tick(time.Second, func(time.Time) tea.Msg {
-				return installElapsedMsg{}
-			}))
+			m.view = viewFastCopyConfirm
+			m.wizard.errMsg = ""
+			return m, nil
 		case wizardFieldCancel:
 			m.wizard.active = false
 			m.view = viewMain

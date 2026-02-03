@@ -1924,13 +1924,11 @@ func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverN
 	}
 
 	fmt.Fprintf(w, "  [*] Copying master install to server-%d...\n", serverNum)
-	masterGameDir := filepath.Join(masterDir, "game") + string(os.PathSeparator)
-	if err := runCmdLoggedContext(ctx, w, "rsync", "-a", "--delete",
-		"--exclude", "csgo/addons/",
-		masterGameDir,
-		serverGameDir+string(os.PathSeparator),
-	); err != nil {
-		return fmt.Errorf("rsync failed: %w", err)
+	// Install-like copy: allow reflink when the destination is empty/clean.
+	// Fresh installs remove the directory; new servers are also typically empty.
+	allowReflink := true
+	if err := copyMasterGameToServerGame(ctx, w, masterDir, serverGameDir, allowReflink, false); err != nil {
+		return err
 	}
 	fmt.Fprintf(w, "  [✓] Server-%d game files copied\n", serverNum)
 	return nil

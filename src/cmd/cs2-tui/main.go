@@ -25,11 +25,18 @@ func main() {
 	fs := flag.NewFlagSet("csm", flag.ExitOnError)
 	var daemonMode bool
 	var showHelp bool
+	var copyMode string
 	fs.BoolVar(&daemonMode, "d", false, "run without TUI renderer (daemon mode)")
 	fs.BoolVar(&showHelp, "h", false, "show help")
 	fs.BoolVar(&showHelp, "help", false, "show help")
+	fs.StringVar(&copyMode, "copy-mode", "", "copy mode for master→server replication (auto|reflink|rsync|legacy)")
 	_ = fs.Parse(os.Args[1:])
 	args := fs.Args()
+
+	// Global copy-mode override: export as env so internal helpers can read it.
+	if strings.TrimSpace(copyMode) != "" {
+		_ = os.Setenv("CSM_COPY_MODE", strings.TrimSpace(copyMode))
+	}
 
 	if showHelp && len(args) == 0 {
 		printUsage()
@@ -841,6 +848,7 @@ func printUsage() {
 	fmt.Printf("%sFlags:%s\n", cyan, reset)
 	fmt.Println("  -d           run without TUI renderer (daemon mode)")
 	fmt.Println("  -h, --help   show this help message")
+	fmt.Println("  --copy-mode  master→server replication mode (auto|reflink|rsync|legacy)")
 	fmt.Println()
 	fmt.Printf("%sCommands (no sudo required):%s\n", cyan, reset)
 	fmt.Println("  public-ip              Print public IP address")

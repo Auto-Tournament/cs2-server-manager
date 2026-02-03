@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ const (
 	viewActionResult
 	viewPublicIP
 	viewCleanupConfirm
+	viewFastCopyConfirm
 	viewLogsPrompt
 	viewAddServersPrompt
 	viewRemoveServersPrompt
@@ -268,6 +270,11 @@ type model struct {
 	installDurBootstrap    time.Duration
 	installDurMonitor      time.Duration
 	installDurStartServers time.Duration
+
+	// Temporary copy-mode override used by the install wizard when users opt in
+	// to fastest copy behaviour. Restored when the wizard finishes/cancels.
+	installCopyModeHadPrev bool
+	installCopyModePrev    string
 }
 
 // New constructs the initial Bubble Tea model for the CS2 TUI.
@@ -690,6 +697,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Second Q (or ctrl+c twice): cancel and return to wizard instead of quitting
 				CancelInstall()
+				m.restoreCopyModeEnvIfNeeded()
 				// Clean up install state and return to wizard
 				if !m.installStepStart.IsZero() {
 					m.currentInstallStep = 0
@@ -722,6 +730,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// can be cancelled here.
 				if installCancel != nil {
 					CancelInstall()
+					m.restoreCopyModeEnvIfNeeded()
 					if !m.installStepStart.IsZero() {
 						// Reset install wizard state and return to wizard when canceling
 						m.currentInstallStep = 0
@@ -759,6 +768,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewLogsPrompt {
 			var cmd tea.Cmd
 			m, cmd = m.updateLogsPromptKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
+		}
+
+		if m.view == viewFastCopyConfirm {
+			var cmd tea.Cmd
+			m, cmd = m.updateFastCopyConfirmKey(msg)
 			cmds = append(cmds, cmd)
 			return m, tea.Batch(cmds...)
 		}
@@ -1368,6 +1384,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.confirmQuit = false
 			CancelInstall()
 			m.running = false
+			m.restoreCopyModeEnvIfNeeded()
 			m.detailIsError = true
 
 			// Show a dedicated error page with the full log output from the
@@ -1448,6 +1465,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			CancelInstall()
 			m.running = false
 			m.confirmQuit = false
+			m.restoreCopyModeEnvIfNeeded()
 			m.status = ""
 
 			// Build a summary page the user can review after the wizard
@@ -1464,6 +1482,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				"Configuration:",
 				fmt.Sprintf("  CS2 user       : %s", m.wizard.cfg.cs2User),
 				fmt.Sprintf("  Servers        : %d", m.wizard.cfg.numServers),
+				fmt.Sprintf("  Copy mode      : %s", func() string {
+					if v := strings.TrimSpace(os.Getenv("CSM_COPY_MODE")); v != "" {
+						return v
+					}
+					return "legacy"
+				}()),
+				fmt.Sprintf("  Copy observed  : %s", csm.CopyStatsSummary()),
 				fmt.Sprintf("  Base ports     : game %d, GOTV %d", m.wizard.cfg.basePort, m.wizard.cfg.tvPort),
 				fmt.Sprintf("  Metamod        : %v", m.wizard.cfg.enableMetamod),
 				fmt.Sprintf("  Fresh install  : %v", m.wizard.cfg.freshInstall),
@@ -1767,6 +1792,8 @@ func (m model) View() string {
 		return m.viewPublicIP()
 	case viewCleanupConfirm:
 		return m.viewCleanupConfirm()
+	case viewFastCopyConfirm:
+		return m.viewFastCopyConfirm()
 	case viewLogsPrompt:
 		return m.viewLogsPrompt()
 	case viewAddServersPrompt:
