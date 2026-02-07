@@ -13,6 +13,50 @@ import (
 	"time"
 )
 
+// runRsyncLoggedContext runs rsync with logging and (when running as root)
+// forces destination ownership to cs2User:cs2User. This avoids leaving
+// root-owned files under /home/<cs2User> when CSM is executed via sudo.
+func runRsyncLoggedContext(ctx context.Context, w io.Writer, cs2User string, args ...string) error {
+	cs2User = strings.TrimSpace(cs2User)
+
+	// Avoid duplicate flags if callers already specified them.
+	hasChown := false
+	hasNoOwner := false
+	hasNoGroup := false
+	for _, a := range args {
+		if strings.HasPrefix(a, "--chown=") {
+			hasChown = true
+		}
+		if a == "--no-owner" {
+			hasNoOwner = true
+		}
+		if a == "--no-group" {
+			hasNoGroup = true
+		}
+	}
+
+	finalArgs := make([]string, 0, len(args)+3)
+	if os.Geteuid() == 0 && cs2User != "" && !hasChown {
+		finalArgs = append(finalArgs, "--chown="+cs2User+":"+cs2User)
+	} else if os.Geteuid() != 0 {
+		// rsync -a includes -o/-g; for non-root runs avoid ownership errors.
+		if !hasNoOwner {
+			finalArgs = append(finalArgs, "--no-owner")
+		}
+		if !hasNoGroup {
+			finalArgs = append(finalArgs, "--no-group")
+		}
+	}
+	finalArgs = append(finalArgs, args...)
+
+	return runCmdLoggedContext(ctx, w, "rsync", finalArgs...)
+}
+
+// runRsyncLogged is like runRsyncLoggedContext but uses a background context.
+func runRsyncLogged(w io.Writer, cs2User string, args ...string) error {
+	return runRsyncLoggedContext(context.Background(), w, cs2User, args...)
+}
+
 // runCmdLogged runs a command, streaming its combined output into the provided
 // writer. It returns any error from exec.Command. Callers that need
 // cancellation should use runCmdLoggedContext with an explicit context.

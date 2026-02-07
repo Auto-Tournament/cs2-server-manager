@@ -330,8 +330,11 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 		if err := os.MkdirAll(sharedAddonsDir, 0o755); err != nil {
 			log("  [WARN] Failed to create %s: %v", sharedAddonsDir, err)
 		} else {
+			if os.Geteuid() == 0 {
+				_ = ensureOwnedByUser(mgr.CS2User, sharedAddonsDir)
+			}
 			cfgRsyncCtx, cfgRsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
-			if err := runCmdLoggedContext(cfgRsyncCtx, w, "rsync", "-a", "--delete",
+			if err := runRsyncLoggedContext(cfgRsyncCtx, w, mgr.CS2User, "-a", "--delete",
 				srcAddons+string(os.PathSeparator),
 				sharedAddonsDir+string(os.PathSeparator),
 			); err != nil {
@@ -368,6 +371,9 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 			log("  [ERROR] Failed to recreate addons directory for server-%d at %s: %v", i, dstAddons, err)
 			continue
 		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(mgr.CS2User, dstAddons)
+		}
 
 		// Add timeout for rsync operations
 		rsyncCtx, rsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
@@ -377,7 +383,7 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 		if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
 			src = filepath.Join(gameDir, "csgo", "addons")
 		}
-		if err := runCmdLoggedContext(rsyncCtx, w, "rsync", "-a", "--delete",
+		if err := runRsyncLoggedContext(rsyncCtx, w, mgr.CS2User, "-a", "--delete",
 			src+string(os.PathSeparator),
 			dstAddons+string(os.PathSeparator),
 		); err != nil {
@@ -396,10 +402,14 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 		// propagated to all servers.
 		if fi, err := os.Stat(sharedCfgDir); err == nil && fi.IsDir() {
 			cfgRsyncCtx, cfgRsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
-			if err := runCmdLoggedContext(cfgRsyncCtx, w, "rsync",
+			dstCfgDir := filepath.Join(dstGame, "cfg")
+			if os.Geteuid() == 0 {
+				_ = ensureOwnedByUser(mgr.CS2User, dstCfgDir)
+			}
+			if err := runRsyncLoggedContext(cfgRsyncCtx, w, mgr.CS2User,
 				"-a",
 				sharedCfgDir+string(os.PathSeparator),
-				filepath.Join(dstGame, "cfg")+"/",
+				dstCfgDir+"/",
 			); err != nil {
 				if cfgRsyncCtx.Err() == context.DeadlineExceeded {
 					log("  [ERROR] rsync cfg for server-%d timed out after %v", i, TimeoutRsync)
@@ -429,6 +439,12 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 	// cs2-config directory stays writable.
 	_ = ensureHomeWritable(mgr.CS2User)
 	_ = ensureOwnedByUser(mgr.CS2User, filepath.Join("/home", mgr.CS2User, "cs2-config"))
+
+	// Safety net: repair any root-owned config/plugin trees so servers can read
+	// and write configs without requiring doctor/manual chown.
+	if err := autoRepairOwnershipIfNeeded(mgr.CS2User, mgr.NumServers); err != nil {
+		log("  [WARN] Automatic ownership repair reported an error: %v", err)
+	}
 
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
@@ -569,6 +585,9 @@ func updateSharedConfigsFromPluginBundle(w io.Writer, mgr *TmuxManager) error {
 	if err := os.MkdirAll(dstCfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create cs2-config cfg directory: %w", err)
 	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(mgr.CS2User, dstCfgDir)
+	}
 
 	// Check if source has any config files
 	if fi, err := os.Stat(srcCfgDir); err != nil || !fi.IsDir() {
@@ -583,7 +602,7 @@ func updateSharedConfigsFromPluginBundle(w io.Writer, mgr *TmuxManager) error {
 	// preserving user customizations that are newer.
 	fmt.Fprintf(w, "  [*] Syncing new default configs from plugin bundle to cs2-config...\n")
 	fmt.Fprintf(w, "  [i] Note: Existing configs are preserved unless plugin bundle has newer defaults\n")
-	if err := runCmdLogged(w, "rsync", "-a", "--update", srcCfgDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
+	if err := runRsyncLogged(w, mgr.CS2User, "-a", "--update", srcCfgDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
 		return fmt.Errorf("failed to sync configs: %w", err)
 	}
 
@@ -607,11 +626,14 @@ func applyOverridesToSharedConfigs(w io.Writer, mgr *TmuxManager) error {
 	if err := os.MkdirAll(dstCfgDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create cs2-config cfg directory: %w", err)
 	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(mgr.CS2User, dstCfgDir)
+	}
 
 	// Apply overrides - this will overwrite any matching files in cs2-config
 	// with user customizations from overrides/
 	fmt.Fprintf(w, "  [*] Applying user overrides to cs2-config...\n")
-	if err := runCmdLogged(w, "rsync", "-a", srcOverridesDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
+	if err := runRsyncLogged(w, mgr.CS2User, "-a", srcOverridesDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
 		return fmt.Errorf("failed to apply user overrides from %s to %s: %w (check permissions and ensure override files are readable)", srcOverridesDir, dstCfgDir, err)
 	}
 

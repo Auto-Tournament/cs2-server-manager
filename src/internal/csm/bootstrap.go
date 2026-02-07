@@ -325,6 +325,13 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	_ = ensureOwnedByUser(cfg.CS2User, filepath.Join("/home", cfg.CS2User, "cs2-config"))
 	_ = ensureOwnedByUser(cfg.CS2User, cfg.OverridesDir)
 
+	// Safety net: if any key config/plugin trees ended up root-owned (e.g. from
+	// older installs or partial operations), repair them automatically so users
+	// don't need to run doctor/manual chown.
+	if err := autoRepairOwnershipIfNeeded(cfg.CS2User, cfg.NumServers); err != nil {
+		log("  [i] Warning: automatic ownership repair reported an error: %v", err)
+	}
+
 	bootstrapSucceeded = true
 	return buf.String(), nil
 }
@@ -750,6 +757,11 @@ func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	if err := os.MkdirAll(filepath.Join(configDir, "game"), 0o755); err != nil {
 		return err
 	}
+	// Best-effort: ensure the CS2 user owns the dirs we create (non-fatal).
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(cfg.CS2User, configDir)
+		_ = ensureOwnedByUser(cfg.CS2User, filepath.Join(configDir, "game"))
+	}
 
 	// Always write shared server config (RCON password, maxplayers) regardless of UpdateMaster/updatePlugins settings
 	if err := writeSharedServerConfig(cfg.CS2User, cfg.RCONPassword, cfg.MaxPlayers); err != nil {
@@ -760,7 +772,7 @@ func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	srcGame := filepath.Join(cfg.GameFilesDir, "game")
 	if fi, err := os.Stat(srcGame); err == nil && fi.IsDir() {
 		fmt.Fprintln(w, "  [*] Copying plugin files from game_files/")
-		if err := runCmdLogged(w, "rsync",
+		if err := runRsyncLogged(w, cfg.CS2User,
 			"-a", "--delete",
 			"--exclude", ".git/",
 			srcGame+string(os.PathSeparator),
@@ -776,7 +788,7 @@ func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	srcOv := filepath.Join(cfg.OverridesDir, "game")
 	if fi, err := os.Stat(srcOv); err == nil && fi.IsDir() {
 		fmt.Fprintln(w, "  [*] Applying custom overrides from overrides/")
-		if err := runCmdLogged(w, "rsync",
+		if err := runRsyncLogged(w, cfg.CS2User,
 			"-a",
 			"--exclude", ".git/",
 			srcOv+string(os.PathSeparator),
@@ -845,6 +857,11 @@ func configureMetamodGo(w io.Writer, user string, serverNum int, enable bool) er
 	if err := os.WriteFile(gameinfo, []byte(content), 0o644); err != nil {
 		return err
 	}
+	// Best-effort ownership fixes (non-fatal).
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, gameinfo)
+		_ = ensureOwnedByUser(user, backup)
+	}
 	return nil
 }
 
@@ -853,6 +870,9 @@ func writeSharedServerConfig(user string, rcon string, maxPlayers int) error {
 	sharedCfgDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg")
 	if err := os.MkdirAll(sharedCfgDir, 0o755); err != nil {
 		return err
+	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, sharedCfgDir)
 	}
 	sharedCfg := filepath.Join(sharedCfgDir, "server.cfg")
 
@@ -884,6 +904,9 @@ func writeSharedServerConfig(user string, rcon string, maxPlayers int) error {
 	if err := os.WriteFile(sharedCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 		return err
 	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, sharedCfg)
+	}
 	return nil
 }
 
@@ -896,6 +919,9 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 	cfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
+	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, cfgDir)
 	}
 	serverCfg := filepath.Join(cfgDir, "server.cfg")
 	autoexecCfg := filepath.Join(cfgDir, "autoexec.cfg")
@@ -984,6 +1010,9 @@ func customizeServerCfgGo(w io.Writer, user string, serverNum int, rcon, hostnam
 		if err := os.WriteFile(serverCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 			return err
 		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(user, serverCfg)
+		}
 	} else {
 		// Create new server.cfg
 		maxPlayersLine := ""
@@ -1039,6 +1068,9 @@ sv_hibernate_when_empty 0
 		if err := os.WriteFile(serverCfg, []byte(content), 0o644); err != nil {
 			return err
 		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(user, serverCfg)
+		}
 	}
 
 	// autoexec.cfg with startup info
@@ -1071,6 +1103,9 @@ echo "==========================================="
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, autoexecCfg)
+	}
 
 	// Note: Ownership of cfg directory (and all other files) is fixed by the
 	// comprehensive fixServerOwnership call at the end of bootstrap/reinstall.
@@ -1088,6 +1123,9 @@ func customizeServerCfgGoWithRCONBans(w io.Writer, user string, serverNum int, r
 	cfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return err
+	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, cfgDir)
 	}
 	serverCfg := filepath.Join(cfgDir, "server.cfg")
 	autoexecCfg := filepath.Join(cfgDir, "autoexec.cfg")
@@ -1173,6 +1211,9 @@ func customizeServerCfgGoWithRCONBans(w io.Writer, user string, serverNum int, r
 		if err := os.WriteFile(serverCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 			return err
 		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(user, serverCfg)
+		}
 	} else {
 		// Create new server.cfg with RCON ban settings
 		maxPlayersLine := ""
@@ -1228,6 +1269,9 @@ sv_hibernate_when_empty 0
 		if err := os.WriteFile(serverCfg, []byte(content), 0o644); err != nil {
 			return err
 		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(user, serverCfg)
+		}
 	}
 
 	// autoexec.cfg with startup info (unchanged)
@@ -1260,6 +1304,9 @@ echo "==========================================="
 	if err := os.WriteFile(autoexecCfg, []byte(autoexec), 0o644); err != nil {
 		return err
 	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, autoexecCfg)
+	}
 
 	return nil
 }
@@ -1270,9 +1317,15 @@ func storeGSLTGo(w io.Writer, user string, gslt string) error {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return err
 	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, configDir)
+	}
 	gsltFile := filepath.Join(configDir, "server.gslt")
 	if err := os.WriteFile(gsltFile, []byte(gslt), 0o600); err != nil {
 		return err
+	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(user, gsltFile)
 	}
 	fmt.Fprintf(w, "  [*] Stored shared GSLT token (applies to all servers)\n")
 	return nil
@@ -1301,6 +1354,9 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 
 		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
 			return err
+		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(matchzyCfgPath))
 		}
 
 		dbCfg := matchzyDBConfig{
@@ -1355,6 +1411,9 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 			if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
 				return err
 			}
+			if os.Geteuid() == 0 {
+				_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
+			}
 
 			fmt.Fprintf(w, "  [i] Using external MatchZy database at %s:%d (db=%s, user=%s)\n", host, port, name, user)
 			// External DB mode: skip Docker provisioning entirely.
@@ -1393,12 +1452,18 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
 			return err
 		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
+		}
 	}
 
 	// Create default config if missing.
 	if _, err := os.Stat(matchzyCfgPath); err != nil {
 		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
 			return err
+		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(matchzyCfgPath))
 		}
 		def := matchzyDBConfig{
 			DatabaseType:  "MySQL",
@@ -1423,6 +1488,9 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		}
 		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
 			return fmt.Errorf("failed to write MatchZy database config to %s: %w", matchzyCfgPath, err)
+		}
+		if os.Geteuid() == 0 {
+			_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
 		}
 		fmt.Fprintf(w, "  [✓] Created %s with default values\n", matchzyCfgPath)
 	}
@@ -1528,6 +1596,9 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	}
 	if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
 		return err
+	}
+	if os.Geteuid() == 0 {
+		_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
 	}
 
 	recreate := false
@@ -1972,7 +2043,7 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 	_ = ensureOwnedByUser(user, serverCfgDir)
 
 	if fi, err := os.Stat(sharedCfgDir); err == nil && fi.IsDir() {
-		if err := runCmdLoggedContext(ctx, w, "rsync", "-a",
+		if err := runRsyncLoggedContext(ctx, w, user, "-a",
 			sharedCfgDir+string(os.PathSeparator),
 			serverCfgDir+string(os.PathSeparator),
 		); err != nil {
@@ -1989,7 +2060,7 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 			return fmt.Errorf("failed to create server addons directory: %w", err)
 		}
 		_ = ensureOwnedByUser(user, serverAddonsDir)
-		if err := runCmdLoggedContext(ctx, w, "rsync", "-a", "--delete",
+		if err := runRsyncLoggedContext(ctx, w, user, "-a", "--delete",
 			sharedAddonsDir+string(os.PathSeparator),
 			serverAddonsDir+string(os.PathSeparator),
 		); err != nil {
