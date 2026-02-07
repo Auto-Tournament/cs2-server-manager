@@ -530,6 +530,24 @@ func portInUse(port int) bool {
 	return false // Port appears to be free
 }
 
+// cleanupPortBestEffort tries multiple strategies to kill processes holding a port.
+// This is intentionally best-effort and ignores errors (pkill exits non-zero when
+// no processes match, which is fine).
+func cleanupPortBestEffort(port int) {
+	cleanupMethods := []*exec.Cmd{
+		exec.Command("pkill", "-9", "-f", fmt.Sprintf("cs2.sh.*-port %d", port)),
+		exec.Command("pkill", "-9", "-f", fmt.Sprintf("csm.sh.*-port %d", port)),
+		exec.Command("pkill", "-9", "-f", fmt.Sprintf("linuxsteamrt64/cs2.*-port %d", port)),
+		exec.Command("pkill", "-9", "-f", fmt.Sprintf("game.*-port %d", port)),
+		exec.Command("sh", "-c", fmt.Sprintf("lsof -ti :%d | xargs -r kill -9", port)),
+		exec.Command("sh", "-c", fmt.Sprintf("fuser -k %d/tcp %d/udp 2>/dev/null", port, port)),
+	}
+
+	for _, cmd := range cleanupMethods {
+		_ = cmd.Run() // Ignore errors; try all methods.
+	}
+}
+
 // Debug starts a single server in the foreground (no tmux) so all output goes
 // to the current terminal. It properly handles Ctrl+C (SIGINT) to stop the server.
 func (m *TmuxManager) Debug(server int) error {
@@ -543,19 +561,8 @@ func (m *TmuxManager) Debug(server int) error {
 	if portInUse(gamePort) {
 		log.Printf("[tmux] Debug: WARNING - port %d is already in use, attempting to free it...", gamePort)
 
-		// Try multiple cleanup methods
-		cleanupMethods := []*exec.Cmd{
-			exec.Command("pkill", "-9", "-f", fmt.Sprintf("cs2.sh.*-port %d", gamePort)),
-			exec.Command("pkill", "-9", "-f", fmt.Sprintf("csm.sh.*-port %d", gamePort)),
-			exec.Command("pkill", "-9", "-f", fmt.Sprintf("linuxsteamrt64/cs2.*-port %d", gamePort)),
-			exec.Command("pkill", "-9", "-f", fmt.Sprintf("game.*-port %d", gamePort)),
-			exec.Command("sh", "-c", fmt.Sprintf("lsof -ti :%d | xargs -r kill -9", gamePort)),
-			exec.Command("sh", "-c", fmt.Sprintf("fuser -k %d/tcp %d/udp 2>/dev/null", gamePort, gamePort)),
-		}
-
-		for _, cmd := range cleanupMethods {
-			_ = cmd.Run() // Ignore errors, just try all methods
-		}
+		// Try multiple cleanup methods.
+		cleanupPortBestEffort(gamePort)
 
 		// Wait and retry checking the port multiple times
 		for i := 0; i < 5; i++ {
@@ -698,21 +705,14 @@ func (m *TmuxManager) Debug(server int) error {
 
 		// Verify the server actually stopped by checking if the port is still in use
 		if portInUse(gamePort) {
-			log.Printf("[tmux] Debug: WARNING - port %d still appears to be in use, attempting to kill CS2 server process...", gamePort)
+			log.Printf("[tmux] Debug: WARNING - port %d still appears to be in use, attempting cleanup...", gamePort)
+			cleanupPortBestEffort(gamePort)
+			time.Sleep(300 * time.Millisecond)
 
-			// Try to kill any CS2 server process running on this port
-			// Use pkill -f to match the full command line (more reliable than process name)
-			killCmd := exec.Command("pkill", "-9", "-f", fmt.Sprintf("cs2.sh.*-port %d", gamePort))
-			if err := killCmd.Run(); err == nil {
-				time.Sleep(200 * time.Millisecond)
-				if !portInUse(gamePort) {
-					log.Printf("[tmux] Debug: successfully killed CS2 server process using port %d", gamePort)
-				} else {
-					log.Printf("[tmux] Debug: port %d still in use after kill attempt", gamePort)
-				}
+			if portInUse(gamePort) {
+				log.Printf("[tmux] Debug: WARNING - port %d still in use after cleanup attempts", gamePort)
 			} else {
-				// pkill returns non-zero if no processes matched, which is fine
-				log.Printf("[tmux] Debug: no CS2 server process found for port %d (may have already stopped)", gamePort)
+				log.Printf("[tmux] Debug: freed port %d after cleanup attempts", gamePort)
 			}
 		} else {
 			log.Printf("[tmux] Debug: confirmed server stopped (port %d is free)", gamePort)
