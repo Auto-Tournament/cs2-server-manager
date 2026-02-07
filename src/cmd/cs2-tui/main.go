@@ -143,6 +143,30 @@ func main() {
 			}
 			return
 		case "start":
+			startFS := flag.NewFlagSet("start", flag.ExitOnError)
+			var startAlternate bool
+			var startBinary bool
+			startFS.BoolVar(&startAlternate, "alternate", false, "use alternate launcher (game/csm.sh) instead of Valve's cs2.sh")
+			startFS.BoolVar(&startBinary, "binary", false, "run the cs2 binary directly (not recommended; troubleshooting only)")
+			_ = startFS.Parse(args[1:])
+			startArgs := startFS.Args()
+
+			if startAlternate && startBinary {
+				fmt.Fprintln(os.Stderr, "start: --alternate and --binary are mutually exclusive")
+				os.Exit(1)
+			}
+			if startAlternate {
+				_ = os.Setenv("CSM_LAUNCH_MODE", "alternate")
+				defer os.Unsetenv("CSM_LAUNCH_MODE")
+				// Backward compat for any older code paths.
+				_ = os.Setenv("CSM_ALTERNATE_LAUNCHER", "1")
+				defer os.Unsetenv("CSM_ALTERNATE_LAUNCHER")
+			}
+			if startBinary {
+				_ = os.Setenv("CSM_LAUNCH_MODE", "binary")
+				defer os.Unsetenv("CSM_LAUNCH_MODE")
+			}
+
 			mgr, err := csm.NewTmuxManager()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "tmux start failed: %v\n", err)
@@ -153,10 +177,10 @@ func main() {
 				os.Exit(1)
 			}
 			target := "all"
-			if len(args) > 1 {
-				server, serr := strconv.Atoi(args[1])
+			if len(startArgs) > 0 {
+				server, serr := strconv.Atoi(startArgs[0])
 				if serr != nil || server <= 0 {
-					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", startArgs[0])
 					os.Exit(1)
 				}
 				if server > mgr.NumServers {
@@ -207,6 +231,29 @@ func main() {
 			}
 			return
 		case "restart":
+			restartFS := flag.NewFlagSet("restart", flag.ExitOnError)
+			var restartAlternate bool
+			var restartBinary bool
+			restartFS.BoolVar(&restartAlternate, "alternate", false, "use alternate launcher (game/csm.sh) instead of Valve's cs2.sh")
+			restartFS.BoolVar(&restartBinary, "binary", false, "run the cs2 binary directly (not recommended; troubleshooting only)")
+			_ = restartFS.Parse(args[1:])
+			restartArgs := restartFS.Args()
+
+			if restartAlternate && restartBinary {
+				fmt.Fprintln(os.Stderr, "restart: --alternate and --binary are mutually exclusive")
+				os.Exit(1)
+			}
+			if restartAlternate {
+				_ = os.Setenv("CSM_LAUNCH_MODE", "alternate")
+				defer os.Unsetenv("CSM_LAUNCH_MODE")
+				_ = os.Setenv("CSM_ALTERNATE_LAUNCHER", "1")
+				defer os.Unsetenv("CSM_ALTERNATE_LAUNCHER")
+			}
+			if restartBinary {
+				_ = os.Setenv("CSM_LAUNCH_MODE", "binary")
+				defer os.Unsetenv("CSM_LAUNCH_MODE")
+			}
+
 			mgr, err := csm.NewTmuxManager()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "tmux restart failed: %v\n", err)
@@ -217,10 +264,10 @@ func main() {
 				os.Exit(1)
 			}
 			target := "all"
-			if len(args) > 1 {
-				server, serr := strconv.Atoi(args[1])
+			if len(restartArgs) > 0 {
+				server, serr := strconv.Atoi(restartArgs[0])
 				if serr != nil || server <= 0 {
-					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", restartArgs[0])
 					os.Exit(1)
 				}
 				if server > mgr.NumServers {
@@ -640,13 +687,36 @@ func main() {
 			}
 			return
 		case "debug":
-			if len(args) < 2 {
-				fmt.Fprintln(os.Stderr, "usage: csm debug <server>")
+			debugFS := flag.NewFlagSet("debug", flag.ExitOnError)
+			var debugAlternate bool
+			var debugBinary bool
+			debugFS.BoolVar(&debugAlternate, "alternate", false, "use alternate launcher (game/csm.sh) instead of Valve's cs2.sh")
+			debugFS.BoolVar(&debugBinary, "binary", false, "run the cs2 binary directly (not recommended; troubleshooting only)")
+			_ = debugFS.Parse(args[1:])
+			debugArgs := debugFS.Args()
+
+			if len(debugArgs) < 1 {
+				fmt.Fprintln(os.Stderr, "usage: csm debug [--alternate|--binary] <server>")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			if debugAlternate && debugBinary {
+				fmt.Fprintln(os.Stderr, "debug: --alternate and --binary are mutually exclusive")
+				os.Exit(1)
+			}
+			if debugAlternate {
+				_ = os.Setenv("CSM_LAUNCH_MODE", "alternate")
+				defer os.Unsetenv("CSM_LAUNCH_MODE")
+				_ = os.Setenv("CSM_ALTERNATE_LAUNCHER", "1")
+				defer os.Unsetenv("CSM_ALTERNATE_LAUNCHER")
+			}
+			if debugBinary {
+				_ = os.Setenv("CSM_LAUNCH_MODE", "binary")
+				defer os.Unsetenv("CSM_LAUNCH_MODE")
+			}
+
+			server, serr := strconv.Atoi(debugArgs[0])
 			if serr != nil {
-				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				fmt.Fprintf(os.Stderr, "invalid server number %q\n", debugArgs[0])
 				os.Exit(1)
 			}
 			mgr, err := csm.NewTmuxManager()
@@ -862,6 +932,11 @@ func printUsage() {
 	fmt.Println("  debug                  Run a server in foreground debug mode")
 	fmt.Println("  extract-map-data       Extract map thumbnails from VPKs (PNG + WEBP, plus 1280px WEBP thumbnails)")
 	fmt.Println("  list-bans <server>     List banned IP addresses for a server")
+	fmt.Println()
+	fmt.Println("Start options:")
+	fmt.Println("  csm start [--alternate|--binary] [server]")
+	fmt.Println("  csm restart [--alternate|--binary] [server]")
+	fmt.Println("  csm debug [--alternate|--binary] <server>")
 	fmt.Println()
 	fmt.Printf("%sCommands (require sudo for typical setups):%s\n", yellow, reset)
 	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")

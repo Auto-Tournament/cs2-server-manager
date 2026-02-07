@@ -860,6 +860,11 @@ func syncMasterToServerWithContext(ctx context.Context, w *bytes.Buffer, logFile
 		log("  [ERROR] sync to server-%d failed: %v", server, err)
 		return err
 	}
+
+	// Ensure alternate launcher exists after rsync --delete (opt-in workaround).
+	if err := ensureCSMLauncherSh(ctx, rsyncOut, mgr.CS2User, dst); err != nil {
+		log("  [WARN] ensure csm.sh failed for server-%d: %v", server, err)
+	}
 	log("  [OK] Server-%d game files updated", server)
 	return nil
 }

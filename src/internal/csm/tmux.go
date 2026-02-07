@@ -22,6 +22,21 @@ type TmuxManager struct {
 	NumServers int
 }
 
+// cs2ShLooksCSMManagedLegacy reports whether game/cs2.sh appears to be an older
+// CSM-managed wrapper (which prepends its own default args via DEFAULT_ARGS).
+// When true, callers should avoid passing duplicate -dedicated/-ip/-usercon
+// flags to cs2.sh.
+func cs2ShLooksCSMManagedLegacy(gameDir string) bool {
+	p := filepath.Join(gameDir, "cs2.sh")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	s := string(data)
+	// Heuristic: our older wrapper included DEFAULT_ARGS and exec'd linuxsteamrt64/cs2.
+	return strings.Contains(s, "DEFAULT_ARGS=(") && strings.Contains(s, "linuxsteamrt64/cs2")
+}
+
 // NewTmuxManager discovers the CS2 service user and number of servers.
 // It prefers the CS2_USER environment variable when set, then falls back to
 // scanning /home for any user that has server-* directories. This makes it
@@ -268,13 +283,51 @@ func (m *TmuxManager) Start(server int) error {
 		maxPlayers = 10 // default from v1.4.5
 	}
 
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("CSM_LAUNCH_MODE")))
+	if mode == "" {
+		// Backward compat for older env naming.
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "1") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "true") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "on") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "yes") {
+			mode = "alternate"
+		}
+	}
+	if mode == "" {
+		mode = "valve"
+	}
+
 	useSteamRT, mode := shouldUseSteamRuntimeLauncher()
-	launchCmd := fmt.Sprintf("./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s",
-		gamePort,
-		tvPort,
-		maxPlayers,
-		gsltArg,
-	)
+	launchCmd := ""
+	switch mode {
+	case "alternate", "csm", "csmsh", "csm.sh":
+		// Ensure alternate launcher exists (keep Valve's cs2.sh intact).
+		_ = ensureCSMLauncherSh(context.Background(), nil, m.CS2User, gameDir)
+		// csm.sh already provides -dedicated/-ip/-usercon.
+		launchCmd = fmt.Sprintf("./csm.sh +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
+			gamePort, tvPort, maxPlayers, gsltArg,
+		)
+	case "binary", "cs2", "exe":
+		// Run the cs2 binary directly. Not recommended upstream, but offered as an opt-in.
+		// We still set LD_LIBRARY_PATH to prefer bundled libs so "binary mode" doesn't
+		// accidentally load incompatible distro libs.
+		launchCmd = fmt.Sprintf("LD_LIBRARY_PATH=./bin/linuxsteamrt64:./csgo/bin/linuxsteamrt64:$LD_LIBRARY_PATH ENABLE_PATHMATCH=1 ./bin/linuxsteamrt64/cs2 -dedicated -ip 0.0.0.0 -usercon +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
+			gamePort, tvPort, maxPlayers, gsltArg,
+		)
+	default:
+		// Valve cs2.sh must be told it's a dedicated server.
+		if cs2ShLooksCSMManagedLegacy(gameDir) {
+			// Backward-compat: older installs may have a CSM-managed cs2.sh that
+			// already injects its own default args.
+			launchCmd = fmt.Sprintf("./cs2.sh +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
+				gamePort, tvPort, maxPlayers, gsltArg,
+			)
+		} else {
+			launchCmd = fmt.Sprintf("./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s",
+				gamePort, tvPort, maxPlayers, gsltArg,
+			)
+		}
+	}
 	if useSteamRT {
 		// Ensure Steam Runtime is present before attempting to use it.
 		var buf bytes.Buffer
@@ -288,16 +341,14 @@ func (m *TmuxManager) Start(server int) error {
 	}
 	if useSteamRT {
 		// Launch via Steam Runtime for newer-distro CounterStrikeSharp compatibility.
-		// This runs the actual cs2 binary inside SteamRT3.
-		cs2Bin := filepath.Join(gameDir, "bin", "linuxsteamrt64", "cs2")
+		// Run the chosen server command inside SteamRT3.
 		rtRun := steamRuntimeRunPath(m.CS2User)
-		launchCmd = fmt.Sprintf("%s %s --graphics-provider \"\" -- -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s",
+		// Prefer the common "-- <command>" form; fall back to a direct invocation
+		// if the wrapper rejects the extra separator/args on some builds.
+		launchCmd = fmt.Sprintf("bash -lc \"rt=%s; $rt --graphics-provider \\\"\\\" -- %s || exec $rt %s\"",
 			rtRun,
-			cs2Bin,
-			gamePort,
-			tvPort,
-			maxPlayers,
-			gsltArg,
+			launchCmd,
+			launchCmd,
 		)
 	}
 
@@ -495,6 +546,8 @@ func (m *TmuxManager) Debug(server int) error {
 		// Try multiple cleanup methods
 		cleanupMethods := []*exec.Cmd{
 			exec.Command("pkill", "-9", "-f", fmt.Sprintf("cs2.sh.*-port %d", gamePort)),
+			exec.Command("pkill", "-9", "-f", fmt.Sprintf("csm.sh.*-port %d", gamePort)),
+			exec.Command("pkill", "-9", "-f", fmt.Sprintf("linuxsteamrt64/cs2.*-port %d", gamePort)),
 			exec.Command("pkill", "-9", "-f", fmt.Sprintf("game.*-port %d", gamePort)),
 			exec.Command("sh", "-c", fmt.Sprintf("lsof -ti :%d | xargs -r kill -9", gamePort)),
 			exec.Command("sh", "-c", fmt.Sprintf("fuser -k %d/tcp %d/udp 2>/dev/null", gamePort, gamePort)),
@@ -515,7 +568,7 @@ func (m *TmuxManager) Debug(server int) error {
 
 		// Final check
 		if portInUse(gamePort) {
-			return fmt.Errorf("port %d is still in use after cleanup attempts. Please manually stop the server:\n  pkill -9 -f 'cs2.sh.*-port %d'\n  lsof -ti :%d | xargs kill -9", gamePort, gamePort, gamePort)
+			return fmt.Errorf("port %d is still in use after cleanup attempts. Please manually stop the server:\n  pkill -9 -f 'cs2.sh.*-port %d'\n  pkill -9 -f 'csm.sh.*-port %d'\n  pkill -9 -f 'linuxsteamrt64/cs2.*-port %d'\n  lsof -ti :%d | xargs kill -9", gamePort, gamePort, gamePort, gamePort, gamePort)
 		}
 	}
 
@@ -530,7 +583,61 @@ func (m *TmuxManager) Debug(server int) error {
 		maxPlayers = 10
 	}
 
-	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && ./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s", gameDir, gamePort, tvPort, maxPlayers, gsltArg))
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("CSM_LAUNCH_MODE")))
+	if mode == "" {
+		// Backward compat for older env naming.
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "1") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "true") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "on") ||
+			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "yes") {
+			mode = "alternate"
+		}
+	}
+	if mode == "" {
+		mode = "valve"
+	}
+
+	useSteamRT, _ := shouldUseSteamRuntimeLauncher()
+	launch := ""
+	switch mode {
+	case "alternate", "csm", "csmsh", "csm.sh":
+		_ = ensureCSMLauncherSh(context.Background(), nil, m.CS2User, gameDir)
+		launch = fmt.Sprintf("./csm.sh +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
+			gamePort, tvPort, maxPlayers, gsltArg,
+		)
+	case "binary", "cs2", "exe":
+		launch = fmt.Sprintf("LD_LIBRARY_PATH=./bin/linuxsteamrt64:./csgo/bin/linuxsteamrt64:$LD_LIBRARY_PATH ENABLE_PATHMATCH=1 ./bin/linuxsteamrt64/cs2 -dedicated -ip 0.0.0.0 -usercon +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
+			gamePort, tvPort, maxPlayers, gsltArg,
+		)
+	default:
+		if cs2ShLooksCSMManagedLegacy(gameDir) {
+			launch = fmt.Sprintf("./cs2.sh +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
+				gamePort, tvPort, maxPlayers, gsltArg,
+			)
+		} else {
+			launch = fmt.Sprintf("./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s",
+				gamePort, tvPort, maxPlayers, gsltArg,
+			)
+		}
+	}
+	if useSteamRT {
+		// Best-effort install runtime (non-fatal) and run cs2.sh inside it.
+		var buf bytes.Buffer
+		if err := ensureSteamRuntimeInstalled(context.Background(), &buf, m.CS2User); err != nil {
+			log.Printf("[tmux] Debug: steam runtime install failed (falling back to default launcher): %v", err)
+		} else if strings.TrimSpace(buf.String()) != "" {
+			log.Printf("[tmux] Debug: steam runtime install output:\n%s", buf.String())
+		}
+
+		rtRun := steamRuntimeRunPath(m.CS2User)
+		launch = fmt.Sprintf("bash -lc \"rt=%s; $rt --graphics-provider \\\"\\\" -- %s || exec $rt %s\"",
+			rtRun,
+			launch,
+			launch,
+		)
+	}
+
+	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && %s", gameDir, launch))
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

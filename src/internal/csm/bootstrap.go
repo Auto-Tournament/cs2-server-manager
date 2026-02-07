@@ -280,6 +280,13 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 			log("  [!] Overlay config to server-%d failed: %v", i, err)
 		}
 
+		// Install an alternate launcher (csm.sh) after the master->server sync.
+		// Keep Valve's cs2.sh intact; users can opt into csm.sh when needed.
+		serverGameDir := filepath.Join("/home", cfg.CS2User, fmt.Sprintf("server-%d", i), "game")
+		if err := ensureCSMLauncherSh(ctx, &buf, cfg.CS2User, serverGameDir); err != nil {
+			log("  [!] Ensure csm.sh for server-%d failed: %v", i, err)
+		}
+
 		if err := configureMetamodGo(&buf, cfg.CS2User, i, cfg.EnableMetamod); err != nil {
 			log("  [!] Configure Metamod for server-%d failed: %v", i, err)
 		}

@@ -68,6 +68,27 @@ On newer Linux distributions (for example Debian 13 / Ubuntu 25.04+), CounterStr
 - **Auto behavior**: on affected OS versions, CSM installs Steam Runtime (app `1628350`) into `/home/<cs2user>/steamrt` (if missing) and starts servers via the runtime wrapper.
 - **Override**: set `CSM_STEAMRT=1` to force-enable, or `CSM_STEAMRT=0` to force-disable.
 
+### CS2 launch script (`cs2.sh`) (default) and alternate launcher (`csm.sh`)
+
+- **Default**: CSM launches using Valve’s `game/cs2.sh` (kept intact).
+- **Alternate (opt-in)**: CSM also installs `game/csm.sh`, which sets `LD_LIBRARY_PATH` to prefer CS2-bundled libs (helpful for common `libserver.so` / `libv8` mismatch issues). Use it when troubleshooting by starting with:
+
+```bash
+sudo csm start --alternate
+```
+
+You can also target a single server:
+
+```bash
+sudo csm start --alternate 1
+```
+
+If you want to run the `cs2` **binary directly** (not recommended; provided for troubleshooting), you can use:
+
+```bash
+sudo csm start --binary
+```
+
 ---
 
 ## ✨ Features

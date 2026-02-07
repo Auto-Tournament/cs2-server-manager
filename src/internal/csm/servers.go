@@ -124,6 +124,13 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
+	// Ensure alternate launcher exists after master->server sync.
+	if err := ensureCSMLauncherSh(ctx, &buf, user, filepath.Join("/home", user, fmt.Sprintf("server-%d", newIdx), "game")); err != nil {
+		log("  [!] Ensure csm.sh for server-%d failed: %v", newIdx, err)
+		cleanupPartialServerDir(&buf, user, newIdx)
+		return buf.String(), err
+	}
+
 	if err := configureMetamodGo(&buf, user, newIdx, enableMetamod); err != nil {
 		log("  [!] Configure Metamod for server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
@@ -381,6 +388,12 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 	// Overlay shared config
 	if err := overlayConfigToServerGo(ctx, writer, user, serverNum); err != nil {
 		log("  [!] Overlay config to server-%d failed: %v", serverNum, err)
+		return buf.String(), err
+	}
+
+	// Ensure alternate launcher exists after master->server sync.
+	if err := ensureCSMLauncherSh(ctx, writer, user, filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game")); err != nil {
+		log("  [!] Ensure csm.sh for server-%d failed: %v", serverNum, err)
 		return buf.String(), err
 	}
 
