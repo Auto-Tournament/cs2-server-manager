@@ -218,7 +218,7 @@ func (up *PluginUpdater) httpClient() *http.Client {
 func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
 	const apiURL = "https://api.github.com/repos/alliedmodders/metamod-source/releases"
 
-	fmt.Fprintln(w, "[Metamod] Fetching latest Metamod:Source pre-release...")
+	fmt.Fprintln(w, "[Metamod] Fetching latest Metamod:Source prerelease...")
 	var payload []metamodRelease
 	if err := up.fetchJSON(apiURL, &payload); err != nil {
 		return fmt.Errorf("failed to fetch Metamod releases from alliedmodders/metamod-source: %w", err)
@@ -229,7 +229,7 @@ func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
 		return fmt.Errorf("no Metamod releases found")
 	}
 	if !release.Prerelease {
-		fmt.Fprintln(w, "[Metamod] No pre-release found; falling back to latest stable release.")
+		fmt.Fprintln(w, "[Metamod] No prerelease found; falling back to latest stable release.")
 	}
 
 	assetName, downloadURL := selectMetamodLinuxAsset(release.Assets)
