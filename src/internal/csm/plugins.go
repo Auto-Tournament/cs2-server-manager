@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // PluginUpdater describes where plugin assets live on disk.
@@ -24,6 +25,14 @@ type PluginUpdater struct {
 type metamodReleaseAsset struct {
 	Name string `json:"name"`
 	URL  string `json:"browser_download_url"`
+}
+
+type metamodRelease struct {
+	TagName     string                `json:"tag_name"`
+	Prerelease  bool                  `json:"prerelease"`
+	PublishedAt string                `json:"published_at"`
+	CreatedAt   string                `json:"created_at"`
+	Assets      []metamodReleaseAsset `json:"assets"`
 }
 
 // NewPluginUpdater discovers the game_files and overrides directories.
@@ -207,23 +216,28 @@ func (up *PluginUpdater) httpClient() *http.Client {
 }
 
 func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
-	const apiURL = "https://api.github.com/repos/alliedmodders/metamod-source/releases/latest"
+	const apiURL = "https://api.github.com/repos/alliedmodders/metamod-source/releases"
 
-	fmt.Fprintln(w, "[Metamod] Fetching latest Metamod:Source release...")
-	var payload struct {
-		TagName string                `json:"tag_name"`
-		Assets  []metamodReleaseAsset `json:"assets"`
-	}
+	fmt.Fprintln(w, "[Metamod] Fetching latest Metamod:Source prerelease...")
+	var payload []metamodRelease
 	if err := up.fetchJSON(apiURL, &payload); err != nil {
 		return fmt.Errorf("failed to fetch Metamod releases from alliedmodders/metamod-source: %w", err)
 	}
 
-	assetName, downloadURL := selectMetamodLinuxAsset(payload.Assets)
-	if downloadURL == "" {
-		return fmt.Errorf("no suitable Metamod linux x86_64 asset found in release %s", payload.TagName)
+	release, ok := selectMetamodRelease(payload)
+	if !ok {
+		return fmt.Errorf("no Metamod releases found")
+	}
+	if !release.Prerelease {
+		fmt.Fprintln(w, "[Metamod] No prerelease found; falling back to latest stable release.")
 	}
 
-	fmt.Fprintf(w, "[Metamod] Target: Metamod:Source %s (%s)\n", payload.TagName, assetName)
+	assetName, downloadURL := selectMetamodLinuxAsset(release.Assets)
+	if downloadURL == "" {
+		return fmt.Errorf("no suitable Metamod linux x86_64 asset found in release %s", release.TagName)
+	}
+
+	fmt.Fprintf(w, "[Metamod] Target: Metamod:Source %s (%s)\n", release.TagName, assetName)
 	fmt.Fprintln(w, "[Metamod] Downloading Metamod:Source...")
 
 	resp2, err := RetryHTTPGet(up.httpClient(), downloadURL, DefaultRetryConfig())
@@ -260,6 +274,44 @@ func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
 	fmt.Fprintf(w, "[Metamod] Extracting to %s/csgo/...\n", up.GameDir)
 	// Use system tar for simplicity; dependencies are installed by InstallDependencies.
 	return runCmdLogged(w, "tar", "-xzf", tmpPath, "-C", filepath.Join(up.GameDir, "csgo"))
+}
+
+func selectMetamodRelease(releases []metamodRelease) (metamodRelease, bool) {
+	var latestPrerelease *metamodRelease
+	var latestStable *metamodRelease
+	for i := range releases {
+		release := &releases[i]
+		if release.Prerelease {
+			if latestPrerelease == nil || metamodReleaseTime(*release).After(metamodReleaseTime(*latestPrerelease)) {
+				latestPrerelease = release
+			}
+			continue
+		}
+		if latestStable == nil || metamodReleaseTime(*release).After(metamodReleaseTime(*latestStable)) {
+			latestStable = release
+		}
+	}
+	if latestPrerelease != nil {
+		return *latestPrerelease, true
+	}
+	if latestStable != nil {
+		return *latestStable, true
+	}
+	return metamodRelease{}, false
+}
+
+func metamodReleaseTime(release metamodRelease) time.Time {
+	if release.PublishedAt != "" {
+		if published, err := time.Parse(time.RFC3339, release.PublishedAt); err == nil {
+			return published
+		}
+	}
+	if release.CreatedAt != "" {
+		if created, err := time.Parse(time.RFC3339, release.CreatedAt); err == nil {
+			return created
+		}
+	}
+	return time.Time{}
 }
 
 func selectMetamodLinuxAsset(assets []metamodReleaseAsset) (string, string) {
