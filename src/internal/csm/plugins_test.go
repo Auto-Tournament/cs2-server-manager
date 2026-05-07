@@ -2,6 +2,71 @@ package csm
 
 import "testing"
 
+func TestSelectMetamodRelease(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		releases         []metamodRelease
+		wantTag          string
+		wantPrerelease   bool
+		wantFoundRelease bool
+	}{
+		{
+			name: "multiple prereleases chooses newest prerelease",
+			releases: []metamodRelease{
+				{TagName: "1.11.0-git7100", Prerelease: true, PublishedAt: "2025-01-02T00:00:00Z"},
+				{TagName: "1.11.0-git7200", Prerelease: true, PublishedAt: "2025-02-03T00:00:00Z"},
+			},
+			wantTag:          "1.11.0-git7200",
+			wantPrerelease:   true,
+			wantFoundRelease: true,
+		},
+		{
+			name: "ignores stable release when prerelease exists",
+			releases: []metamodRelease{
+				{TagName: "1.11.0", Prerelease: false, PublishedAt: "2025-03-04T00:00:00Z"},
+				{TagName: "1.12.0-git7300", Prerelease: true, PublishedAt: "2025-02-03T00:00:00Z"},
+			},
+			wantTag:          "1.12.0-git7300",
+			wantPrerelease:   true,
+			wantFoundRelease: true,
+		},
+		{
+			name: "falls back to latest stable when no prerelease exists",
+			releases: []metamodRelease{
+				{TagName: "1.10.0", Prerelease: false, PublishedAt: "2025-01-01T00:00:00Z"},
+				{TagName: "1.11.0", Prerelease: false, PublishedAt: "2025-03-01T00:00:00Z"},
+			},
+			wantTag:          "1.11.0",
+			wantPrerelease:   false,
+			wantFoundRelease: true,
+		},
+		{
+			name:             "returns not found when list is empty",
+			releases:         nil,
+			wantTag:          "",
+			wantPrerelease:   false,
+			wantFoundRelease: false,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, found := selectMetamodRelease(tt.releases)
+			if found != tt.wantFoundRelease {
+				t.Fatalf("selectMetamodRelease() found = %v, want %v", found, tt.wantFoundRelease)
+			}
+			if got.TagName != tt.wantTag || got.Prerelease != tt.wantPrerelease {
+				t.Fatalf("selectMetamodRelease() = (%q, prerelease=%v), want (%q, prerelease=%v)",
+					got.TagName, got.Prerelease, tt.wantTag, tt.wantPrerelease)
+			}
+		})
+	}
+}
+
 func TestSelectMetamodLinuxAsset(t *testing.T) {
 	t.Parallel()
 
