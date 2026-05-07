@@ -162,7 +162,7 @@ Inputs:
 
 What the workflow does:
 
-- runs `scripts/release.sh` in CI to keep release/version/tag logic aligned
+- runs `scripts/release.sh` in dry-run mode to keep release/version/tag/build logic aligned (dry-run only skips the script's own release/webhook publish step)
 - builds the same Linux release assets:
   - `csm-linux-amd64`
   - `csm-linux-arm64`
