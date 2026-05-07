@@ -251,7 +251,7 @@ func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
 	}
 	if written == 0 {
 		_ = f.Close()
-		return fmt.Errorf("downloaded Metamod archive is empty")
+		return fmt.Errorf("downloaded Metamod archive from %s is empty (asset: %s)", downloadURL, assetName)
 	}
 	if err := f.Close(); err != nil {
 		return err
