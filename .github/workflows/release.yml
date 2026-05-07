@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Release mode (patch/minor/major/explicit)'
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - explicit
+      version:
+        description: 'Explicit version (X.Y.Z or vX.Y.Z). Required when mode=explicit.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve release argument
+        run: |
+          set -euo pipefail
+          MODE="${{ github.event.inputs.mode }}"
+          VERSION="${{ github.event.inputs.version }}"
+
+          if [[ "$MODE" == "explicit" ]]; then
+            if [[ -z "$VERSION" ]]; then
+              echo "Input 'version' is required when mode=explicit."
+              exit 1
+            fi
+            if [[ ! "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Input 'version' must match X.Y.Z or vX.Y.Z."
+              exit 1
+            fi
+            echo "RELEASE_ARG=$VERSION" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_ARG=$MODE" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build artifacts and push version/tag
+        env:
+          CSM_DRY_RUN: "true"
+          CSM_SKIP_DISCORD: "true"
+          CSM_WEBHOOK_DRY_RUN: "true"
+        run: bash ./scripts/release.sh "$RELEASE_ARG"
+
+      - name: Resolve release tag and artifact paths
+        run: |
+          set -euo pipefail
+          TAG="v$(grep 'const[[:space:]]\+currentVersion' src/internal/tui/version.go | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)"
+          DIST_DIR="dist/releases/${TAG}"
+
+          test -f "${DIST_DIR}/csm-linux-amd64"
+          test -f "${DIST_DIR}/csm-linux-arm64"
+
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "DIST_DIR=${DIST_DIR}" >> "$GITHUB_ENV"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE="CSM ${TAG}"
+          NOTES="CS2 Server Manager (CSM) release ${TAG}"
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" \
+              "${DIST_DIR}/csm-linux-amd64" \
+              "${DIST_DIR}/csm-linux-arm64" \
+              --clobber
+            gh release edit "${TAG}" --title "${TITLE}" --notes "${NOTES}"
+          else
+            gh release create "${TAG}" \
+              "${DIST_DIR}/csm-linux-amd64" \
+              "${DIST_DIR}/csm-linux-arm64" \
+              --title "${TITLE}" \
+              --notes "${NOTES}"
+          fi

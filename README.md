@@ -151,6 +151,29 @@ sudo csm logs-file 1     # Print the log file path for server 1
 
 ---
 
+## 📦 Release from GitHub Actions
+
+Manual releases can be run from **Actions → Release → Run workflow**.
+
+Inputs:
+
+- `mode` (required): `patch`, `minor`, `major`, or `explicit`
+- `version` (optional): required only when `mode=explicit` (use `X.Y.Z` or `vX.Y.Z`)
+
+What the workflow does:
+
+- runs `scripts/release.sh` in CI to keep release/version/tag logic aligned
+- builds the same Linux release assets:
+  - `csm-linux-amd64`
+  - `csm-linux-arm64`
+- creates or updates the GitHub Release for the resolved tag and uploads those assets
+
+Authentication:
+
+- uses the repository `GITHUB_TOKEN` by default (no PAT needed for same-repository releases)
+
+---
+
 ## 📚 Documentation & Links (docs.sivert.io)
 
 - [Docs home](https://docs.sivert.io/docs/csm) – hosted docs and guides.
