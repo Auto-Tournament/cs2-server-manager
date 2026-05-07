@@ -1,6 +1,9 @@
 package csm
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSelectMetamodRelease(t *testing.T) {
 	t.Parallel()
@@ -111,6 +114,52 @@ func TestSelectMetamodLinuxAsset(t *testing.T) {
 			gotName, gotURL := selectMetamodLinuxAsset(tt.assets)
 			if gotName != tt.wantName || gotURL != tt.wantURL {
 				t.Fatalf("selectMetamodLinuxAsset() = (%q, %q), want (%q, %q)", gotName, gotURL, tt.wantName, tt.wantURL)
+			}
+		})
+	}
+}
+
+func TestMetamodReleaseTime(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		release metamodRelease
+		want    time.Time
+	}{
+		{
+			name: "uses published_at when valid",
+			release: metamodRelease{
+				PublishedAt: "2025-05-01T10:11:12Z",
+				CreatedAt:   "2025-04-01T10:11:12Z",
+			},
+			want: time.Date(2025, 5, 1, 10, 11, 12, 0, time.UTC),
+		},
+		{
+			name: "falls back to created_at when published_at is invalid",
+			release: metamodRelease{
+				PublishedAt: "invalid-time",
+				CreatedAt:   "2025-04-01T10:11:12Z",
+			},
+			want: time.Date(2025, 4, 1, 10, 11, 12, 0, time.UTC),
+		},
+		{
+			name: "returns zero time when both timestamps are invalid or empty",
+			release: metamodRelease{
+				PublishedAt: "not-rfc3339",
+				CreatedAt:   "",
+			},
+			want: time.Time{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := metamodReleaseTime(tt.release)
+			if !got.Equal(tt.want) {
+				t.Fatalf("metamodReleaseTime() = %v, want %v", got, tt.want)
 			}
 		})
 	}
