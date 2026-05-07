@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"syscall"
 )
@@ -20,6 +19,11 @@ type PluginUpdater struct {
 	GameDir      string
 	OverridesDir string
 	TempDir      string
+}
+
+type metamodReleaseAsset struct {
+	Name string `json:"name"`
+	URL  string `json:"browser_download_url"`
 }
 
 // NewPluginUpdater discovers the game_files and overrides directories.
@@ -203,30 +207,28 @@ func (up *PluginUpdater) httpClient() *http.Client {
 }
 
 func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
-	// Scrape the Metamod dev downloads page for the latest build number.
-	const mmBranch = "2.0"
-	const mmPage = "https://www.metamodsource.net/downloads.php?branch=dev"
+	const apiURL = "https://api.github.com/repos/alliedmodders/metamod-source/releases/latest"
 
-	// Use retry logic for network operations
-	cfg := DefaultRetryConfig()
-	data, err := RetryHTTPRead(up.httpClient(), mmPage, cfg)
-	if err != nil {
-		return fmt.Errorf("failed to fetch Metamod download page after retries: %w", err)
+	fmt.Fprintln(w, "[Metamod] Fetching latest Metamod:Source release...")
+	var payload struct {
+		TagName string                `json:"tag_name"`
+		Assets  []metamodReleaseAsset `json:"assets"`
+	}
+	if err := up.fetchJSON(apiURL, &payload); err != nil {
+		return fmt.Errorf("failed to fetch Metamod releases from alliedmodders/metamod-source: %w", err)
 	}
 
-	re := regexp.MustCompile(`Latest downloads for version.*?build\s+([0-9]+)`)
-	m := re.FindStringSubmatch(string(data))
-	build := "1374"
-	if len(m) >= 2 {
-		build = m[1]
+	assetName, downloadURL := selectMetamodLinuxAsset(payload.Assets)
+	if downloadURL == "" {
+		return fmt.Errorf("no suitable Metamod linux x86_64 asset found in release %s", payload.TagName)
 	}
 
-	url := fmt.Sprintf("https://mms.alliedmods.net/mmsdrop/%s/mmsource-%s.0-git%s-linux.tar.gz", mmBranch, mmBranch, build)
+	fmt.Fprintf(w, "[Metamod] Target: Metamod:Source %s (%s)\n", payload.TagName, assetName)
+	fmt.Fprintln(w, "[Metamod] Downloading Metamod:Source...")
 
-	fmt.Fprintf(w, "[Metamod] Downloading Metamod:Source %s build %s...\n", mmBranch, build)
-	resp2, err := RetryHTTPGet(up.httpClient(), url, cfg)
+	resp2, err := RetryHTTPGet(up.httpClient(), downloadURL, DefaultRetryConfig())
 	if err != nil {
-		return fmt.Errorf("failed to download Metamod archive after retries: %w", err)
+		return fmt.Errorf("failed to download Metamod archive from %s after retries: %w", downloadURL, err)
 	}
 	defer resp2.Body.Close()
 
@@ -242,9 +244,14 @@ func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
 		label:    "[Metamod]",
 		total:    resp2.ContentLength,
 	}
-	if _, err := io.Copy(pw, resp2.Body); err != nil {
+	written, err := io.Copy(pw, resp2.Body)
+	if err != nil {
 		_ = f.Close()
 		return err
+	}
+	if written == 0 {
+		_ = f.Close()
+		return fmt.Errorf("downloaded Metamod archive from %s is empty (asset: %s)", downloadURL, assetName)
 	}
 	if err := f.Close(); err != nil {
 		return err
@@ -253,6 +260,27 @@ func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
 	fmt.Fprintf(w, "[Metamod] Extracting to %s/csgo/...\n", up.GameDir)
 	// Use system tar for simplicity; dependencies are installed by InstallDependencies.
 	return runCmdLogged(w, "tar", "-xzf", tmpPath, "-C", filepath.Join(up.GameDir, "csgo"))
+}
+
+func selectMetamodLinuxAsset(assets []metamodReleaseAsset) (string, string) {
+	type candidate struct {
+		name string
+		url  string
+	}
+	var fallback candidate
+	for _, a := range assets {
+		nameLower := strings.ToLower(a.Name)
+		if !strings.Contains(nameLower, "linux") || !strings.HasSuffix(nameLower, ".tar.gz") {
+			continue
+		}
+		if strings.Contains(nameLower, "x86_64") || strings.Contains(nameLower, "amd64") {
+			return a.Name, a.URL
+		}
+		if fallback.url == "" {
+			fallback = candidate{name: a.Name, url: a.URL}
+		}
+	}
+	return fallback.name, fallback.url
 }
 
 func (up *PluginUpdater) downloadCounterStrikeSharp(w io.Writer) error {
