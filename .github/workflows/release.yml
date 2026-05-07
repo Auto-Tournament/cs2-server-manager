@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Release mode (patch/minor/major/explicit)'
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - explicit
+      version:
+        description: 'Explicit version (X.Y.Z or vX.Y.Z). Required when mode=explicit.'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve release argument
+        run: |
+          set -euo pipefail
+          MODE="${{ github.event.inputs.mode }}"
+          VERSION="${{ github.event.inputs.version }}"
+
+          if [[ "$MODE" == "explicit" ]]; then
+            if [[ -z "$VERSION" ]]; then
+              echo "Input 'version' is required when mode=explicit."
+              exit 1
+            fi
+            if [[ ! "$VERSION" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Input 'version' must match X.Y.Z or vX.Y.Z."
+              exit 1
+            fi
+            echo "RELEASE_ARG=$VERSION" >> "$GITHUB_ENV"
+          else
+            echo "RELEASE_ARG=$MODE" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run release script
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: bash ./scripts/release.sh "$RELEASE_ARG"
