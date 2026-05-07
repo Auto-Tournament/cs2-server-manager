@@ -162,15 +162,15 @@ Inputs:
 
 What the workflow does:
 
-- runs `scripts/release.sh` in dry-run mode to keep release/version/tag/build logic aligned (dry-run only skips the script's own release/webhook publish step)
-- builds the same Linux release assets:
+- runs `scripts/release.sh` directly so version bump/tag/build/release/webhook behavior is identical to local releases
+- builds and uploads the same Linux release assets:
   - `csm-linux-amd64`
   - `csm-linux-arm64`
-- creates or updates the GitHub Release for the resolved tag and uploads those assets
 
 Authentication:
 
 - uses the repository `GITHUB_TOKEN` by default (no PAT needed for same-repository releases)
+- for Discord notifications, set repository secret `DISCORD_WEBHOOK_URL`
 
 ---
 

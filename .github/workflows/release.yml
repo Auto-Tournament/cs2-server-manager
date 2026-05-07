@@ -63,60 +63,8 @@ jobs:
             echo "RELEASE_ARG=$MODE" >> "$GITHUB_ENV"
           fi
 
-      - name: Build artifacts and push version/tag (release.sh dry-run)
-        env:
-          # Keep release.sh version bump/tag/build logic, but skip its internal
-          # GitHub Release creation (handled in a dedicated step below).
-          CSM_DRY_RUN: "true"
-          CSM_SKIP_DISCORD: "true"
-          CSM_WEBHOOK_DRY_RUN: "true"
-        run: bash ./scripts/release.sh "$RELEASE_ARG"
-
-      - name: Resolve release tag and artifact paths
-        run: |
-          set -euo pipefail
-          if [[ ! -d dist/releases ]]; then
-            echo "Missing dist/releases directory after running scripts/release.sh."
-            exit 1
-          fi
-
-          mapfile -t RELEASE_DIRS < <(find dist/releases -mindepth 1 -maxdepth 1 -type d | sort)
-          if [[ "${#RELEASE_DIRS[@]}" -eq 0 ]]; then
-            echo "No release artifact directory was created under dist/releases."
-            exit 1
-          fi
-
-          DIST_DIR="${RELEASE_DIRS[$((${#RELEASE_DIRS[@]} - 1))]}"
-          TAG="$(basename "${DIST_DIR}")"
-          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Resolved release tag '${TAG}' does not match expected format vX.Y.Z."
-            exit 1
-          fi
-
-          test -f "${DIST_DIR}/csm-linux-amd64" || { echo "Missing file: ${DIST_DIR}/csm-linux-amd64"; exit 1; }
-          test -f "${DIST_DIR}/csm-linux-arm64" || { echo "Missing file: ${DIST_DIR}/csm-linux-arm64"; exit 1; }
-
-          echo "TAG=${TAG}" >> "$GITHUB_ENV"
-          echo "DIST_DIR=${DIST_DIR}" >> "$GITHUB_ENV"
-
-      - name: Create or update GitHub release
+      - name: Run release script
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TITLE="CSM ${TAG}"
-          NOTES="CS2 Server Manager (CSM) release ${TAG}"
-
-          if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" \
-              "${DIST_DIR}/csm-linux-amd64" \
-              "${DIST_DIR}/csm-linux-arm64" \
-              --clobber
-            gh release edit "${TAG}" --title "${TITLE}" --notes "${NOTES}"
-          else
-            gh release create "${TAG}" \
-              "${DIST_DIR}/csm-linux-amd64" \
-              "${DIST_DIR}/csm-linux-arm64" \
-              --title "${TITLE}" \
-              --notes "${NOTES}"
-          fi
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: bash ./scripts/release.sh "$RELEASE_ARG"
