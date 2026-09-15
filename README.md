@@ -75,6 +75,30 @@ CounterStrikeSharp and MatchZy install from their latest releases, but Metamod:S
 - **Repair**: `sudo csm update-plugins` always reinstalls the full plugin bundle, so it replaces a newer, incompatible Metamod with the pinned build.
 - **Override**: set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` to install the newest prerelease.
 
+### Disk usage: hardlinked VPKs
+
+Every server used to be a full copy of `master-install` (about 67 GB each). Almost all of that is `*.vpk` game archives (about 70 GB of VPKs per tree, versus about 1.2 GB for everything else), and CS2 only reads them. CSM now **hardlinks the `*.vpk` files** from `/home/<cs2user>/master-install/game` into each `server-N/game`. Each extra server then costs about 1.2 GB instead of 67 GB.
+
+- **Only VPKs are shared.** Configs (`cfg/`), `addons/`, `gameinfo.gi`, MatchZy data, demos and logs stay real per-server files. Editing one server's config never touches another server.
+- **Why hardlinks and not symlinks:** symlinked game directories broke demo recording and per-server configs. A hardlink looks like a normal file to the game.
+- **Requirements:** `master-install` and the server directories must be on the same filesystem (the default layout under `/home/<cs2user>` is). If hardlinking fails (different filesystem, permissions), CSM logs it once and falls back to a real copy.
+- **Updates:** SteamCMD only ever updates `master-install`. It writes changed files as new files, so an updated VPK gets a new inode and the servers' old links are not modified. `update-game` then syncs each server: rsync copies everything except `*.vpk` (and `csgo/addons/`), VPKs removed from master are deleted, and every VPK is re-linked atomically (link to a temp name, rename over the old file). A server process that still has the old file open keeps reading the old data until it restarts.
+- **Opt out:** set `CSM_VPK_HARDLINK=0` and new syncs go back to full copies.
+
+Migrating existing servers (one-off; `update-game` also re-links servers as it syncs them):
+
+```bash
+sudo csm dedupe-vpk --dry-run   # show what would be linked and the estimated savings
+sudo csm stop
+sudo csm dedupe-vpk             # hardlink identical VPKs (size + mtime match); prints disk usage before/after
+sudo csm start
+```
+
+- `sudo csm dedupe-vpk 2` handles only server-2. `--verify` also byte-compares each file before linking (slow, reads everything).
+- Running it twice is a no-op. VPKs that differ from master are left alone and reported.
+- It refuses to run while target servers are running. Replacing a file by rename is safe for open files on Linux, but stopping first is recommended; `--allow-running` skips the check.
+- **Rollback:** `sudo csm stop && sudo csm dedupe-vpk --undo && sudo csm start` turns the links back into independent copies (it checks free space first; you need about 70 GB per server). Also set `CSM_VPK_HARDLINK=0` wherever csm runs (for example `sudo CSM_VPK_HARDLINK=0 csm update-game`, and the monitor cron), or the next sync links the VPKs again.
+
 ### CS2 launch script (`cs2.sh`) (default) and alternate launcher (`csm.sh`)
 
 - **Default**: CSM launches using Valve’s `game/cs2.sh` (kept intact).
@@ -139,6 +163,7 @@ sudo csm bootstrap              # Install/redeploy servers
 sudo csm install-monitor-cron   # Install cron-based auto-update monitor
 sudo csm reinstall <server>     # Rebuild a server (fixes corrupted files)
 sudo csm update-config <server> # Regenerate server configs without reinstalling
+sudo csm dedupe-vpk [server]    # Hardlink server VPKs to master-install (saves ~66 GB per server)
 sudo csm unban <server> <ip>    # Remove IP from banned RCON requests (use 0 for all servers)
 sudo csm unban-all <server>     # Clear all IPs banned for RCON attempts (use 0 for all servers)
 csm list-bans <server>          # List banned IPs for a server
