@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,8 +93,8 @@ func CheckDiskSpaceForPluginUpdate(gameDir string) error {
 	return nil
 }
 
-// UpdatePlugins downloads and stages the latest Metamod:Source,
-// CounterStrikeSharp and MatchZy (enhanced if available) plugins into
+// UpdatePlugins downloads and stages Metamod:Source (pinned, see
+// MetamodPinnedVersion), the latest CounterStrikeSharp and MatchZy (enhanced if available) plugins into
 // game_files/, then applies overrides.
 // This function is protected by a mutex to prevent concurrent updates.
 func UpdatePlugins() (string, error) {
@@ -215,21 +216,68 @@ func (up *PluginUpdater) httpClient() *http.Client {
 	return &http.Client{Timeout: TimeoutPluginDownload}
 }
 
+// MetamodPinnedVersion is the Metamod:Source GitHub release tag CSM installs
+// by default.
+//
+// Metamod commit 0cc4e20 ("Bump MMS Api version, and min load version",
+// 2026-09-08) raised the minimum plugin API version. CounterStrikeSharp
+// v1.0.374 is built against the old API, so newer Metamod builds refuse to
+// load it ("Plugin uses old SourceHook Metamod build ... (17 < 18)") and
+// neither CounterStrikeSharp nor MatchZy loads. 2.0.0.1411 (2026-08-31) is the
+// last build published before that change and before the SourceHook rewrite.
+//
+// Raise this once a CounterStrikeSharp release loads on the newer Metamod API.
+const MetamodPinnedVersion = "2.0.0.1411"
+
+// metamodVersionEnv overrides MetamodPinnedVersion. Set it to a release tag
+// from alliedmodders/metamod-source (e.g. "2.0.0.1468") or to "latest" to
+// install the newest prerelease (falling back to the newest stable release).
+const metamodVersionEnv = "CSM_METAMOD_VERSION"
+
+// metamodLatest is the metamodVersionEnv value that restores the old
+// "newest prerelease" behaviour.
+const metamodLatest = "latest"
+
+// metamodTargetVersion returns the Metamod release tag to install, or
+// metamodLatest when the newest release should be selected.
+func metamodTargetVersion() string {
+	v := strings.TrimSpace(os.Getenv(metamodVersionEnv))
+	if v == "" {
+		return MetamodPinnedVersion
+	}
+	if strings.EqualFold(v, metamodLatest) {
+		return metamodLatest
+	}
+	return v
+}
+
 func (up *PluginUpdater) downloadMetamod(w io.Writer) error {
-	const apiURL = "https://api.github.com/repos/alliedmodders/metamod-source/releases"
+	const releasesURL = "https://api.github.com/repos/alliedmodders/metamod-source/releases"
 
-	fmt.Fprintln(w, "[Metamod] Fetching latest Metamod:Source prerelease...")
-	var payload []metamodRelease
-	if err := up.fetchJSON(apiURL, &payload); err != nil {
-		return fmt.Errorf("failed to fetch Metamod releases from alliedmodders/metamod-source: %w", err)
-	}
-
-	release, ok := selectMetamodRelease(payload)
-	if !ok {
-		return fmt.Errorf("no Metamod releases found")
-	}
-	if !release.Prerelease {
-		fmt.Fprintln(w, "[Metamod] No prerelease found; falling back to latest stable release.")
+	var release metamodRelease
+	if target := metamodTargetVersion(); target == metamodLatest {
+		fmt.Fprintf(w, "[Metamod] %s=latest; fetching latest Metamod:Source prerelease...\n", metamodVersionEnv)
+		var payload []metamodRelease
+		if err := up.fetchJSON(releasesURL, &payload); err != nil {
+			return fmt.Errorf("failed to fetch Metamod releases from alliedmodders/metamod-source: %w", err)
+		}
+		var ok bool
+		release, ok = selectMetamodRelease(payload)
+		if !ok {
+			return fmt.Errorf("no Metamod releases found")
+		}
+		if !release.Prerelease {
+			fmt.Fprintln(w, "[Metamod] No prerelease found; falling back to latest stable release.")
+		}
+	} else {
+		if target == MetamodPinnedVersion {
+			fmt.Fprintf(w, "[Metamod] Using pinned Metamod:Source %s (override with %s)\n", target, metamodVersionEnv)
+		} else {
+			fmt.Fprintf(w, "[Metamod] Using Metamod:Source %s from %s\n", target, metamodVersionEnv)
+		}
+		if err := up.fetchJSON(releasesURL+"/tags/"+url.PathEscape(target), &release); err != nil {
+			return fmt.Errorf("failed to fetch Metamod release %s from alliedmodders/metamod-source: %w", target, err)
+		}
 	}
 
 	assetName, downloadURL := selectMetamodLinuxAsset(release.Assets)
