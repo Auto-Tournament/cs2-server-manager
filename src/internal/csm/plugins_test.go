@@ -164,3 +164,26 @@ func TestMetamodReleaseTime(t *testing.T) {
 		})
 	}
 }
+
+func TestMetamodTargetVersion(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want string
+	}{
+		{name: "unset uses pinned build", env: "", want: MetamodPinnedVersion},
+		{name: "whitespace uses pinned build", env: "  ", want: MetamodPinnedVersion},
+		{name: "latest opts into newest release", env: "latest", want: metamodLatest},
+		{name: "latest is case insensitive", env: " LATEST ", want: metamodLatest},
+		{name: "explicit tag overrides pin", env: "2.0.0.1468", want: "2.0.0.1468"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(metamodVersionEnv, tt.env)
+			if got := metamodTargetVersion(); got != tt.want {
+				t.Fatalf("metamodTargetVersion() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
