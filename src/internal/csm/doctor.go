@@ -78,7 +78,6 @@ func FixLibV8WithContext(ctx context.Context, server int) (string, error) {
 	fmt.Fprintf(&buf, "[✓] Master validated\n\n")
 
 	// 2) Re-rsync master -> server(s) (excluding addons).
-	masterGameDir := filepath.Join(masterDir, "game") + string(os.PathSeparator)
 	for _, n := range servers {
 		if n <= 0 {
 			continue
@@ -91,12 +90,9 @@ func FixLibV8WithContext(ctx context.Context, server int) (string, error) {
 		}
 
 		fmt.Fprintf(&buf, "[*] Syncing master -> server-%d (rsync)...\n", n)
-		if err := runCmdLoggedContext(ctx, &buf,
-			"rsync", "-a", "--delete",
-			"--exclude", "csgo/addons/",
-			masterGameDir,
-			serverGameDir,
-		); err != nil {
+		// Same replication as update-game: rsync everything except csgo/addons
+		// and *.vpk, then hardlink VPKs from master.
+		if err := copyMasterGameToServerGame(ctx, &buf, user, masterDir, filepath.Clean(serverGameDir), false, false); err != nil {
 			fmt.Fprintf(&buf, "[!] rsync to server-%d failed: %v\n", n, err)
 			return buf.String(), err
 		}

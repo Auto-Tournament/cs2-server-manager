@@ -613,6 +613,38 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "dedupe-vpk":
+			opts := csm.DedupeVPKOptions{}
+			for _, a := range args[1:] {
+				switch a {
+				case "--verify":
+					opts.Verify = true
+				case "--dry-run":
+					opts.DryRun = true
+				case "--undo":
+					opts.Undo = true
+				case "--allow-running":
+					opts.AllowRunning = true
+				case "-h", "--help":
+					printDedupeVPKUsage(os.Stdout)
+					return
+				default:
+					n, nerr := strconv.Atoi(a)
+					if nerr != nil || n < 0 {
+						fmt.Fprintf(os.Stderr, "unknown argument %q\n\n", a)
+						printDedupeVPKUsage(os.Stderr)
+						os.Exit(1)
+					}
+					opts.Server = n
+				}
+			}
+			out, err := csm.DedupeVPKs(context.Background(), os.Stdout, opts)
+			csm.LogAction("cli", "dedupe-vpk "+strings.Join(args[1:], " "), out, err)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "dedupe-vpk failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "logdir":
 			// Show command logs directory and recent logs
 			logDir := csm.ResolveRoot()
@@ -948,12 +980,27 @@ func printUsage() {
 	fmt.Println("  unban-all <server>     Clear all IPs banned for RCON attempts (use 0 for all servers)")
 	fmt.Println("  update-game            Update CS2 game files after a Valve update")
 	fmt.Println("  update-plugins         Update plugins and deploy to servers")
+	fmt.Println("  dedupe-vpk [server]    Hardlink server VPKs to master-install to save disk (--dry-run, --verify, --undo)")
 	fmt.Println("  monitor                Run auto-update monitor loop")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
 	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
 	fmt.Println("  install-deps           Install system dependencies")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")
+}
+
+func printDedupeVPKUsage(w *os.File) {
+	fmt.Fprintln(w, "usage: sudo csm dedupe-vpk [--dry-run] [--verify] [--undo] [--allow-running] [server]")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Replaces each server's *.vpk files with hardlinks to the identical files in")
+	fmt.Fprintln(w, "master-install (same size and mtime). Everything else stays a per-server copy.")
+	fmt.Fprintln(w, "Safe to run twice; prints disk usage before and after.")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "  server           only process server-N (default: all servers)")
+	fmt.Fprintln(w, "  --dry-run        report what would change and the estimated savings")
+	fmt.Fprintln(w, "  --verify         also byte-compare each file before linking (slow)")
+	fmt.Fprintln(w, "  --undo           turn hardlinked VPKs back into independent copies")
+	fmt.Fprintln(w, "  --allow-running  do not refuse when target servers are running")
 }
 
 func promptYesNo(question string) bool {
