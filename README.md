@@ -68,6 +68,13 @@ On newer Linux distributions (for example Debian 13 / Ubuntu 25.04+), CounterStr
 - **Auto behavior**: on affected OS versions, CSM installs Steam Runtime (app `1628350`) into `/home/<cs2user>/steamrt` (if missing) and starts servers via the runtime wrapper.
 - **Override**: set `CSM_STEAMRT=1` to force-enable, or `CSM_STEAMRT=0` to force-disable.
 
+### Metamod version (pinned)
+
+CounterStrikeSharp and MatchZy install from their latest releases, but Metamod:Source is **pinned** to a build that CounterStrikeSharp can load (currently `2.0.0.1411`). Metamod builds from 2026-09-08 onward raised the plugin API version, and the current CounterStrikeSharp release fails to load on them with `Plugin uses old SourceHook Metamod build ... (17 < 18)`.
+
+- **Repair**: `sudo csm update-plugins` always reinstalls the full plugin bundle, so it replaces a newer, incompatible Metamod with the pinned build.
+- **Override**: set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` to install the newest prerelease.
+
 ### CS2 launch script (`cs2.sh`) (default) and alternate launcher (`csm.sh`)
 
 - **Default**: CSM launches using Valve’s `game/cs2.sh` (kept intact).
