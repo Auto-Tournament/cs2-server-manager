@@ -128,7 +128,11 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	log("This will:")
 	log("  • Update master CS2 installation via SteamCMD")
 	log("  • Stop all servers")
-	log("  • Update game files on all servers")
+	if VPKHardlinksEnabled() {
+		log("  • Update game files on all servers (VPKs re-hardlinked from master)")
+	} else {
+		log("  • Update game files on all servers")
+	}
 	log("  • Restart all servers")
 	log("")
 

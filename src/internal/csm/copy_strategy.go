@@ -11,10 +11,18 @@ import (
 	"strings"
 )
 
-func rsyncArgsLegacyCopy(srcRoot, dstRoot string, progress2 bool) []string {
+// rsyncExcludeVPK keeps rsync away from *.vpk files when they are managed as
+// hardlinks by the VPK linker. Excluded files are also protected from
+// --delete, so stale VPKs are pruned separately (see pruneStaleVPKs).
+var rsyncExcludeVPK = []string{"--exclude", "*.vpk"}
+
+func rsyncArgsLegacyCopy(srcRoot, dstRoot string, progress2, excludeVPK bool) []string {
 	args := []string{
 		"-a", "--delete",
 		"--exclude", "csgo/addons/",
+	}
+	if excludeVPK {
+		args = append(args, rsyncExcludeVPK...)
 	}
 	if progress2 {
 		args = append(args, "--info=PROGRESS2")
@@ -23,13 +31,16 @@ func rsyncArgsLegacyCopy(srcRoot, dstRoot string, progress2 bool) []string {
 	return args
 }
 
-func rsyncArgsTunedCopy(srcRoot, dstRoot string, progress2 bool, chownUser string) []string {
+func rsyncArgsTunedCopy(srcRoot, dstRoot string, progress2 bool, chownUser string, excludeVPK bool) []string {
 	args := []string{
 		"-a",
 		"--whole-file",
 		"--omit-dir-times",
 		"--delete",
 		"--exclude", "csgo/addons/",
+	}
+	if excludeVPK {
+		args = append(args, rsyncExcludeVPK...)
 	}
 	// When running as root, have rsync write the correct ownership directly so
 	// we can avoid a slow recursive chown over large game trees.
@@ -49,9 +60,32 @@ func rsyncArgsTunedCopy(srcRoot, dstRoot string, progress2 bool, chownUser strin
 
 // copyMasterGameToServerGame replicates <masterDir>/game/ into <serverGameDir>/.
 // It respects CSM_COPY_MODE for the copy strategy.
+//
+// Unless CSM_VPK_HARDLINK=0, *.vpk files are not copied: they are hardlinked
+// to master's files after the rsync of everything else (falling back to a
+// real copy if linking fails). Every non-VPK file stays a per-server copy.
 func copyMasterGameToServerGame(ctx context.Context, w io.Writer, cs2User, masterDir, serverGameDir string, allowReflink bool, progress2 bool) error {
 	mode := CopyModeFromEnv()
 	recordCopyNote(string(mode))
+
+	linkVPK := VPKHardlinksEnabled()
+	masterGame := filepath.Join(masterDir, "game")
+	var linker *vpkLinker
+	if linkVPK {
+		linker = newVPKLinker(w)
+	}
+	finishVPKs := func(pruned VPKStats) error {
+		if linker == nil {
+			return nil
+		}
+		st, err := linker.linkServerVPKs(ctx, masterGame, serverGameDir)
+		st.add(pruned)
+		fmt.Fprintf(w, "  [i] %s\n", st.syncSummary())
+		if err != nil {
+			return fmt.Errorf("link VPKs: %w", err)
+		}
+		return nil
+	}
 
 	srcRoot := filepath.Join(masterDir, "game") + string(os.PathSeparator)
 	dstRoot := serverGameDir + string(os.PathSeparator)
@@ -73,7 +107,7 @@ func copyMasterGameToServerGame(ctx context.Context, w io.Writer, cs2User, maste
 					fmt.Fprintln(w, "  [i] Reflink copy succeeded")
 					RecordCopyReflinkSuccess("reflink")
 				}
-				return nil
+				return finishVPKs(VPKStats{})
 			} else if err != nil {
 				// For reflink/auto, treat failure as a fallback to tuned rsync.
 				if strings.TrimSpace(why) != "" {
@@ -91,21 +125,33 @@ func copyMasterGameToServerGame(ctx context.Context, w io.Writer, cs2User, maste
 		}
 	}
 
+	// With *.vpk excluded, rsync --delete no longer removes VPKs that are gone
+	// from master, so prune those first (before rsync, so it can still delete
+	// directories that only held such files).
+	var pruned VPKStats
+	if linker != nil {
+		st, err := linker.pruneStaleVPKs(ctx, masterGame, serverGameDir)
+		if err != nil {
+			return fmt.Errorf("prune stale VPKs: %w", err)
+		}
+		pruned = st
+	}
+
 	// Rsync path (legacy or tuned).
 	var args []string
 	switch mode {
 	case CopyModeLegacy:
-		args = rsyncArgsLegacyCopy(srcRoot, dstRoot, progress2)
+		args = rsyncArgsLegacyCopy(srcRoot, dstRoot, progress2, linkVPK)
 		RecordCopyRsyncLegacy("rsync legacy")
 	default:
-		args = rsyncArgsTunedCopy(srcRoot, dstRoot, progress2, cs2User)
+		args = rsyncArgsTunedCopy(srcRoot, dstRoot, progress2, cs2User, linkVPK)
 		RecordCopyRsyncTuned("rsync tuned")
 	}
 
 	if err := runCmdLoggedContext(ctx, w, "rsync", args...); err != nil {
 		return fmt.Errorf("rsync failed: %w", err)
 	}
-	return nil
+	return finishVPKs(pruned)
 }
 
 func destLooksEmpty(dir string) bool {
