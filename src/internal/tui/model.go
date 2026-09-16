@@ -107,6 +107,7 @@ type viewportFinishedMsg struct {
 
 type installConfig struct {
 	dbMode             string // "docker" or "external"
+	dbEngine           string // csm.MatchzyDBEngineMySQL (shared) or csm.MatchzyDBEngineSQLite (per server)
 	numServers         int
 	basePort           int
 	tvPort             int
@@ -544,6 +545,7 @@ func (m *model) initWizardDefaults() {
 	// Start with defaults
 	cfg := installConfig{
 		dbMode:         "docker",
+		dbEngine:       csm.MatchzyDBEngineMySQL,
 		numServers:     csm.DefaultNumServers,
 		basePort:       csm.DefaultBaseGamePort,
 		tvPort:         csm.DefaultBaseTVPort,

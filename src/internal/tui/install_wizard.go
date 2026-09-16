@@ -251,6 +251,7 @@ func (w *installWizard) applyWizardNumericFields() {
 // Wizard field indices for the multi-step install wizard view.
 const (
 	wizardFieldDBMode = iota
+	wizardFieldDBEngine
 	wizardFieldNumServers
 	wizardFieldBasePort
 	wizardFieldTVPort
@@ -278,15 +279,24 @@ const (
 	wizardFieldCount
 )
 
+// toggleDBEngine flips the MatchZy storage choice between shared MySQL and
+// SQLite per server.
+func toggleDBEngine(engine string) string {
+	if engine == csm.MatchzyDBEngineSQLite {
+		return csm.MatchzyDBEngineMySQL
+	}
+	return csm.MatchzyDBEngineSQLite
+}
+
 // wizardPage defines which fields appear on each page
 type wizardPage []int
 
 // getWizardPages returns the pages based on DB mode (external DB fields shown conditionally)
 func getWizardPages(dbMode string) []wizardPage {
 	pages := []wizardPage{
-		// Page 0: Basic setup (4 items)
+		// Page 0: Basic setup (5 items)
 		{
-			wizardFieldDBMode, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort,
+			wizardFieldDBEngine, wizardFieldDBMode, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort,
 		},
 		// Page 1: Server identity (4 items)
 		{
@@ -520,6 +530,13 @@ func (m model) viewInstallWizard() string {
 			}
 			renderRow(wizardFieldDBMode, "MatchZy DB:", dbLabel)
 
+		case wizardFieldDBEngine:
+			engineLabel := "Shared MySQL (stats shared across servers)"
+			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
+				engineLabel = "SQLite per server (safe with any MatchZy build)"
+			}
+			renderRow(wizardFieldDBEngine, "MatchZy storage:", engineLabel)
+
 		case wizardFieldNumServers:
 			numServersVal := m.wizard.numServersStr
 			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldNumServers && m.wizard.editing {
@@ -705,6 +722,15 @@ func (m model) viewInstallWizard() string {
 		switch selectedField {
 		case wizardFieldDBMode:
 			desc = "Choose Docker-managed MySQL (recommended) or an existing external MySQL server."
+			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
+				desc += " Not used while storage is SQLite per server."
+			}
+		case wizardFieldDBEngine:
+			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
+				desc = "Each server keeps its own matchzy.db. Stats are not shared, but servers can never load each other's server id or bootstrap URL, on any MatchZy build."
+			} else {
+				desc = "One MySQL database for every server, so stats are shared. With 2+ servers this needs " + csm.MatchzyScopingRequirement() + "; older builds make every server load the same matchzy_server_id. Pick SQLite per server if you are on an older build."
+			}
 		case wizardFieldNumServers:
 			desc = "How many CS2 game servers to create on this machine."
 		case wizardFieldBasePort:
@@ -909,6 +935,9 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.dbPortStr = fmt.Sprintf("%d", p-1)
 					m.wizard.errMsg = ""
 				}
+			case wizardFieldDBEngine:
+				m.wizard.cfg.dbEngine = toggleDBEngine(m.wizard.cfg.dbEngine)
+				m.wizard.errMsg = ""
 			case wizardFieldDBMode:
 				// Left/right both toggle DB mode between docker and external.
 				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
@@ -969,6 +998,9 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.dbPortStr = fmt.Sprintf("%d", p+1)
 					m.wizard.errMsg = ""
 				}
+			case wizardFieldDBEngine:
+				m.wizard.cfg.dbEngine = toggleDBEngine(m.wizard.cfg.dbEngine)
+				m.wizard.errMsg = ""
 			case wizardFieldDBMode:
 				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
 					m.wizard.cfg.dbMode = "docker"
@@ -1064,11 +1096,13 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.cursor = 0
 			}
 			return m, nil
-		case wizardFieldDBMode, wizardFieldMetamod, wizardFieldFreshInstall,
+		case wizardFieldDBMode, wizardFieldDBEngine, wizardFieldMetamod, wizardFieldFreshInstall,
 			wizardFieldUpdateMaster, wizardFieldSteamValidate, wizardFieldFastCopy,
 			wizardFieldUpdatePlugins, wizardFieldInstallMonitor:
 			// Toggle boolean fields or DB mode on Enter
 			switch currentField {
+			case wizardFieldDBEngine:
+				m.wizard.cfg.dbEngine = toggleDBEngine(m.wizard.cfg.dbEngine)
 			case wizardFieldDBMode:
 				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
 					m.wizard.cfg.dbMode = "docker"
@@ -1280,6 +1314,17 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				RCONPassword:   cfg.rconPassword,
 				MaxPlayers:     cfg.maxPlayers,
 				GSLT:           cfg.gslt,
+
+				// MatchZy database choices. database.json is only rewritten
+				// when it carries CSM's managed note.
+				DBMode:             cfg.dbMode,
+				DBEngine:           cfg.dbEngine,
+				MatchzySkipDocker:  cfg.matchzySkipDocker,
+				ExternalDBHost:     cfg.externalDBHost,
+				ExternalDBPort:     cfg.externalDBPort,
+				ExternalDBName:     cfg.externalDBName,
+				ExternalDBUser:     cfg.externalDBUser,
+				ExternalDBPassword: cfg.externalDBPassword,
 			}
 			_, err = csm.BootstrapWithContext(ctx, bootstrapCfg)
 			if err != nil {

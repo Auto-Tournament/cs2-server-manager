@@ -264,20 +264,9 @@ func (m *TmuxManager) Start(server int) error {
 	// Detect ports for this server from its config
 	gamePort, tvPort := detectServerPorts(m.CS2User, server)
 
-	// Build command line with optional GSLT token
-	gslt := m.getGSLT(server)
-	gsltArg := ""
-	if gslt != "" {
-		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
-	}
-
 	// Use the Valve cs2.sh script from the game directory. Run directly in
 	// tmux without piping to maintain interactive console responsiveness when
-	// attaching. Revert to the working v1.4.5 command format that uses:
-	// - `-port` (command-line flag)
-	// - `+tv_port` (console command - note the + not -)
-	// - `+map` to load map at startup
-	// - `+maxplayers` for player limit
+	// attaching. See buildLaunchCommand for the argument format.
 	maxPlayers := detectMaxPlayers(m.CS2User)
 	if maxPlayers == 0 {
 		maxPlayers = 10 // default from v1.4.5
@@ -297,37 +286,25 @@ func (m *TmuxManager) Start(server int) error {
 		mode = "valve"
 	}
 
+	// NOTE: this `:=` reassigns mode to the Steam Runtime mode string (e.g.
+	// "auto_off"), so CSM_LAUNCH_MODE is effectively ignored by Start and the
+	// default cs2.sh launcher is used. Kept as-is here to avoid changing how
+	// existing servers launch as a side effect of the scope change.
 	useSteamRT, mode := shouldUseSteamRuntimeLauncher()
-	launchCmd := ""
-	switch mode {
-	case "alternate", "csm", "csmsh", "csm.sh":
+	spec := launchSpec{
+		Mode:        mode,
+		LegacyCS2Sh: cs2ShLooksCSMManagedLegacy(gameDir),
+		GamePort:    gamePort,
+		TVPort:      tvPort,
+		MaxPlayers:  maxPlayers,
+		GSLT:        m.getGSLT(server),
+		ConfigScope: MatchzyConfigScope(server),
+	}
+	if spec.usesCSMLauncherSh() {
 		// Ensure alternate launcher exists (keep Valve's cs2.sh intact).
 		_ = ensureCSMLauncherSh(context.Background(), nil, m.CS2User, gameDir)
-		// csm.sh already provides -dedicated/-ip/-usercon.
-		launchCmd = fmt.Sprintf("./csm.sh +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
-			gamePort, tvPort, maxPlayers, gsltArg,
-		)
-	case "binary", "cs2", "exe":
-		// Run the cs2 binary directly. Not recommended upstream, but offered as an opt-in.
-		// We still set LD_LIBRARY_PATH to prefer bundled libs so "binary mode" doesn't
-		// accidentally load incompatible distro libs.
-		launchCmd = fmt.Sprintf("LD_LIBRARY_PATH=./bin/linuxsteamrt64:./csgo/bin/linuxsteamrt64:$LD_LIBRARY_PATH ENABLE_PATHMATCH=1 ./bin/linuxsteamrt64/cs2 -dedicated -ip 0.0.0.0 -usercon +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
-			gamePort, tvPort, maxPlayers, gsltArg,
-		)
-	default:
-		// Valve cs2.sh must be told it's a dedicated server.
-		if cs2ShLooksCSMManagedLegacy(gameDir) {
-			// Backward-compat: older installs may have a CSM-managed cs2.sh that
-			// already injects its own default args.
-			launchCmd = fmt.Sprintf("./cs2.sh +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
-				gamePort, tvPort, maxPlayers, gsltArg,
-			)
-		} else {
-			launchCmd = fmt.Sprintf("./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s",
-				gamePort, tvPort, maxPlayers, gsltArg,
-			)
-		}
 	}
+	launchCmd := buildLaunchCommand(spec)
 	if useSteamRT {
 		// Ensure Steam Runtime is present before attempting to use it.
 		var buf bytes.Buffer
@@ -342,22 +319,10 @@ func (m *TmuxManager) Start(server int) error {
 	if useSteamRT {
 		// Launch via Steam Runtime for newer-distro CounterStrikeSharp compatibility.
 		// Run the chosen server command inside SteamRT3.
-		rtRun := steamRuntimeRunPath(m.CS2User)
-		// Prefer the common "-- <command>" form; fall back to a direct invocation
-		// if the wrapper rejects the extra separator/args on some builds.
-		launchCmd = fmt.Sprintf("bash -lc \"rt=%s; $rt --graphics-provider \\\"\\\" -- %s || exec $rt %s\"",
-			rtRun,
-			launchCmd,
-			launchCmd,
-		)
+		launchCmd = wrapSteamRuntimeLaunch(steamRuntimeRunPath(m.CS2User), launchCmd)
 	}
 
-	cmdline := fmt.Sprintf(
-		"cd %s && tmux new-session -d -s %s '%s'",
-		gameDir,
-		session,
-		launchCmd,
-	)
+	cmdline := buildTmuxStartCmdline(gameDir, session, launchCmd)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
 	if useSteamRT {
 		log.Printf("[tmux] Start: Steam Runtime launcher enabled (%s)", mode)
@@ -579,11 +544,6 @@ func (m *TmuxManager) Debug(server int) error {
 		}
 	}
 
-	gslt := m.getGSLT(server)
-	gsltArg := ""
-	if gslt != "" {
-		gsltArg = fmt.Sprintf(" -gslt %s", gslt)
-	}
 	// Use v1.4.5 command format for debug mode too
 	maxPlayers := detectMaxPlayers(m.CS2User)
 	if maxPlayers == 0 {
@@ -605,28 +565,19 @@ func (m *TmuxManager) Debug(server int) error {
 	}
 
 	useSteamRT, _ := shouldUseSteamRuntimeLauncher()
-	launch := ""
-	switch mode {
-	case "alternate", "csm", "csmsh", "csm.sh":
-		_ = ensureCSMLauncherSh(context.Background(), nil, m.CS2User, gameDir)
-		launch = fmt.Sprintf("./csm.sh +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
-			gamePort, tvPort, maxPlayers, gsltArg,
-		)
-	case "binary", "cs2", "exe":
-		launch = fmt.Sprintf("LD_LIBRARY_PATH=./bin/linuxsteamrt64:./csgo/bin/linuxsteamrt64:$LD_LIBRARY_PATH ENABLE_PATHMATCH=1 ./bin/linuxsteamrt64/cs2 -dedicated -ip 0.0.0.0 -usercon +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
-			gamePort, tvPort, maxPlayers, gsltArg,
-		)
-	default:
-		if cs2ShLooksCSMManagedLegacy(gameDir) {
-			launch = fmt.Sprintf("./cs2.sh +map de_dust2 -port %d +tv_port %d +maxplayers %d%s",
-				gamePort, tvPort, maxPlayers, gsltArg,
-			)
-		} else {
-			launch = fmt.Sprintf("./cs2.sh -dedicated -ip 0.0.0.0 +map de_dust2 -port %d +tv_port %d +maxplayers %d -usercon%s",
-				gamePort, tvPort, maxPlayers, gsltArg,
-			)
-		}
+	spec := launchSpec{
+		Mode:        mode,
+		LegacyCS2Sh: cs2ShLooksCSMManagedLegacy(gameDir),
+		GamePort:    gamePort,
+		TVPort:      tvPort,
+		MaxPlayers:  maxPlayers,
+		GSLT:        m.getGSLT(server),
+		ConfigScope: MatchzyConfigScope(server),
 	}
+	if spec.usesCSMLauncherSh() {
+		_ = ensureCSMLauncherSh(context.Background(), nil, m.CS2User, gameDir)
+	}
+	launch := buildLaunchCommand(spec)
 	if useSteamRT {
 		// Best-effort install runtime (non-fatal) and run cs2.sh inside it.
 		var buf bytes.Buffer
@@ -636,12 +587,7 @@ func (m *TmuxManager) Debug(server int) error {
 			log.Printf("[tmux] Debug: steam runtime install output:\n%s", buf.String())
 		}
 
-		rtRun := steamRuntimeRunPath(m.CS2User)
-		launch = fmt.Sprintf("bash -lc \"rt=%s; $rt --graphics-provider \\\"\\\" -- %s || exec $rt %s\"",
-			rtRun,
-			launch,
-			launch,
-		)
+		launch = wrapSteamRuntimeLaunch(steamRuntimeRunPath(m.CS2User), launch)
 	}
 
 	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && %s", gameDir, launch))

@@ -99,6 +99,43 @@ sudo csm start
 - It refuses to run while target servers are running. Replacing a file by rename is safe for open files on Linux, but stopping first is recommended; `--allow-running` skips the check.
 - **Rollback:** `sudo csm stop && sudo csm dedupe-vpk --undo && sudo csm start` turns the links back into independent copies (it checks free space first; you need about 70 GB per server). Also set `CSM_VPK_HARDLINK=0` wherever csm runs (for example `sudo CSM_VPK_HARDLINK=0 csm update-game`, and the monitor cron), or the next sync links the VPKs again.
 
+### Several servers and the MatchZy database
+
+By default every server on the machine uses **one shared MySQL database** (`matchzy` in the `matchzy-mysql` container), so match stats end up in one place.
+
+**What broke.** MatchZy also keeps per-server settings in that database: `matchzy_server_id`, the bootstrap URL and token, the remote log URL, the demo upload URL and so on. Older MatchZy builds store those rows by setting name only. With one shared database, the last server to save wins, and every server loads that server's values when it starts:
+
+```
+server-1: [LoadPersistentConfig] Loaded matchzy_bootstrap_url: http://…/api/servers/s_3/bootstrap
+server-1/2/3: "server_id":"s_3"
+```
+
+A tournament manager then sees one server three times: matches get loaded twice and results overwrite each other. This affects every install with 2 or more servers on shared MySQL.
+
+**The fix has two parts.**
+
+- **MatchZy** stores those settings per server ([MatchZy-Enhanced #17](https://github.com/sivert-io/MatchZy-Enhanced/pull/17)). By default it tells servers apart by bind address and game port. CSM starts servers with `-ip 0.0.0.0`, which doesn't identify anything, so MatchZy falls back to the machine name. That name is the same for every server on one machine.
+- **CSM** therefore passes a name for each server on the start command line: `+matchzy_config_scope <hostname>-server-<N>`, for example `cs2-server-1`. It uses the server's directory name, so it stays the same across restarts, game and plugin updates, reinstalls and port changes. The hostname keeps two machines that share one database apart. If you rename the machine, or several machines have the same hostname, set `CSM_MATCHZY_SCOPE_PREFIX` (for example `CSM_MATCHZY_SCOPE_PREFIX=eu-1`) wherever csm starts servers.
+
+**Choosing storage.** The install wizard has a **MatchZy storage** option:
+
+- **Shared MySQL** (default). Stats are shared. With 2 or more servers this needs a MatchZy-Enhanced build that includes #17. <!-- TODO(matchzy-scope): name the release version once #17 ships (see MatchzyScopingMinVersion). -->
+- **SQLite per server.** Each server keeps its own `matchzy.db` next to the plugin, so servers can't load each other's settings on any MatchZy build. Stats are not shared. Use this if you can't update MatchZy yet. For a non-interactive install: `sudo MATCHZY_DB_ENGINE=sqlite csm bootstrap`.
+
+CSM only rewrites `database.json` when it still has CSM's `__CSM_NOTE` ("managed by CSM's install wizard"). If you removed or replaced that note, CSM leaves the file alone.
+
+**Check an install:** `sudo csm doctor` reports **MatchZy per-server config (shared database)**. It fails when 2 or more servers report the same `matchzy_server_id`, or when servers share one MySQL database and either run a MatchZy build without per-server scoping or are still running without `+matchzy_config_scope`. It prints the steps to fix it.
+
+**Migrating an existing install:**
+
+1. Update csm.
+2. Get a MatchZy build with per-server scoping and restart all servers: `sudo csm update-plugins` (it redeploys the plugins and restarts every server). The restart picks up the new start argument. If you only need the start argument, `sudo csm restart` is enough.
+   - If that MatchZy build isn't available yet, switch to SQLite per server instead: set `"DatabaseType": "SQLite"` in `/home/<cs2user>/overrides/game/csgo/cfg/MatchZy/database.json` and `/home/<cs2user>/cs2-config/game/csgo/cfg/MatchZy/database.json`, then run `sudo csm update-plugins`.
+3. Reconfigure each server once from your tournament manager (in MAT, re-save or re-bootstrap each server). Until a server saves its own values, it still reads the old shared ones. After that, each server keeps its own.
+4. Run `sudo csm doctor` to confirm.
+
+Match stats already in the shared database stay where they are.
+
 ### CS2 launch script (`cs2.sh`) (default) and alternate launcher (`csm.sh`)
 
 - **Default**: CSM launches using Valve’s `game/cs2.sh` (kept intact).
