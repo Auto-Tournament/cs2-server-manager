@@ -482,40 +482,11 @@ func linkedVPKBytes(masterGame, serverGame string) (int64, error) {
 // diskUsage returns the allocated bytes of all files under roots, counting
 // each inode once, so hardlinked VPKs are not double counted.
 func diskUsage(roots ...string) (int64, error) {
-	type key struct{ dev, ino uint64 }
-	seen := make(map[key]struct{})
+	seen := make(map[inodeKey]struct{})
 	var total int64
 	for _, root := range roots {
-		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				if errors.Is(err, fs.ErrNotExist) {
-					return nil
-				}
-				return err
-			}
-			if d.Type()&fs.ModeSymlink != 0 {
-				return nil
-			}
-			fi, err := d.Info()
-			if err != nil {
-				if errors.Is(err, fs.ErrNotExist) {
-					return nil
-				}
-				return err
-			}
-			st, ok := fi.Sys().(*syscall.Stat_t)
-			if !ok {
-				total += fi.Size()
-				return nil
-			}
-			k := key{uint64(st.Dev), uint64(st.Ino)}
-			if _, dup := seen[k]; dup {
-				return nil
-			}
-			seen[k] = struct{}{}
-			total += int64(st.Blocks) * 512
-			return nil
-		})
+		b, err := allocatedBytes(root, seen)
+		total += b
 		if err != nil {
 			return total, err
 		}

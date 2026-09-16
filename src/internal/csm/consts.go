@@ -22,11 +22,13 @@ const (
 	// The install wizard encourages users to override this.
 	DefaultRCONPassword = "ntlan2025"
 
-	// DefaultMasterDiskGB and DefaultPerServerDiskGB drive the install
-	// wizard's disk space estimate and low-space confirmation. The server
-	// value is based on observed server-1 size (~59,217,686,528 bytes).
-	DefaultMasterDiskGB    = 56.0
-	DefaultPerServerDiskGB = 56.0
+	// DefaultMasterDiskGB and DefaultPerServerLinkedDiskGB drive the install
+	// wizard's disk space estimate (see EstimateInstallDisk) when nothing is
+	// installed yet to measure. A full install is ~71 GB, ~70 GB of it VPKs.
+	// With VPK hardlinks (default) a server only adds its non-VPK files
+	// (~1.2 GB observed); with CSM_VPK_HARDLINK=0 it is a full copy.
+	DefaultMasterDiskGB          = 71.0
+	DefaultPerServerLinkedDiskGB = 2.0
 
 	// DefaultMatchzyContainerName and DefaultMatchzyVolumeName define the
 	// Docker resources used for the MatchZy MySQL database when running in

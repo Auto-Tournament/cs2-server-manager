@@ -84,6 +84,7 @@ Every server used to be a full copy of `master-install` (about 67 GB each). Almo
 - **Requirements:** `master-install` and the server directories must be on the same filesystem (the default layout under `/home/<cs2user>` is). If hardlinking fails (different filesystem, permissions), CSM logs it once and falls back to a real copy.
 - **Updates:** SteamCMD only ever updates `master-install`. It writes changed files as new files, so an updated VPK gets a new inode and the servers' old links are not modified. `update-game` then syncs each server: rsync copies everything except `*.vpk` (and `csgo/addons/`), VPKs removed from master are deleted, and every VPK is re-linked atomically (link to a temp name, rename over the old file). A server process that still has the old file open keeps reading the old data until it restarts.
 - **Opt out:** set `CSM_VPK_HARDLINK=0` and new syncs go back to full copies.
+- **Install wizard estimate:** the full size of `master-install` (about 71 GB) plus about 2 GB per server with hardlinks, or a full copy per server with `CSM_VPK_HARDLINK=0`. When measuring an existing install it counts each hardlinked file once.
 
 Migrating existing servers (one-off; `update-game` also re-links servers as it syncs them):
 
@@ -156,6 +157,8 @@ If you want to run the `cs2` **binary directly** (not recommended; provided for 
 ```bash
 sudo csm start --binary
 ```
+
+`--alternate` and `--binary` work the same on `csm start`, `csm restart` and `csm debug`, and only apply to that command. To use a launcher everywhere csm starts servers (including `update-plugins`, `update-game` and the monitor), set `CSM_LAUNCH_MODE=alternate` or `CSM_LAUNCH_MODE=binary` in that environment, for example `sudo CSM_LAUNCH_MODE=alternate csm restart`. A flag overrides the variable. Every launcher gets the same `+matchzy_config_scope` argument.
 
 ---
 

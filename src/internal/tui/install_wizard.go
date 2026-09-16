@@ -123,13 +123,10 @@ func computeDiskEstimate(w installWizard) diskEstimate {
 
 	home := filepath.Join("/home", user)
 
-	// Existing footprint
-	var masterBytes int64
-	if fi, err := os.Stat(filepath.Join(home, "master-install")); err == nil && fi.IsDir() {
-		if b, ok := duBytes(filepath.Join(home, "master-install")); ok {
-			masterBytes = b
-		}
-	}
+	// Existing footprint. Master and servers are measured together, counting
+	// each inode once, so VPKs hardlinked from master-install are not charged
+	// to every server again.
+	fp, _ := csm.MeasureInstallFootprint(home)
 
 	var configBytes int64
 	if fi, err := os.Stat(filepath.Join(home, "cs2-config")); err == nil && fi.IsDir() {
@@ -138,35 +135,16 @@ func computeDiskEstimate(w installWizard) diskEstimate {
 		}
 	}
 
-	var serversBytes int64
-	serversN := 0
-	if entries, err := os.ReadDir(home); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() || !strings.HasPrefix(e.Name(), "server-") {
-				continue
-			}
-			serversN++
-			p := filepath.Join(home, e.Name())
-			if b, ok := duBytes(p); ok {
-				serversBytes += b
-			}
-		}
-	}
-
-	existingMasterGB := bytesToGB(masterBytes)
-	existingServersGB := bytesToGB(serversBytes)
+	existingMasterGB := bytesToGB(fp.MasterBytes)
+	existingServersGB := bytesToGB(fp.ServersBytes)
 	existingConfigGB := bytesToGB(configBytes)
+	serversN := fp.Servers
 
-	masterGB := existingMasterGB
-	if masterGB <= 0 {
-		masterGB = csm.DefaultMasterDiskGB
-	}
-	perServerGB := csm.DefaultPerServerDiskGB
-	if serversN > 0 && existingServersGB > 0 {
-		perServerGB = existingServersGB / float64(serversN)
-	}
-
-	requiredTotalGB := masterGB + perServerGB*float64(requested)
+	hardlink := csm.VPKHardlinksEnabled()
+	plan := csm.EstimateInstallDisk(existingMasterGB, requested, hardlink)
+	masterGB := plan.MasterGB
+	perServerGB := plan.PerServerGB
+	requiredTotalGB := plan.TotalGB
 	// cs2-config is small relative to game installs, but include whatever exists today.
 	if existingConfigGB > 0 {
 		requiredTotalGB += existingConfigGB
@@ -186,6 +164,14 @@ func computeDiskEstimate(w installWizard) diskEstimate {
 		MasterGB:          masterGB,
 		RequiredTotalGB:   requiredTotalGB,
 		FreshInstall:      w.cfg.freshInstall,
+	}
+
+	if hardlink {
+		est.Notes = append(est.Notes, fmt.Sprintf("VPK hardlinks on (default): game VPKs are shared with master-install, so each server adds ~%.0f GB.", perServerGB),
+			fmt.Sprintf("Hardlinks need master-install and the servers on one filesystem. With CSM_VPK_HARDLINK=0 each server is a full copy (~%.0f GB).", masterGB))
+	} else {
+		est.Notes = append(est.Notes, fmt.Sprintf("CSM_VPK_HARDLINK=0: each server is a full copy of master-install (~%.0f GB).", perServerGB),
+			fmt.Sprintf("Unset it to hardlink VPKs instead (~%.0f GB per server).", csm.DefaultPerServerLinkedDiskGB))
 	}
 
 	// Compute "additional needed" depending on whether we will reuse or clean up.
@@ -212,7 +198,13 @@ func computeDiskEstimate(w installWizard) diskEstimate {
 			keepServers = est.RequestedServersN
 		}
 		if keepServers > 0 {
-			toKeepGB += est.PerServerGB * float64(keepServers)
+			// Credit what the kept servers already use, but no more than the
+			// plan needs for them.
+			kept := est.ExistingServersGB * float64(keepServers) / float64(est.ExistingServersN)
+			if planned := est.PerServerGB * float64(keepServers); kept > planned {
+				kept = planned
+			}
+			toKeepGB += kept
 		}
 		if est.ExistingConfigGB > 0 {
 			toKeepGB += est.ExistingConfigGB
@@ -441,7 +433,7 @@ func (m model) viewInstallWizard() string {
 		e := m.wizard.diskEstimate
 		fmt.Fprintln(&b, subtleStyle.Render("Disk space estimate:"))
 		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("  Filesystem (%s): ~%.1f GB free / %.1f GB total", e.FSPath, e.FreeGB, e.TotalGB)))
-		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("  Existing CS2 footprint: master ~%.1f GB, servers (%d) ~%.1f GB, cs2-config ~%.1f GB", e.ExistingMasterGB, e.ExistingServersN, e.ExistingServersGB, e.ExistingConfigGB)))
+		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("  Existing CS2 footprint: master ~%.1f GB, servers (%d) ~%.1f GB on top of master, cs2-config ~%.1f GB", e.ExistingMasterGB, e.ExistingServersN, e.ExistingServersGB, e.ExistingConfigGB)))
 		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("  Estimate: master ~%.1f GB + per-server ~%.1f GB × %d servers = ~%.1f GB total", e.MasterGB, e.PerServerGB, e.RequestedServersN, e.RequiredTotalGB)))
 		if e.ShortByGB > 0 {
 			fmt.Fprintln(&b, warningStyle.Render(fmt.Sprintf("  Warning: short by ~%.1f GB (projected free after: ~%.1f GB).", e.ShortByGB, e.AfterGB)))
