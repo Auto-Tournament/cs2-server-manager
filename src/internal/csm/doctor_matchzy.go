@@ -38,6 +38,9 @@ type matchzyServerFacts struct {
 	MySQLTarget string
 
 	Scoping scopingSupport
+	// PluginVersion is the MatchZy version Scoping was decided from, when one
+	// could be read ("" when the DLL string check was used instead).
+	PluginVersion string
 
 	// ServerID is the last matchzy_server_id the server logged, or "".
 	ServerID string
@@ -77,12 +80,20 @@ func collectMatchzyServerFacts(meta DoctorMeta) []matchzyServerFacts {
 			f.DBEngine, f.MySQLTarget = parseMatchzyDBEngine(data)
 		}
 
-		f.Scoping = dllScopingSupport(matchzyServerDLLPath(meta.CS2User, n))
-
+		dllPath := matchzyServerDLLPath(meta.CS2User, n)
+		logVersion := ""
 		logPath := filepath.Join("/home", meta.CS2User, "logs", fmt.Sprintf("server-%d.log", n))
 		if tail, err := readFileTail(logPath, 8<<20); err == nil {
 			f.ServerID = lastMatchzyServerID(tail)
+			logVersion = lastMatchzyPluginVersion(tail)
 		}
+		deployedVersion := ""
+		if data, err := os.ReadFile(filepath.Join(filepath.Dir(dllPath), MatchzyReleaseMarkerFile)); err == nil {
+			deployedVersion = strings.TrimSpace(string(data))
+		}
+		f.Scoping, f.PluginVersion = resolveScopingSupport(logVersion, deployedVersion, func() scopingSupport {
+			return dllScopingSupport(dllPath)
+		})
 
 		gamePort, _ := detectServerPorts(meta.CS2User, n)
 		f.Running, f.HasScopeArg = scopeArgOnRunningServer(psOut, gamePort)
@@ -113,6 +124,99 @@ func parseMatchzyDBEngine(data []byte) (engine, mysqlTarget string) {
 		port = 3306
 	}
 	return engine, fmt.Sprintf("%s:%d/%s", host, port, strings.TrimSpace(c.MySQLDatabase))
+}
+
+// resolveScopingSupport decides whether a server's MatchZy scopes persistent
+// config per server. A version is preferred when one can be read: first the
+// version the running plugin logged (what is actually loaded), then the
+// release csm last deployed. Only when neither parses does it fall back to
+// probing MatchZy.dll for the convar name. It returns the version used, or ""
+// for the DLL fallback.
+func resolveScopingSupport(logVersion, deployedVersion string, dllProbe func() scopingSupport) (scopingSupport, string) {
+	for _, v := range []string{logVersion, deployedVersion} {
+		if cmp, ok := compareVersions(v, MatchzyScopingMinVersion); ok {
+			if cmp >= 0 {
+				return scopingYes, normalizeVersion(v)
+			}
+			return scopingNo, normalizeVersion(v)
+		}
+	}
+	return dllProbe(), ""
+}
+
+// matchzyPluginVersionPattern matches the ways MatchZy logs its version:
+//
+//	[MatchZy v1.4.26 LOADED] MatchZy Enhanced by ...
+//	{"server_id":"s_1","plugin_version":"1.4.25",...}
+var matchzyPluginVersionPattern = regexp.MustCompile(`(?:\[MatchZy v|"plugin_version"\s*:\s*"v?)([0-9]+(?:\.[0-9]+)+)`)
+
+// lastMatchzyPluginVersion returns the most recent MatchZy version in a server
+// log, or "" when there is none.
+func lastMatchzyPluginVersion(log string) string {
+	m := matchzyPluginVersionPattern.FindAllStringSubmatch(log, -1)
+	if len(m) == 0 {
+		return ""
+	}
+	return m[len(m)-1][1]
+}
+
+func normalizeVersion(v string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(v), "v"), "V")
+}
+
+// compareVersions compares dotted numeric versions ("1.4.26", "v1.4.26").
+// Missing components count as 0, and a pre-release/build suffix on a
+// component ("26-rc1") is ignored. ok is false when either side has no
+// numeric components.
+func compareVersions(a, b string) (cmp int, ok bool) {
+	pa, oka := parseVersion(a)
+	pb, okb := parseVersion(b)
+	if !oka || !okb {
+		return 0, false
+	}
+	for i := 0; i < len(pa) || i < len(pb); i++ {
+		var x, y int
+		if i < len(pa) {
+			x = pa[i]
+		}
+		if i < len(pb) {
+			y = pb[i]
+		}
+		if x != y {
+			if x < y {
+				return -1, true
+			}
+			return 1, true
+		}
+	}
+	return 0, true
+}
+
+func parseVersion(v string) ([]int, bool) {
+	v = normalizeVersion(v)
+	if v == "" {
+		return nil, false
+	}
+	parts := strings.Split(v, ".")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		end := 0
+		for end < len(p) && p[end] >= '0' && p[end] <= '9' {
+			end++
+		}
+		if end == 0 {
+			return nil, false
+		}
+		n, err := strconv.Atoi(p[:end])
+		if err != nil {
+			return nil, false
+		}
+		out = append(out, n)
+		if end < len(p) {
+			break // suffix such as "-rc1": stop comparing here
+		}
+	}
+	return out, true
 }
 
 // dllScopingSupport looks for the matchzy_config_scope convar name in
@@ -290,7 +394,15 @@ func evaluateMatchzyScope(user string, facts []matchzyServerFacts) DoctorCheck {
 			}
 		}
 		if len(groupNoScoping) > 0 {
-			failures = append(failures, fmt.Sprintf("%s share MySQL %s, and %s run a MatchZy build without per-server config scoping, so they overwrite each other's matchzy_server_id and bootstrap URL.", serverList(servers), t, serverList(groupNoScoping)))
+			var named []string
+			for _, n := range groupNoScoping {
+				if v := factsByServer[n].PluginVersion; v != "" {
+					named = append(named, fmt.Sprintf("server-%d (MatchZy %s)", n, v))
+				} else {
+					named = append(named, fmt.Sprintf("server-%d", n))
+				}
+			}
+			failures = append(failures, fmt.Sprintf("%s share MySQL %s, and %s run a MatchZy build older than %s (no per-server config scoping), so they overwrite each other's matchzy_server_id and bootstrap URL.", serverList(servers), t, strings.Join(named, ", "), MatchzyScopingMinVersion))
 		}
 		if len(groupNoScopeArg) > 0 {
 			failures = append(failures, fmt.Sprintf("%s share MySQL %s, and %s are running without %s (started by an older CSM), so they all fall back to the same machine-name scope.", serverList(servers), t, serverList(groupNoScopeArg), MatchzyConfigScopeArg))
@@ -307,7 +419,7 @@ func evaluateMatchzyScope(user string, facts []matchzyServerFacts) DoctorCheck {
 	if len(noScoping) > 0 || len(unknownScoping) > 0 {
 		steps = append(steps,
 			fmt.Sprintf("Shared MySQL needs %s. Update MatchZy and restart every server: sudo csm update-plugins", MatchzyScopingRequirement()),
-			fmt.Sprintf("If that build isn't available yet, switch to SQLite per server instead: set \"DatabaseType\": \"SQLite\" in /home/%[1]s/overrides/game/csgo/cfg/MatchZy/database.json and /home/%[1]s/cs2-config/game/csgo/cfg/MatchZy/database.json, then run: sudo csm update-plugins", user),
+			fmt.Sprintf("If you can't update MatchZy, switch to SQLite per server instead: set \"DatabaseType\": \"SQLite\" in /home/%[1]s/overrides/game/csgo/cfg/MatchZy/database.json and /home/%[1]s/cs2-config/game/csgo/cfg/MatchZy/database.json, then run: sudo csm update-plugins", user),
 		)
 	}
 	if len(noScopeArg) > 0 && len(noScoping) == 0 && len(unknownScoping) == 0 {

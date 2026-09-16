@@ -35,12 +35,12 @@ const (
 	MatchzyScopingPR = "https://github.com/sivert-io/MatchZy-Enhanced/pull/17"
 
 	// MatchzyScopingMinVersion is the first MatchZy-Enhanced release that
-	// contains MatchzyScopingPR.
-	//
-	// TODO(matchzy-scope): #17 is not released yet. Set this to the release
-	// tag (e.g. "v1.4.27") once it ships so the wizard, doctor and README
-	// name a concrete version instead of the PR.
-	MatchzyScopingMinVersion = ""
+	// contains MatchzyScopingPR (released as v1.4.26).
+	MatchzyScopingMinVersion = "1.4.26"
+
+	// MatchzyReleaseMarkerFile is written next to MatchZy.dll by
+	// `csm update-plugins` and holds the deployed release tag.
+	MatchzyReleaseMarkerFile = ".csm-release"
 
 	// matchzyScopeMaxLen keeps scopes well under the plugin's own 180-char cap
 	// so the plugin never truncates (and so never changes) what CSM passes.
@@ -50,10 +50,7 @@ const (
 // MatchzyScopingRequirement describes the plugin build shared MySQL needs, for
 // use in wizard text, doctor output and logs.
 func MatchzyScopingRequirement() string {
-	if v := strings.TrimSpace(MatchzyScopingMinVersion); v != "" {
-		return fmt.Sprintf("MatchZy-Enhanced %s or newer", v)
-	}
-	return fmt.Sprintf("a MatchZy-Enhanced build with per-server config scoping (%s)", MatchzyScopingPR)
+	return fmt.Sprintf("MatchZy-Enhanced %s or newer", MatchzyScopingMinVersion)
 }
 
 // MatchzyConfigScope returns the persistent config scope for server-N on this
