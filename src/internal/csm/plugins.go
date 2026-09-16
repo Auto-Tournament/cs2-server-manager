@@ -611,6 +611,13 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	if err := runCmdLogged(w, "rsync", "-a", matchzyRootAbs+string(os.PathSeparator), dstDirAbs+string(os.PathSeparator)); err != nil {
 		return fmt.Errorf("rsync failed: %w (source: %s, dest: %s, root: %s)", err, matchzyRootAbs, dstDirAbs, up.RootDir)
 	}
+
+	// Record the release next to MatchZy.dll. It travels with the addons to
+	// every server, so `csm doctor` can tell which build is deployed.
+	marker := filepath.Join(dstDirAbs, "addons", "counterstrikesharp", "plugins", "MatchZy", MatchzyReleaseMarkerFile)
+	if err := os.WriteFile(marker, []byte(strings.TrimSpace(rel.TagName)+"\n"), 0o644); err != nil {
+		fmt.Fprintf(w, "[MatchZy] [WARN] Could not record release version in %s: %v\n", marker, err)
+	}
 	return nil
 }
 
