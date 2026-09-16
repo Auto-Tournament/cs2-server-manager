@@ -42,8 +42,14 @@ type matchzyServerFacts struct {
 	// could be read ("" when the DLL string check was used instead).
 	PluginVersion string
 
-	// ServerID is the last matchzy_server_id the server logged, or "".
+	// ServerID is the last matchzy_server_id the server logged in its
+	// current run (since the last startup in its log), or "".
 	ServerID string
+
+	// Starting is true when the server is running and its log shows the
+	// current run's startup, but MatchZy has not logged its version yet.
+	// Scoping then comes from the deployed release, not the log.
+	Starting bool
 
 	// Running is true when a cs2 process for this server's game port was
 	// found; HasScopeArg is whether its command line has
@@ -80,28 +86,88 @@ func collectMatchzyServerFacts(meta DoctorMeta) []matchzyServerFacts {
 			f.DBEngine, f.MySQLTarget = parseMatchzyDBEngine(data)
 		}
 
+		gamePort, _ := detectServerPorts(meta.CS2User, n)
+		f.Running, f.HasScopeArg = scopeArgOnRunningServer(psOut, gamePort)
+
 		dllPath := matchzyServerDLLPath(meta.CS2User, n)
-		logVersion := ""
+		logTail := ""
 		logPath := filepath.Join("/home", meta.CS2User, "logs", fmt.Sprintf("server-%d.log", n))
 		if tail, err := readFileTail(logPath, 8<<20); err == nil {
-			f.ServerID = lastMatchzyServerID(tail)
-			logVersion = lastMatchzyPluginVersion(tail)
+			logTail = tail
 		}
 		deployedVersion := ""
 		if data, err := os.ReadFile(filepath.Join(filepath.Dir(dllPath), MatchzyReleaseMarkerFile)); err == nil {
 			deployedVersion = strings.TrimSpace(string(data))
 		}
-		f.Scoping, f.PluginVersion = resolveScopingSupport(logVersion, deployedVersion, func() scopingSupport {
+		applyMatchzyLogFacts(&f, logTail, deployedVersion, func() scopingSupport {
 			return dllScopingSupport(dllPath)
 		})
-
-		gamePort, _ := detectServerPorts(meta.CS2User, n)
-		f.Running, f.HasScopeArg = scopeArgOnRunningServer(psOut, gamePort)
 
 		facts = append(facts, f)
 	}
 	return facts
 }
+
+// applyMatchzyLogFacts fills ServerID, Starting, Scoping and PluginVersion
+// from a server's log tail and the release csm last deployed. f.Running must
+// already be set. Only the current run of the server is read: server logs are
+// appended across restarts, so older runs would report a plugin version or
+// server id the running process no longer has.
+func applyMatchzyLogFacts(f *matchzyServerFacts, logTail, deployedVersion string, dllProbe func() scopingSupport) {
+	run, sawStartup := currentServerRun(logTail)
+	f.ServerID = lastMatchzyServerID(run)
+	logVersion := lastMatchzyPluginVersion(run)
+	f.Starting = f.Running && sawStartup && logVersion == ""
+	f.Scoping, f.PluginVersion = resolveScopingSupport(logVersion, deployedVersion, dllProbe)
+}
+
+// serverStartupMarkers are lines printed exactly once per cs2 process start,
+// before any plugin loads:
+//
+//	command line arguments:
+//	[03:25:53.870] CSSharp: Initializing with command line: "/home/.../cs2" ...
+//
+// The first is the engine's own startup dump and appears even when
+// CounterStrikeSharp fails to load; the second follows it about 25 lines
+// later. Either one marks the start of a run.
+var serverStartupMarkers = []string{
+	"command line arguments:",
+	"CSSharp: Initializing with command line:",
+}
+
+// currentServerRun returns the part of a server log written by the most
+// recent server start: everything after the last startup marker. When no
+// marker is found (the run started before the tail being read), the whole
+// log is the current run and sawStartup is false.
+func currentServerRun(log string) (run string, sawStartup bool) {
+	cut := -1
+	for _, m := range serverStartupMarkers {
+		for from := len(log); from > 0; {
+			i := strings.LastIndex(log[:from], m)
+			if i < 0 {
+				break
+			}
+			// Only count the marker at the start of a line, allowing for the
+			// colour code and timestamp in front of the CSSharp line.
+			lineStart := strings.LastIndexByte(log[:i], '\n') + 1
+			if startupLinePrefixPattern.MatchString(log[lineStart:i]) {
+				if end := i + len(m); end > cut {
+					cut = end
+				}
+				break
+			}
+			from = i
+		}
+	}
+	if cut < 0 {
+		return log, false
+	}
+	return log[cut:], true
+}
+
+// startupLinePrefixPattern is what may precede a startup marker on its line:
+// nothing, or ANSI colour codes and a "[hh:mm:ss.mmm] " timestamp.
+var startupLinePrefixPattern = regexp.MustCompile(`^(?:\x1b\[[0-9;]*m)*(?:\[[0-9:.]+\] )?$`)
 
 // parseMatchzyDBEngine returns the lower-cased DatabaseType and, for MySQL, a
 // "host:port/db" target. Hosts that all mean "this machine" compare equal.
@@ -366,6 +432,16 @@ func evaluateMatchzyScope(user string, facts []matchzyServerFacts) DoctorCheck {
 			dupIDs = true
 			failures = append(failures, fmt.Sprintf("%s all report matchzy_server_id %q; a tournament manager sees them as one server.", serverList(servers), sid))
 		}
+	}
+
+	var starting []int
+	for _, f := range facts {
+		if f.Starting {
+			starting = append(starting, f.Server)
+		}
+	}
+	if len(starting) > 0 {
+		warnings = append(warnings, fmt.Sprintf("%s: server is still starting (MatchZy has not logged its version since the last start, so the deployed release was checked instead). Run sudo csm doctor again in a minute.", serverList(starting)))
 	}
 
 	targets := make([]string, 0, len(byTarget))
