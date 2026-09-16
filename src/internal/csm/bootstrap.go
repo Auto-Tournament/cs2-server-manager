@@ -60,7 +60,12 @@ type BootstrapConfig struct {
 	// database.json as wizard-managed and overwrite it using these values
 	// before proceeding. When DBMode is empty, the legacy behaviour of reading
 	// overrides/database.json as-is is preserved for CLI and VerifyMatchzyDB.
-	DBMode             string
+	DBMode string
+	// DBEngine selects what the wizard writes into database.json:
+	// MatchzyDBEngineMySQL (one shared database, the default) or
+	// MatchzyDBEngineSQLite (one SQLite file per server). Empty keeps the
+	// legacy behaviour unless DBMode is set, in which case MySQL is used.
+	DBEngine           string
 	ExternalDBHost     string
 	ExternalDBPort     int
 	ExternalDBName     string
@@ -1345,13 +1350,16 @@ type matchzyDBConfig struct {
 func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	matchzyCfgPath := filepath.Join(cfg.OverridesDir, "game", "csgo", "cfg", "MatchZy", "database.json")
 
-	// When the install wizard provides an explicit DB mode, treat
-	// database.json as wizard-managed and overwrite it from the wizard
-	// settings on every run. This keeps the config in sync even if the source
-	// defaults or old overrides drift over time.
-	if strings.TrimSpace(cfg.DBMode) != "" {
-		mode := strings.ToLower(strings.TrimSpace(cfg.DBMode))
-
+	// When the install wizard (or MATCHZY_DB_ENGINE) provides an explicit DB
+	// choice, write database.json from those settings on every run so the
+	// config stays in sync even if the source defaults or old overrides drift.
+	// A database.json without CSM's managed note belongs to the operator and
+	// is left exactly as it is.
+	engine, engineErr := NormalizeMatchzyDBEngine(cfg.DBEngine)
+	if engineErr != nil {
+		return engineErr
+	}
+	if strings.TrimSpace(cfg.DBMode) != "" || engine != "" {
 		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
 			return err
 		}
@@ -1359,101 +1367,40 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(matchzyCfgPath))
 		}
 
-		dbCfg := matchzyDBConfig{
-			DatabaseType: "MySQL",
+		desired, dbMode := wizardMatchzyDBConfig(cfg)
+		wrote, err := writeManagedMatchzyDBConfig(matchzyCfgPath, desired, dbMode)
+		if err != nil {
+			return err
 		}
-
-		if mode == "external" || cfg.MatchzySkipDocker {
-			host := strings.TrimSpace(cfg.ExternalDBHost)
-			if host == "" {
-				host = "127.0.0.1"
-			}
-			port := cfg.ExternalDBPort
-			if port <= 0 {
-				port = 3306
-			}
-			name := strings.TrimSpace(cfg.ExternalDBName)
-			if name == "" {
-				name = DefaultMatchzyDBName
-			}
-			user := strings.TrimSpace(cfg.ExternalDBUser)
-			if user == "" {
-				user = DefaultMatchzyDBUser
-			}
-			pass := cfg.ExternalDBPassword
-			if strings.TrimSpace(pass) == "" {
-				pass = DefaultMatchzyDBPassword
-			}
-
-			dbCfg.MySQLHost = host
-			dbCfg.MySQLPort = port
-			dbCfg.MySQLDatabase = name
-			dbCfg.MySQLUsername = user
-			dbCfg.MySQLPassword = pass
-
-			// Persist wizard-managed external DB config with an explicit mode
-			// marker so tools like VerifyMatchzyDB can detect that Docker
-			// provisioning should be skipped even outside the install wizard.
-			onDisk := struct {
-				matchzyDBConfig
-				CSMNote string `json:"__CSM_NOTE,omitempty"`
-				DBMode  string `json:"__CSM_DB_MODE,omitempty"`
-			}{
-				matchzyDBConfig: dbCfg,
-				CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
-				DBMode:          "external",
-			}
-
-			data, err := json.MarshalIndent(onDisk, "", "  ")
-			if err != nil {
-				return fmt.Errorf("failed to marshal database config: %w", err)
-			}
-			if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
-				return err
-			}
+		if !wrote {
+			fmt.Fprintf(w, "  [i] %s exists and is not managed by CSM (no CSM __CSM_NOTE); leaving it unchanged\n", matchzyCfgPath)
+		} else {
 			if os.Geteuid() == 0 {
 				_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
 			}
-
-			fmt.Fprintf(w, "  [i] Using external MatchZy database at %s:%d (db=%s, user=%s)\n", host, port, name, user)
-			// External DB mode: skip Docker provisioning entirely.
-			return nil
-		}
-
-		// Docker-managed DB: start from sensible defaults; we'll still detect
-		// the primary host IP below and rewrite database.json with that IP as
-		// part of the legacy provisioning flow.
-		dbCfg.MySQLHost = "127.0.0.1"
-		dbCfg.MySQLPort = 3306
-		dbCfg.MySQLDatabase = DefaultMatchzyDBName
-		dbCfg.MySQLUsername = DefaultMatchzyDBUser
-		dbCfg.MySQLPassword = DefaultMatchzyDBPassword
-
-		// Warn about default database passwords
-		if cfg.ExternalDBPassword == "" || cfg.ExternalDBPassword == DefaultMatchzyDBPassword {
-			fmt.Fprintf(w, "  [!] WARNING: Using default MatchZy database password!\n")
-			fmt.Fprintf(w, "  [!] SECURITY: Change the database password in production!\n")
-		}
-
-		onDisk := struct {
-			matchzyDBConfig
-			CSMNote string `json:"__CSM_NOTE,omitempty"`
-			DBMode  string `json:"__CSM_DB_MODE,omitempty"`
-		}{
-			matchzyDBConfig: dbCfg,
-			CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
-			DBMode:          "docker",
-		}
-
-		data, err := json.MarshalIndent(onDisk, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal database config: %w", err)
-		}
-		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
-			return err
-		}
-		if os.Geteuid() == 0 {
-			_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
+			switch dbMode {
+			case MatchzyDBEngineSQLite:
+				fmt.Fprintln(w, "  [i] MatchZy database: SQLite per server (each server keeps its own matchzy.db; stats are not shared)")
+				// No MySQL to provision.
+				return nil
+			case "external":
+				fmt.Fprintf(w, "  [i] Using external MatchZy database at %s:%d (db=%s, user=%s)\n",
+					desired.MySQLHost, desired.MySQLPort, desired.MySQLDatabase, desired.MySQLUsername)
+				if cfg.NumServers > 1 {
+					fmt.Fprintf(w, "  [!] %s\n", sharedMySQLScopingNotice(cfg.NumServers))
+				}
+				// External DB mode: skip Docker provisioning entirely.
+				return nil
+			default:
+				// Warn about default database passwords
+				if cfg.ExternalDBPassword == "" || cfg.ExternalDBPassword == DefaultMatchzyDBPassword {
+					fmt.Fprintf(w, "  [!] WARNING: Using default MatchZy database password!\n")
+					fmt.Fprintf(w, "  [!] SECURITY: Change the database password in production!\n")
+				}
+				if cfg.NumServers > 1 {
+					fmt.Fprintf(w, "  [!] %s\n", sharedMySQLScopingNotice(cfg.NumServers))
+				}
+			}
 		}
 	}
 
@@ -1580,24 +1527,10 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 
 	// Update database.json with host/port/db/user/pass, preserving the
 	// wizard-management note so users know manual edits may be overwritten.
-	onDisk := struct {
-		matchzyDBConfig
-		CSMNote string `json:"__CSM_NOTE,omitempty"`
-		DBMode  string `json:"__CSM_DB_MODE,omitempty"`
-	}{
-		matchzyDBConfig: dbCfg,
-		CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
-		DBMode:          "docker",
-	}
-
-	data, err = json.MarshalIndent(onDisk, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal database config: %w", err)
-	}
-	if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
+	// An operator-owned file (no CSM note) is not rewritten.
+	if wrote, err := writeManagedMatchzyDBConfig(matchzyCfgPath, dbCfg, "docker"); err != nil {
 		return err
-	}
-	if os.Geteuid() == 0 {
+	} else if wrote && os.Geteuid() == 0 {
 		_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
 	}
 

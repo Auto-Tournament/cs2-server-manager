@@ -75,8 +75,11 @@ func main() {
 				RCONPassword:   getenvDefault("RCON_PASSWORD", csm.DefaultRCONPassword),
 
 				MatchzySkipDocker: intFromEnv("MATCHZY_SKIP_DOCKER", 0) != 0,
-				GameFilesDir:      getenvDefault("GAME_FILES_DIR", ""),
-				OverridesDir:      getenvDefault("OVERRIDES_DIR", ""),
+				// MATCHZY_DB_ENGINE=sqlite gives each server its own SQLite
+				// database; mysql (or unset) keeps the shared MySQL database.
+				DBEngine:     getenvDefault("MATCHZY_DB_ENGINE", ""),
+				GameFilesDir: getenvDefault("GAME_FILES_DIR", ""),
+				OverridesDir: getenvDefault("OVERRIDES_DIR", ""),
 			}
 			out, err := csm.Bootstrap(cfg)
 			csm.LogAction("cli", "bootstrap", out, err)
