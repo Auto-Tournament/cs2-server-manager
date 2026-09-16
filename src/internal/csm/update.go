@@ -29,7 +29,7 @@ func CheckDiskSpaceForGameUpdate(cs2User string, numServers int) error {
 	freeGB := (float64(stat.Bavail) * blockSize) / (1024 * 1024 * 1024)
 
 	// Estimate space needed: master + per-server overhead
-	estimatedGB := DefaultMasterDiskGB + (DefaultPerServerDiskGB * float64(numServers))
+	estimatedGB := EstimateInstallDisk(0, numServers, VPKHardlinksEnabled()).TotalGB
 
 	// Require at least the estimated space + 10% buffer
 	requiredGB := estimatedGB * 1.1

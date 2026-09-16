@@ -154,20 +154,9 @@ func main() {
 			_ = startFS.Parse(args[1:])
 			startArgs := startFS.Args()
 
-			if startAlternate && startBinary {
-				fmt.Fprintln(os.Stderr, "start: --alternate and --binary are mutually exclusive")
+			if err := csm.ApplyLaunchModeFlags(startAlternate, startBinary); err != nil {
+				fmt.Fprintf(os.Stderr, "start: %v\n", err)
 				os.Exit(1)
-			}
-			if startAlternate {
-				_ = os.Setenv("CSM_LAUNCH_MODE", "alternate")
-				defer os.Unsetenv("CSM_LAUNCH_MODE")
-				// Backward compat for any older code paths.
-				_ = os.Setenv("CSM_ALTERNATE_LAUNCHER", "1")
-				defer os.Unsetenv("CSM_ALTERNATE_LAUNCHER")
-			}
-			if startBinary {
-				_ = os.Setenv("CSM_LAUNCH_MODE", "binary")
-				defer os.Unsetenv("CSM_LAUNCH_MODE")
 			}
 
 			mgr, err := csm.NewTmuxManager()
@@ -242,19 +231,9 @@ func main() {
 			_ = restartFS.Parse(args[1:])
 			restartArgs := restartFS.Args()
 
-			if restartAlternate && restartBinary {
-				fmt.Fprintln(os.Stderr, "restart: --alternate and --binary are mutually exclusive")
+			if err := csm.ApplyLaunchModeFlags(restartAlternate, restartBinary); err != nil {
+				fmt.Fprintf(os.Stderr, "restart: %v\n", err)
 				os.Exit(1)
-			}
-			if restartAlternate {
-				_ = os.Setenv("CSM_LAUNCH_MODE", "alternate")
-				defer os.Unsetenv("CSM_LAUNCH_MODE")
-				_ = os.Setenv("CSM_ALTERNATE_LAUNCHER", "1")
-				defer os.Unsetenv("CSM_ALTERNATE_LAUNCHER")
-			}
-			if restartBinary {
-				_ = os.Setenv("CSM_LAUNCH_MODE", "binary")
-				defer os.Unsetenv("CSM_LAUNCH_MODE")
 			}
 
 			mgr, err := csm.NewTmuxManager()
@@ -734,19 +713,9 @@ func main() {
 				fmt.Fprintln(os.Stderr, "usage: csm debug [--alternate|--binary] <server>")
 				os.Exit(1)
 			}
-			if debugAlternate && debugBinary {
-				fmt.Fprintln(os.Stderr, "debug: --alternate and --binary are mutually exclusive")
+			if err := csm.ApplyLaunchModeFlags(debugAlternate, debugBinary); err != nil {
+				fmt.Fprintf(os.Stderr, "debug: %v\n", err)
 				os.Exit(1)
-			}
-			if debugAlternate {
-				_ = os.Setenv("CSM_LAUNCH_MODE", "alternate")
-				defer os.Unsetenv("CSM_LAUNCH_MODE")
-				_ = os.Setenv("CSM_ALTERNATE_LAUNCHER", "1")
-				defer os.Unsetenv("CSM_ALTERNATE_LAUNCHER")
-			}
-			if debugBinary {
-				_ = os.Setenv("CSM_LAUNCH_MODE", "binary")
-				defer os.Unsetenv("CSM_LAUNCH_MODE")
 			}
 
 			server, serr := strconv.Atoi(debugArgs[0])

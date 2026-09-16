@@ -1,6 +1,11 @@
 package csm
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+)
 
 // launchSpec holds everything needed to build a server's launch command. It
 // has no filesystem or environment lookups of its own so the command
@@ -21,6 +26,48 @@ type launchSpec struct {
 	// ConfigScope is the MatchZy persistent config scope for this server (see
 	// MatchzyConfigScope). Empty omits the argument.
 	ConfigScope string
+}
+
+// ApplyLaunchModeFlags turns the --alternate/--binary flags of `csm start`,
+// `csm restart` and `csm debug` into CSM_LAUNCH_MODE for this process, which
+// every server launch reads (see launchModeFromEnv). With neither flag the
+// environment is left alone, so an exported CSM_LAUNCH_MODE still applies.
+func ApplyLaunchModeFlags(alternate, binary bool) error {
+	switch {
+	case alternate && binary:
+		return errors.New("--alternate and --binary are mutually exclusive")
+	case alternate:
+		return os.Setenv("CSM_LAUNCH_MODE", "alternate")
+	case binary:
+		return os.Setenv("CSM_LAUNCH_MODE", "binary")
+	}
+	return nil
+}
+
+// launchModeFromEnv returns the launcher selected by CSM_LAUNCH_MODE (which
+// `csm start|restart|debug --alternate|--binary` set), or by the older
+// CSM_ALTERNATE_LAUNCHER=1. It returns "valve" (Valve's cs2.sh) when neither
+// is set.
+func launchModeFromEnv(getenv func(string) string) string {
+	if mode := strings.ToLower(strings.TrimSpace(getenv("CSM_LAUNCH_MODE"))); mode != "" {
+		return mode
+	}
+	switch strings.ToLower(strings.TrimSpace(getenv("CSM_ALTERNATE_LAUNCHER"))) {
+	case "1", "true", "on", "yes":
+		return "alternate"
+	}
+	return "valve"
+}
+
+// serverLaunchCommand returns the full launch command for a server: the
+// command from buildLaunchCommand, wrapped in Steam Runtime when steamRTRun
+// (the runtime's run script) is not empty.
+func serverLaunchCommand(s launchSpec, steamRTRun string) string {
+	launch := buildLaunchCommand(s)
+	if steamRTRun != "" {
+		launch = wrapSteamRuntimeLaunch(steamRTRun, launch)
+	}
+	return launch
 }
 
 // usesCSMLauncherSh reports whether the spec launches through csm.sh, which

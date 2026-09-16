@@ -272,60 +272,12 @@ func (m *TmuxManager) Start(server int) error {
 		maxPlayers = 10 // default from v1.4.5
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("CSM_LAUNCH_MODE")))
-	if mode == "" {
-		// Backward compat for older env naming.
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "1") ||
-			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "true") ||
-			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "on") ||
-			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "yes") {
-			mode = "alternate"
-		}
-	}
-	if mode == "" {
-		mode = "valve"
-	}
-
-	// NOTE: this `:=` reassigns mode to the Steam Runtime mode string (e.g.
-	// "auto_off"), so CSM_LAUNCH_MODE is effectively ignored by Start and the
-	// default cs2.sh launcher is used. Kept as-is here to avoid changing how
-	// existing servers launch as a side effect of the scope change.
-	useSteamRT, mode := shouldUseSteamRuntimeLauncher()
-	spec := launchSpec{
-		Mode:        mode,
-		LegacyCS2Sh: cs2ShLooksCSMManagedLegacy(gameDir),
-		GamePort:    gamePort,
-		TVPort:      tvPort,
-		MaxPlayers:  maxPlayers,
-		GSLT:        m.getGSLT(server),
-		ConfigScope: MatchzyConfigScope(server),
-	}
-	if spec.usesCSMLauncherSh() {
-		// Ensure alternate launcher exists (keep Valve's cs2.sh intact).
-		_ = ensureCSMLauncherSh(context.Background(), nil, m.CS2User, gameDir)
-	}
-	launchCmd := buildLaunchCommand(spec)
-	if useSteamRT {
-		// Ensure Steam Runtime is present before attempting to use it.
-		var buf bytes.Buffer
-		if err := ensureSteamRuntimeInstalled(context.Background(), &buf, m.CS2User); err != nil {
-			log.Printf("[tmux] Start: steam runtime install failed (falling back to default launcher): %v", err)
-			useSteamRT = false
-		} else if strings.TrimSpace(buf.String()) != "" {
-			log.Printf("[tmux] Start: steam runtime install output:\n%s", buf.String())
-		}
-
-	}
-	if useSteamRT {
-		// Launch via Steam Runtime for newer-distro CounterStrikeSharp compatibility.
-		// Run the chosen server command inside SteamRT3.
-		launchCmd = wrapSteamRuntimeLaunch(steamRuntimeRunPath(m.CS2User), launchCmd)
-	}
+	launchCmd, useSteamRT, rtMode := m.serverLaunch(server, gameDir, gamePort, tvPort, maxPlayers, "Start")
 
 	cmdline := buildTmuxStartCmdline(gameDir, session, launchCmd)
 	log.Printf("[tmux] Start: server=%d user=%q session=%q serverDir=%q gameDir=%q cmdline=%q", server, m.CS2User, session, serverDir, gameDir, cmdline)
 	if useSteamRT {
-		log.Printf("[tmux] Start: Steam Runtime launcher enabled (%s)", mode)
+		log.Printf("[tmux] Start: Steam Runtime launcher enabled (%s)", rtMode)
 	}
 	if err := m.runAsCS2User(cmdline).Run(); err != nil {
 		log.Printf("[tmux] Start: failed to start server %d: %v", server, err)
@@ -348,6 +300,48 @@ func (m *TmuxManager) Start(server int) error {
 	}
 
 	return nil
+}
+
+// serverLaunch builds the command that runs server inside gameDir. Start
+// (and so Restart) and Debug all use it, so every entry point honours the
+// launch mode (CSM_LAUNCH_MODE, set by --alternate/--binary) and passes
+// +matchzy_config_scope the same way. It makes sure csm.sh exists when that
+// launcher is selected and installs Steam Runtime when it is enabled, falling
+// back to the plain command if that install fails. logTag prefixes log lines.
+func (m *TmuxManager) serverLaunch(server int, gameDir string, gamePort, tvPort, maxPlayers int, logTag string) (launch string, useSteamRT bool, rtMode string) {
+	spec := launchSpec{
+		Mode:        launchModeFromEnv(os.Getenv),
+		LegacyCS2Sh: cs2ShLooksCSMManagedLegacy(gameDir),
+		GamePort:    gamePort,
+		TVPort:      tvPort,
+		MaxPlayers:  maxPlayers,
+		GSLT:        m.getGSLT(server),
+		ConfigScope: MatchzyConfigScope(server),
+	}
+	if spec.usesCSMLauncherSh() {
+		// Ensure alternate launcher exists (keep Valve's cs2.sh intact).
+		if err := ensureCSMLauncherSh(context.Background(), nil, m.CS2User, gameDir); err != nil {
+			log.Printf("[tmux] %s: installing csm.sh failed: %v", logTag, err)
+		}
+	}
+
+	useSteamRT, rtMode = shouldUseSteamRuntimeLauncher()
+	if useSteamRT {
+		// Ensure Steam Runtime is present before attempting to use it.
+		var buf bytes.Buffer
+		if err := ensureSteamRuntimeInstalled(context.Background(), &buf, m.CS2User); err != nil {
+			log.Printf("[tmux] %s: steam runtime install failed (falling back to default launcher): %v", logTag, err)
+			useSteamRT = false
+		} else if strings.TrimSpace(buf.String()) != "" {
+			log.Printf("[tmux] %s: steam runtime install output:\n%s", logTag, buf.String())
+		}
+	}
+	rtRun := ""
+	if useSteamRT {
+		rtRun = steamRuntimeRunPath(m.CS2User)
+	}
+	log.Printf("[tmux] %s: server=%d launch mode=%q", logTag, server, spec.Mode)
+	return serverLaunchCommand(spec, rtRun), useSteamRT, rtMode
 }
 
 // StopAll stops all servers by killing their tmux sessions.
@@ -550,45 +544,7 @@ func (m *TmuxManager) Debug(server int) error {
 		maxPlayers = 10
 	}
 
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("CSM_LAUNCH_MODE")))
-	if mode == "" {
-		// Backward compat for older env naming.
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "1") ||
-			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "true") ||
-			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "on") ||
-			strings.EqualFold(strings.TrimSpace(os.Getenv("CSM_ALTERNATE_LAUNCHER")), "yes") {
-			mode = "alternate"
-		}
-	}
-	if mode == "" {
-		mode = "valve"
-	}
-
-	useSteamRT, _ := shouldUseSteamRuntimeLauncher()
-	spec := launchSpec{
-		Mode:        mode,
-		LegacyCS2Sh: cs2ShLooksCSMManagedLegacy(gameDir),
-		GamePort:    gamePort,
-		TVPort:      tvPort,
-		MaxPlayers:  maxPlayers,
-		GSLT:        m.getGSLT(server),
-		ConfigScope: MatchzyConfigScope(server),
-	}
-	if spec.usesCSMLauncherSh() {
-		_ = ensureCSMLauncherSh(context.Background(), nil, m.CS2User, gameDir)
-	}
-	launch := buildLaunchCommand(spec)
-	if useSteamRT {
-		// Best-effort install runtime (non-fatal) and run cs2.sh inside it.
-		var buf bytes.Buffer
-		if err := ensureSteamRuntimeInstalled(context.Background(), &buf, m.CS2User); err != nil {
-			log.Printf("[tmux] Debug: steam runtime install failed (falling back to default launcher): %v", err)
-		} else if strings.TrimSpace(buf.String()) != "" {
-			log.Printf("[tmux] Debug: steam runtime install output:\n%s", buf.String())
-		}
-
-		launch = wrapSteamRuntimeLaunch(steamRuntimeRunPath(m.CS2User), launch)
-	}
+	launch, _, _ := m.serverLaunch(server, gameDir, gamePort, tvPort, maxPlayers, "Debug")
 
 	cmd := m.runAsCS2User(fmt.Sprintf("cd %s && %s", gameDir, launch))
 	cmd.Stdin = os.Stdin
