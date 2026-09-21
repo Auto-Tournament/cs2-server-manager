@@ -1,5 +1,9 @@
 <div align="center">
-  <img src="assets/icon.svg" alt="CS2 Server Manager" width="140" height="140">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/csm-wordmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo/csm-wordmark-light.svg">
+    <img src="assets/logo/csm-wordmark-light.svg" alt="CS2 Server Manager" height="56">
+  </picture>
 
   # CS2 Server Manager (csm)
 
