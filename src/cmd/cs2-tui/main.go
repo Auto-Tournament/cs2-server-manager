@@ -735,6 +735,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "self-update":
+			if err := tui.SelfUpdateCLI(os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "self-update failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "update-game":
 			out, err := csm.UpdateGame()
 			csm.LogAction("cli", "update-game", out, err)
@@ -952,6 +958,7 @@ func printUsage() {
 	fmt.Println("  unban-all <server>     Clear all IPs banned for RCON attempts (use 0 for all servers)")
 	fmt.Println("  update-game            Update CS2 game files after a Valve update")
 	fmt.Println("  update-plugins         Update plugins and deploy to servers")
+	fmt.Println("  self-update            Update csm itself to the latest release")
 	fmt.Println("  dedupe-vpk [server]    Hardlink server VPKs to master-install to save disk (--dry-run, --verify, --undo)")
 	fmt.Println("  monitor                Run auto-update monitor loop")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
