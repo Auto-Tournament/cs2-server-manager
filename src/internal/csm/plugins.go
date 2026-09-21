@@ -452,7 +452,7 @@ func (up *PluginUpdater) downloadCounterStrikeSharp(w io.Writer) error {
 }
 
 func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
-	fmt.Fprintln(w, "[MatchZy] Fetching latest MatchZy Enhanced release...")
+	fmt.Fprintln(w, "[MatchZy] Fetching the latest Auto Tournament CS2 plugin release...")
 
 	type release struct {
 		TagName string `json:"tag_name"`
@@ -464,8 +464,8 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	}
 
 	var rel release
-	if err := up.fetchJSON("https://api.github.com/repos/Auto-Tournament/MatchZy-Enhanced/releases/latest", &rel); err != nil {
-		return fmt.Errorf("failed to fetch MatchZy Enhanced releases from Auto-Tournament/MatchZy-Enhanced: %w", err)
+	if err := up.fetchJSON("https://api.github.com/repos/Auto-Tournament/auto-tournament-cs2/releases/latest", &rel); err != nil {
+		return fmt.Errorf("failed to fetch Auto Tournament CS2 releases from Auto-Tournament/auto-tournament-cs2: %w", err)
 	}
 
 	var downloadURL string

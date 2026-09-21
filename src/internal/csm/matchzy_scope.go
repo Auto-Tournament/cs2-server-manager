@@ -10,7 +10,7 @@ import (
 //
 // MatchZy stores per-server settings (matchzy_server_id, bootstrap URL/token,
 // remote log URL, demo upload URL, ...) in its database. Before
-// Auto-Tournament/MatchZy-Enhanced#17 those rows were keyed by setting name only, so
+// Auto-Tournament/auto-tournament-cs2#17 those rows were keyed by setting name only, so
 // several servers sharing one MySQL database overwrote each other and all
 // loaded the last writer's values on startup.
 //
@@ -32,7 +32,7 @@ const (
 
 	// MatchzyScopingPR is the MatchZy-Enhanced change that adds per-server
 	// config scoping.
-	MatchzyScopingPR = "https://github.com/Auto-Tournament/MatchZy-Enhanced/pull/17"
+	MatchzyScopingPR = "https://github.com/Auto-Tournament/auto-tournament-cs2/pull/17"
 
 	// MatchzyScopingMinVersion is the first MatchZy-Enhanced release that
 	// contains MatchzyScopingPR (released as v1.4.26).
@@ -50,7 +50,7 @@ const (
 // MatchzyScopingRequirement describes the plugin build shared MySQL needs, for
 // use in wizard text, doctor output and logs.
 func MatchzyScopingRequirement() string {
-	return fmt.Sprintf("MatchZy-Enhanced %s or newer", MatchzyScopingMinVersion)
+	return fmt.Sprintf("Auto Tournament CS2 (formerly MatchZy Enhanced) %s or newer", MatchzyScopingMinVersion)
 }
 
 // MatchzyConfigScope returns the persistent config scope for server-N on this
