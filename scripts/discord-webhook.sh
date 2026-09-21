@@ -25,7 +25,7 @@ if [ -f "${PROJECT_ROOT}/.env" ]; then
 fi
 
 # Configuration
-REPO_OWNER="${REPO_OWNER:-sivert-io}"
+REPO_OWNER="${REPO_OWNER:-Auto-Tournament}"
 REPO_NAME="${REPO_NAME:-cs2-server-manager}"
 DISCORD_WEBHOOK_URL="${DISCORD_WEBHOOK_URL:-}"
 

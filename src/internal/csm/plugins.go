@@ -464,8 +464,8 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	}
 
 	var rel release
-	if err := up.fetchJSON("https://api.github.com/repos/sivert-io/MatchZy-Enhanced/releases/latest", &rel); err != nil {
-		return fmt.Errorf("failed to fetch MatchZy Enhanced releases from sivert-io/MatchZy-Enhanced: %w", err)
+	if err := up.fetchJSON("https://api.github.com/repos/Auto-Tournament/MatchZy-Enhanced/releases/latest", &rel); err != nil {
+		return fmt.Errorf("failed to fetch MatchZy Enhanced releases from Auto-Tournament/MatchZy-Enhanced: %w", err)
 	}
 
 	var downloadURL string
