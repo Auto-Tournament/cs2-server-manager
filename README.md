@@ -183,3 +183,7 @@ Releases run from **Actions → Release → Run workflow**, with `mode` set to `
 - [MatchZy Auto Tournament](https://github.com/Auto-Tournament/matchzy-auto-tournament), a web app for running tournaments on these servers
 - [MatchZy-Enhanced](https://github.com/Auto-Tournament/MatchZy-Enhanced), the MatchZy fork csm installs
 - [Issues](https://github.com/Auto-Tournament/cs2-server-manager/issues)
+
+---
+
+The logo was generated with an AI image model (ChatGPT) and then cleaned up and recoloured by hand.
