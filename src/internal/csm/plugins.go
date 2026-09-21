@@ -46,13 +46,15 @@ func NewPluginUpdater() *PluginUpdater {
 	overridesDir := ""
 	tempDir := ""
 	if mgr, err := NewTmuxManager(); err == nil && mgr.CS2User != "" {
-		// Overrides are in the CS2 user's home directory
-		overridesDir = filepath.Join("/home", mgr.CS2User, "overrides", "game")
+		// Overrides are in the CS2 user's home directory. Copy over any files
+		// older TUI builds left in the legacy <root>/overrides folder first.
+		EnsureOverridesMigrated(mgr.CS2User)
+		overridesDir = OverridesGameDir(mgr.CS2User)
 		// Temp files go to /tmp with user-specific directory to avoid conflicts
 		tempDir = filepath.Join(os.TempDir(), fmt.Sprintf("csm-plugin-downloads-%s", mgr.CS2User))
 	} else {
-		// Fallback to old location if we can't detect the user
-		overridesDir = filepath.Join(root, "overrides", "game")
+		// Fallback to <root>/overrides if we can't detect the user
+		overridesDir = OverridesGameDir("")
 		// Use system temp directory with a generic name
 		tempDir = filepath.Join(os.TempDir(), "csm-plugin-downloads")
 	}

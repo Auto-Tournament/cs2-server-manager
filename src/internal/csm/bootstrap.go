@@ -156,7 +156,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	}
 	// Overrides are stored in the CS2 user's home directory for easier access
 	if cfg.OverridesDir == "" {
-		cfg.OverridesDir = filepath.Join("/home", cfg.CS2User, "overrides")
+		cfg.OverridesDir = OverridesDir(cfg.CS2User)
 	}
 
 	// If no overrides directory exists yet, seed it with the built-in defaults.
