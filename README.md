@@ -15,7 +15,7 @@
 
 csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, sets up Metamod:Source, CounterStrikeSharp and [MatchZy-Enhanced](https://github.com/Auto-Tournament/MatchZy-Enhanced) on every server, runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
 
-It's for people running their own match servers: LAN organisers, small leagues, and anyone using [MatchZy Auto Tournament (MAT)](https://github.com/Auto-Tournament/matchzy-auto-tournament) who needs servers for it to control. The default MatchZy database is MySQL in a Docker container, so Docker is needed for that setup.
+It's for people running their own match servers: LAN organisers, small leagues, and anyone using [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) who needs servers for it to control. The default MatchZy database is MySQL in a Docker container, so Docker is needed for that setup.
 
 Full documentation lives at [docs.sivert.io/docs/csm](https://docs.sivert.io/docs/csm).
 
@@ -180,7 +180,7 @@ Releases run from **Actions → Release → Run workflow**, with `mode` set to `
 
 - [Documentation](https://docs.sivert.io/docs/csm)
 - [Troubleshooting](https://docs.sivert.io/docs/csm/user/troubleshooting)
-- [MatchZy Auto Tournament](https://github.com/Auto-Tournament/matchzy-auto-tournament), a web app for running tournaments on these servers
+- [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), a web app for running tournaments on these servers
 - [MatchZy-Enhanced](https://github.com/Auto-Tournament/MatchZy-Enhanced), the MatchZy fork csm installs
 - [Issues](https://github.com/Auto-Tournament/cs2-server-manager/issues)
 
