@@ -93,7 +93,7 @@ func isNewerVersion(current, latest string) bool {
 
 // fetchLatestVersion calls the GitHub Releases API to discover the latest tag.
 func fetchLatestVersion() (string, error) {
-	const url = "https://api.github.com/repos/sivert-io/cs2-server-manager/releases/latest"
+	const url = "https://api.github.com/repos/Auto-Tournament/cs2-server-manager/releases/latest"
 
 	client := http.Client{Timeout: 5 * time.Second}
 	resp, err := client.Get(url)
