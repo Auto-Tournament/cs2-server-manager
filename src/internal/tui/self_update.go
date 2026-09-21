@@ -87,7 +87,7 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 			_ = os.Remove(f.Name())
 		}
 
-		url := fmt.Sprintf("https://github.com/sivert-io/cs2-server-manager/releases/download/%s/%s", targetVersion, asset)
+		url := fmt.Sprintf("https://github.com/Auto-Tournament/cs2-server-manager/releases/download/%s/%s", targetVersion, asset)
 
 		// Allow for slow connections: give the download up to 5 minutes before
 		// timing out.
