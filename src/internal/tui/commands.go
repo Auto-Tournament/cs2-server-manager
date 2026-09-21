@@ -548,11 +548,14 @@ func runEditConfigFile(title, configPath string) tea.Cmd {
 		}
 
 		// Determine the full path - check if it's in overrides or shared config
-		root := csm.ResolveRoot()
 		var fullPath string
 
+		// Use the same overrides folder update-plugins reads, after copying
+		// over anything older builds left in the legacy <root>/overrides.
+		csm.EnsureOverridesMigrated(mgr.CS2User)
+
 		// Try overrides first (user's custom configs)
-		overridePath := filepath.Join(root, "overrides", configPath)
+		overridePath := filepath.Join(csm.OverridesDir(mgr.CS2User), configPath)
 		if _, err := os.Stat(overridePath); err == nil {
 			fullPath = overridePath
 		} else {
@@ -621,12 +624,13 @@ echo ""
 sleep 1
 nano "%s"
 chown "%s:%s" "%s" 2>/dev/null
+chown -R "%s:%s" "%s" 2>/dev/null || true
 %s
 echo ""
 echo "Config file saved. Ownership fixed."
 echo "Config synced to all servers."
 echo "Run 'sudo csm' to restart the TUI."
-`, fullPath, fullPath, mgr.CS2User, mgr.CS2User, fullPath, syncCmds)
+`, fullPath, fullPath, mgr.CS2User, mgr.CS2User, fullPath, mgr.CS2User, mgr.CS2User, csm.OverridesDir(mgr.CS2User), syncCmds)
 
 		// Write temp script
 		scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("csm-edit-%d.sh", os.Getpid()))

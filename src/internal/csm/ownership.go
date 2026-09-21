@@ -94,7 +94,7 @@ func autoRepairOwnershipIfNeeded(username string, numServers int) error {
 	roots = append(roots,
 		filepath.Join("/home", username, "cs2-config", "game", "csgo", "cfg"),
 		filepath.Join("/home", username, "cs2-config", "game", "csgo", "addons"),
-		filepath.Join("/home", username, "overrides", "game", "csgo", "cfg"),
+		filepath.Join(OverridesGameDir(username), "csgo", "cfg"),
 	)
 	if numServers <= 0 {
 		numServers = 1
