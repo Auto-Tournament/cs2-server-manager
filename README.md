@@ -13,7 +13,7 @@
 > organisation, together with Auto Tournament (formerly MatchZy Auto Tournament). Old links
 > redirect, and nothing changes for existing installs.
 
-csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, sets up Metamod:Source, CounterStrikeSharp and [MatchZy-Enhanced](https://github.com/Auto-Tournament/MatchZy-Enhanced) on every server, runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
+csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, sets up Metamod:Source, CounterStrikeSharp and [Auto Tournament CS2](https://github.com/Auto-Tournament/auto-tournament-cs2) (formerly MatchZy Enhanced) on every server, runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
 
 It's for people running their own match servers: LAN organisers, small leagues, and anyone using [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) who needs servers for it to control. The default MatchZy database is MySQL in a Docker container, so Docker is needed for that setup.
 
@@ -156,17 +156,17 @@ MatchZy also stores per-server settings in that database: `matchzy_server_id`, t
 
 The fix has two parts:
 
-- [MatchZy-Enhanced 1.4.26](https://github.com/Auto-Tournament/MatchZy-Enhanced/releases/tag/v1.4.26) and newer store those settings per server ([#17](https://github.com/Auto-Tournament/MatchZy-Enhanced/pull/17)). It tells servers apart by bind address and port, but csm starts servers with `-ip 0.0.0.0`, so MatchZy would fall back to the machine name, which every server on the machine shares.
+- [Auto Tournament CS2 1.4.26](https://github.com/Auto-Tournament/auto-tournament-cs2/releases/tag/v1.4.26) and newer store those settings per server ([#17](https://github.com/Auto-Tournament/auto-tournament-cs2/pull/17)). It tells servers apart by bind address and port, but csm starts servers with `-ip 0.0.0.0`, so MatchZy would fall back to the machine name, which every server on the machine shares.
 - csm therefore passes `+matchzy_config_scope <hostname>-server-<N>` (for example `cs2-server-1`) when it starts each server. The name comes from the server's directory, so it survives restarts, updates, reinstalls and port changes, and the hostname keeps two machines sharing one database apart. If you rename the machine, or several machines share a hostname, set `CSM_MATCHZY_SCOPE_PREFIX` (for example `eu-1`) wherever csm starts servers.
 
-The install wizard's **MatchZy storage** option picks between shared MySQL (the default; needs MatchZy-Enhanced 1.4.26+ with 2 or more servers) and SQLite per server, where each server keeps its own `matchzy.db`. SQLite works on any MatchZy build but stats aren't shared. For a non-interactive install use `sudo MATCHZY_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
+The install wizard's **MatchZy storage** option picks between shared MySQL (the default; needs the CS2 plugin 1.4.26+ with 2 or more servers) and SQLite per server, where each server keeps its own `matchzy.db`. SQLite works on any MatchZy build but stats aren't shared. For a non-interactive install use `sudo MATCHZY_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
 
 `sudo csm doctor` checks this under "MatchZy per-server config (shared database)". It fails when 2 or more servers report the same `matchzy_server_id`, or when servers share MySQL and run MatchZy older than 1.4.26 or without `+matchzy_config_scope`, and it prints how to fix it.
 
 To migrate an existing install:
 
 1. Update csm.
-2. Run `sudo csm update-plugins`. It installs the latest MatchZy-Enhanced, redeploys and restarts every server, which also picks up the new start argument. If you're already on 1.4.26 or newer, `sudo csm restart` is enough. If you can't update MatchZy, set `"DatabaseType": "SQLite"` in `/home/<cs2user>/overrides/game/csgo/cfg/MatchZy/database.json` and `/home/<cs2user>/cs2-config/game/csgo/cfg/MatchZy/database.json`, then run `sudo csm update-plugins`.
+2. Run `sudo csm update-plugins`. It installs the latest CS2 plugin, redeploys and restarts every server, which also picks up the new start argument. If you're already on 1.4.26 or newer, `sudo csm restart` is enough. If you can't update MatchZy, set `"DatabaseType": "SQLite"` in `/home/<cs2user>/overrides/game/csgo/cfg/MatchZy/database.json` and `/home/<cs2user>/cs2-config/game/csgo/cfg/MatchZy/database.json`, then run `sudo csm update-plugins`.
 3. Reconfigure each server once from your tournament manager (in MAT, re-save or re-bootstrap each server). Until a server saves its own values it still reads the old shared ones.
 4. Run `sudo csm doctor` to confirm.
 
@@ -181,5 +181,5 @@ Releases run from **Actions → Release → Run workflow**, with `mode` set to `
 - [Documentation](https://docs.sivert.io/docs/csm)
 - [Troubleshooting](https://docs.sivert.io/docs/csm/user/troubleshooting)
 - [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), a web app for running tournaments on these servers
-- [MatchZy-Enhanced](https://github.com/Auto-Tournament/MatchZy-Enhanced), the MatchZy fork csm installs
+- [Auto Tournament CS2](https://github.com/Auto-Tournament/auto-tournament-cs2), the CS2 plugin csm installs (formerly MatchZy Enhanced)
 - [Issues](https://github.com/Auto-Tournament/cs2-server-manager/issues)

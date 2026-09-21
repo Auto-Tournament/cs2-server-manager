@@ -39,7 +39,7 @@ func TestEvaluateMatchzyScope(t *testing.T) {
 			},
 			want:      DoctorFail,
 			detailHas: []string{`server-1, server-2, server-3 all report matchzy_server_id "s_3"`, "older than 1.4.26 (no per-server config scoping)"},
-			fixHas:    []string{"MatchZy-Enhanced 1.4.26 or newer", "sudo csm update-plugins", `"DatabaseType": "SQLite"`, "reconfigure every server", "sudo csm doctor"},
+			fixHas:    []string{"Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.26 or newer", "sudo csm update-plugins", `"DatabaseType": "SQLite"`, "reconfigure every server", "sudo csm doctor"},
 		},
 		{
 			name: "fixed: shared MySQL, scoping plugin, scope args, distinct ids",
@@ -176,7 +176,7 @@ func TestEvaluateMatchzyScopeNamesPluginVersion(t *testing.T) {
 func TestMatchzyScopingRequirement(t *testing.T) {
 	t.Parallel()
 
-	if got, want := MatchzyScopingRequirement(), "MatchZy-Enhanced 1.4.26 or newer"; got != want {
+	if got, want := MatchzyScopingRequirement(), "Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.26 or newer"; got != want {
 		t.Fatalf("MatchzyScopingRequirement() = %q, want %q", got, want)
 	}
 }
