@@ -487,7 +487,7 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 		return fmt.Errorf("no suitable MatchZy asset found")
 	}
 
-	fmt.Fprintf(w, "[MatchZy] Target: MatchZy %s (Enhanced Fork)\n", rel.TagName)
+	fmt.Fprintf(w, "[MatchZy] Target: Auto Tournament CS2 %s\n", rel.TagName)
 	fmt.Fprintln(w, "[MatchZy] Downloading...")
 
 	resp, err := RetryHTTPGet(up.httpClient(), downloadURL, DefaultRetryConfig())
