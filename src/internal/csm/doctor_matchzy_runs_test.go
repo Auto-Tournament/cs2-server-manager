@@ -140,8 +140,8 @@ func TestMatchzyScopeUsesCurrentRunOnly(t *testing.T) {
 		var facts []matchzyServerFacts
 		for _, n := range servers {
 			log := oldRun(n) + logStartup(n, true)
-			f := factsFromLog(n, true, log, "v1.4.26")
-			if !f.Starting || f.PluginVersion != "1.4.26" || f.ServerID != "" {
+			f := factsFromLog(n, true, log, "v1.4.28")
+			if !f.Starting || f.PluginVersion != "1.4.28" || f.ServerID != "" {
 				t.Fatalf("server-%d: starting %v version %q id %q", n, f.Starting, f.PluginVersion, f.ServerID)
 			}
 			facts = append(facts, f)
