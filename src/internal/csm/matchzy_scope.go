@@ -34,9 +34,20 @@ const (
 	// config scoping.
 	MatchzyScopingPR = "https://github.com/Auto-Tournament/cs2-plugin/pull/17"
 
-	// MatchzyScopingMinVersion is the first MatchZy-Enhanced release that
-	// contains MatchzyScopingPR (released as v1.4.26).
-	MatchzyScopingMinVersion = "1.4.26"
+	// MatchzyScopingMinVersion is the first plugin release on which several
+	// servers can share one MySQL database:
+	//
+	//   - v1.4.26 shipped MatchzyScopingPR but could not read the start
+	//     arguments inside the game process, so every server on a box resolved
+	//     the same scope and they still overwrote each other.
+	//   - v1.4.27 (cs2-plugin#18) is the first release that reads
+	//     +matchzy_config_scope, from /proc/self/cmdline.
+	//   - v1.4.28 (cs2-plugin#19) stops a controller's URL/token update from
+	//     fetching another server's bootstrap payload, which on a shared
+	//     database still overwrote matchzy_server_id with another server's id.
+	//
+	// The docs require 1.4.28 for a shared database, so the doctor does too.
+	MatchzyScopingMinVersion = "1.4.28"
 
 	// MatchzyReleaseMarkerFile is written next to MatchZy.dll by
 	// `csm update-plugins` and holds the deployed release tag.
