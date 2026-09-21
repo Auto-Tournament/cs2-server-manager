@@ -10,7 +10,7 @@ import (
 //
 // MatchZy stores per-server settings (matchzy_server_id, bootstrap URL/token,
 // remote log URL, demo upload URL, ...) in its database. Before
-// sivert-io/MatchZy-Enhanced#17 those rows were keyed by setting name only, so
+// Auto-Tournament/MatchZy-Enhanced#17 those rows were keyed by setting name only, so
 // several servers sharing one MySQL database overwrote each other and all
 // loaded the last writer's values on startup.
 //
@@ -32,7 +32,7 @@ const (
 
 	// MatchzyScopingPR is the MatchZy-Enhanced change that adds per-server
 	// config scoping.
-	MatchzyScopingPR = "https://github.com/sivert-io/MatchZy-Enhanced/pull/17"
+	MatchzyScopingPR = "https://github.com/Auto-Tournament/MatchZy-Enhanced/pull/17"
 
 	// MatchzyScopingMinVersion is the first MatchZy-Enhanced release that
 	// contains MatchzyScopingPR (released as v1.4.26).
