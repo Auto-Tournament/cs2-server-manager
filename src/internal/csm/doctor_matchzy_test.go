@@ -38,8 +38,8 @@ func TestEvaluateMatchzyScope(t *testing.T) {
 				sharedMySQL(3, scopingNo, "s_3", true, false),
 			},
 			want:      DoctorFail,
-			detailHas: []string{`server-1, server-2, server-3 all report matchzy_server_id "s_3"`, "older than 1.4.26 (no per-server config scoping)"},
-			fixHas:    []string{"Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.26 or newer", "sudo csm update-plugins", `"DatabaseType": "SQLite"`, "reconfigure every server", "sudo csm doctor"},
+			detailHas: []string{`server-1, server-2, server-3 all report matchzy_server_id "s_3"`, "older than 1.4.28 (no per-server config scoping)"},
+			fixHas:    []string{"Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.28 or newer", "sudo csm update-plugins", `"DatabaseType": "SQLite"`, "reconfigure every server", "sudo csm doctor"},
 		},
 		{
 			name: "fixed: shared MySQL, scoping plugin, scope args, distinct ids",
@@ -160,12 +160,12 @@ func TestEvaluateMatchzyScopeNamesPluginVersion(t *testing.T) {
 	a := sharedMySQL(1, scopingNo, "s_1", true, true)
 	a.PluginVersion = "1.4.25"
 	b := sharedMySQL(2, scopingYes, "s_2", true, true)
-	b.PluginVersion = "1.4.26"
+	b.PluginVersion = "1.4.28"
 	got := evaluateMatchzyScope("cs2servermanager", []matchzyServerFacts{a, b})
 	if got.Status != DoctorFail {
 		t.Fatalf("status = %s, want FAIL", got.Status)
 	}
-	if !strings.Contains(got.Detail, "server-1 (MatchZy 1.4.25) run a MatchZy build older than 1.4.26") {
+	if !strings.Contains(got.Detail, "server-1 (MatchZy 1.4.25) run a MatchZy build older than 1.4.28") {
 		t.Fatalf("detail does not name the old version:\n%s", got.Detail)
 	}
 	if strings.Contains(got.Detail, "server-2 (MatchZy") {
@@ -176,7 +176,7 @@ func TestEvaluateMatchzyScopeNamesPluginVersion(t *testing.T) {
 func TestMatchzyScopingRequirement(t *testing.T) {
 	t.Parallel()
 
-	if got, want := MatchzyScopingRequirement(), "Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.26 or newer"; got != want {
+	if got, want := MatchzyScopingRequirement(), "Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.28 or newer"; got != want {
 		t.Fatalf("MatchzyScopingRequirement() = %q, want %q", got, want)
 	}
 }
@@ -243,9 +243,9 @@ func TestResolveScopingSupportPrefersVersions(t *testing.T) {
 		wantVersion string
 		wantProbe   bool
 	}{
-		{"logged version new enough beats an old-looking dll", "1.4.26", "", scopingNo, scopingYes, "1.4.26", false},
-		{"logged old version beats a newer deployed release (not restarted yet)", "1.4.25", "v1.4.26", scopingYes, scopingNo, "1.4.25", false},
-		{"deployed release used when nothing is logged", "", "v1.4.27", scopingNo, scopingYes, "1.4.27", false},
+		{"logged version new enough beats an old-looking dll", "1.4.28", "", scopingNo, scopingYes, "1.4.28", false},
+		{"logged old version beats a newer deployed release (not restarted yet)", "1.4.25", "v1.4.28", scopingYes, scopingNo, "1.4.25", false},
+		{"deployed release used when nothing is logged", "", "v1.4.29", scopingNo, scopingYes, "1.4.29", false},
 		{"deployed old release", "", "v1.4.24", scopingYes, scopingNo, "1.4.24", false},
 		{"unparseable versions fall back to the dll", "dev", "latest", scopingYes, scopingYes, "", true},
 		{"no versions fall back to the dll", "", "", scopingUnknown, scopingUnknown, "", true},
@@ -345,5 +345,25 @@ func TestParseMatchzyDBEngine(t *testing.T) {
 	}
 	if engine, _ := parseMatchzyDBEngine([]byte("nope")); engine != "" {
 		t.Fatalf("invalid json: got %q", engine)
+	}
+}
+
+func TestMatchzyScopingMinVersion(t *testing.T) {
+	t.Parallel()
+
+	// 1.4.26 could not read +matchzy_config_scope, 1.4.27 could but still let
+	// a controller overwrite matchzy_server_id on a shared database (fixed in
+	// cs2-plugin#19, released as 1.4.28).
+	if MatchzyScopingMinVersion != "1.4.28" {
+		t.Fatalf("MatchzyScopingMinVersion = %q, want 1.4.28", MatchzyScopingMinVersion)
+	}
+	noDLL := func() scopingSupport { t.Fatal("DLL probe must not run when a version parses"); return scopingUnknown }
+	for v, want := range map[string]scopingSupport{
+		"1.4.25": scopingNo, "1.4.26": scopingNo, "1.4.27": scopingNo,
+		"1.4.28": scopingYes, "v1.4.33": scopingYes,
+	} {
+		if got, _ := resolveScopingSupport(v, "", noDLL); got != want {
+			t.Errorf("resolveScopingSupport(%q) = %v, want %v", v, got, want)
+		}
 	}
 }
