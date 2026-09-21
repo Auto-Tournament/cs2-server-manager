@@ -1,85 +1,29 @@
-# Contributing to MatchZy Auto Tournament
+# Contributing to CS2 Server Manager
 
-Thank you for your interest in contributing! 🎉
+csm is written in Go (`go.mod` says 1.21). The CLI entry point is `src/cmd/cs2-tui`, the server logic is in `src/internal/csm` and the terminal UI is in `src/internal/tui`.
 
-## 📚 Full Documentation
+## Building and testing
 
-For detailed contribution guidelines, please see:
+```bash
+git clone https://github.com/YOUR_USERNAME/cs2-server-manager.git
+cd cs2-server-manager
+go test ./...
+GOOS=linux GOARCH=amd64 go build -o csm ./src/cmd/cs2-tui
+```
 
-**[Documentation](https://docs.sivert.io/docs/csm)**
+csm only runs on Linux, and most commands need `sudo` and a real CS2 install. Test changes on a Linux machine or VM you don't mind breaking.
 
-## 🚀 Quick Start
+## Pull requests
 
-1. **Fork & Clone**
+- Keep each PR to one fix or feature.
+- Write commit messages that say what changed and why.
+- Add or update tests in `src/internal/csm` when you change behaviour there.
+- Update `README.md` or the [docs](https://docs.sivert.io/docs/csm) if a command, flag or environment variable changes.
 
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/matchzy-auto-tournament.git
-   cd matchzy-auto-tournament
-   ```
+## Reporting bugs
 
-2. **Install Dependencies**
+[Open an issue](https://github.com/sivert-io/cs2-server-manager/issues/new/choose) with what you did, what you expected, what happened, your distro and version, and the relevant part of `/opt/cs2-server-manager/logs/csm.log`. Output from `sudo csm doctor` helps too.
 
-   ```bash
-   yarn install
-   ```
+If you need other people to help test something (several players, different distros), use the **Community Request** issue template.
 
-3. **Setup Environment**
-
-   ```bash
-   # Start PostgreSQL
-   yarn db
-
-   # Set environment variables
-   export API_TOKEN=admin123
-   export SERVER_TOKEN=server123
-   export DB_HOST=localhost
-   export DB_PORT=5432
-   export DB_USER=postgres
-   export DB_PASSWORD=postgres
-   export DB_NAME=matchzy_tournament
-   ```
-
-4. **Start Development**
-   ```bash
-   yarn dev
-   ```
-
-## 📝 Guidelines
-
-- ✅ Write clear commit messages
-- ✅ Test your changes
-- ✅ Update documentation if needed
-- ✅ Follow existing code style
-- ✅ Keep PRs focused on one feature/fix
-
-## 🐛 Reporting Issues
-
-Found a bug? Please [open an issue](https://github.com/sivert-io/cs2-server-manager/issues/new) with:
-
-- Clear description
-- Steps to reproduce
-- Expected vs actual behavior
-- Environment details (OS, Docker version, etc.)
-
-## 🙏 Community Requests
-
-Need help testing something or getting feedback? Use the **Community Request** issue template! This is perfect for:
-- Features that require multiple players to test
-- Cross-platform compatibility testing
-- Getting user experience feedback
-- Performance testing with real-world scenarios
-
-**Contributors who help with Community Requests will be recognized and credited!** 🏆
-
-## 💬 Questions?
-
-- [GitHub Discussions](https://github.com/sivert-io/cs2-server-manager/discussions) - Ask questions
-- [Documentation](https://docs.sivert.io/docs/csm) - Read the docs
-
-## 📖 Code of Conduct
-
-Be respectful and constructive. We're all here to build something awesome for the CS2 community! 🎮
-
----
-
-**Full Contribution Guide:** https://docs.sivert.io/docs/csm
+Be respectful and constructive.
