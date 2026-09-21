@@ -464,8 +464,8 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	}
 
 	var rel release
-	if err := up.fetchJSON("https://api.github.com/repos/Auto-Tournament/auto-tournament-cs2/releases/latest", &rel); err != nil {
-		return fmt.Errorf("failed to fetch Auto Tournament CS2 releases from Auto-Tournament/auto-tournament-cs2: %w", err)
+	if err := up.fetchJSON("https://api.github.com/repos/Auto-Tournament/cs2-plugin/releases/latest", &rel); err != nil {
+		return fmt.Errorf("failed to fetch Auto Tournament CS2 releases from Auto-Tournament/cs2-plugin: %w", err)
 	}
 
 	var downloadURL string
