@@ -83,28 +83,19 @@ func ExtractMapThumbnailsWithContext(ctx context.Context) (string, error) {
 	log("════════════════════════════════════════════════════════")
 	log("")
 
-	// Ensure Python + vpk + Pillow are available up front so users get a single
-	// actionable install command instead of one failure per missing module.
-	var missing []string
-	if err := ensurePythonModule("vpk"); err != nil {
-		log("Python vpk module check failed: %v", err)
-		missing = append(missing, "vpk")
+	// Find (or, as root, set up) a Python that has vpk + Pillow before doing
+	// any work, so a missing module is one clear error instead of one failure
+	// per step.
+	var setupOut io.Writer = &buf
+	if fileLog != nil {
+		setupOut = &teeWriter{buf: &buf, file: fileLog}
 	}
-	if err := ensurePythonModule("PIL.Image"); err != nil {
-		log("Python Pillow (PIL) check failed: %v", err)
-		missing = append(missing, "Pillow")
+	py, err := resolveThumbnailPython(ctx, setupOut, defaultPythonEnv())
+	if err != nil {
+		log("Map thumbnail extraction needs Python with the vpk and Pillow modules: %v", err)
+		return buf.String(), err
 	}
-	if len(missing) > 0 {
-		log("")
-		log("One or more required Python modules are missing for map thumbnail extraction:")
-		for _, mname := range missing {
-			log("  - %s", mname)
-		}
-		log("")
-		log("Install them with (Debian/Ubuntu with PEP 668):")
-		log("  sudo pip3 install --break-system-packages vpk Pillow")
-		return buf.String(), fmt.Errorf("missing Python modules: %s", strings.Join(missing, ", "))
-	}
+	log("Python:                  %s", py)
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return "", err
@@ -139,7 +130,7 @@ func ExtractMapThumbnailsWithContext(ctx context.Context) (string, error) {
 		if fileLog != nil {
 			w = &teeWriter{buf: &buf, file: fileLog}
 		}
-		if err := extractVPKWithPython(targetVPK, extractPath, w); err != nil {
+		if err := extractVPKWithPython(py, targetVPK, extractPath, w); err != nil {
 			log("[!] VPK extraction failed: %v", err)
 			return buf.String(), err
 		}
@@ -192,7 +183,7 @@ func ExtractMapThumbnailsWithContext(ctx context.Context) (string, error) {
 		if fileLog != nil {
 			w = &teeWriter{buf: &buf, file: fileLog}
 		}
-		if err := extractVPKWithPython(targetVPK, extractPath, w); err != nil {
+		if err := extractVPKWithPython(py, targetVPK, extractPath, w); err != nil {
 			log("[!] VPK extraction failed: %v", err)
 			return buf.String(), err
 		}
@@ -259,7 +250,7 @@ func ExtractMapThumbnailsWithContext(ctx context.Context) (string, error) {
 
 		// Generate fresh PNG + WEBP variants into the temp workspace.
 		log("[CONVERT] %s -> %s (temp workspace)...", base, filepath.Base(tmpPNG))
-		if err := convertVtexWithPython(vtex, tmpPNG, &buf); err != nil {
+		if err := convertVtexWithPython(py, vtex, tmpPNG, &buf); err != nil {
 			log("[FAIL] %s: %v", base, err)
 			convertFail++
 			continue
@@ -430,28 +421,7 @@ func extractIPv4(body string) string {
 	return ""
 }
 
-func ensurePythonModule(mod string) error {
-	py, err := exec.LookPath("python3")
-	if err != nil {
-		if py, err = exec.LookPath("python"); err != nil {
-			return fmt.Errorf("python3/python not found in PATH")
-		}
-	}
-	code := fmt.Sprintf("import %s", mod)
-	cmd := exec.Command(py, "-c", code)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("python module %q not available", mod)
-	}
-	return nil
-}
-
-func extractVPKWithPython(vpkFile, outDir string, w io.Writer) error {
-	py, err := exec.LookPath("python3")
-	if err != nil {
-		if py, err = exec.LookPath("python"); err != nil {
-			return fmt.Errorf("python3/python not found in PATH")
-		}
-	}
+func extractVPKWithPython(py, vpkFile, outDir string, w io.Writer) error {
 
 	script := `
 import vpk
@@ -486,13 +456,7 @@ print(f"Extracted {file_count} files from {vpk_file}")
 	return nil
 }
 
-func convertVtexWithPython(vtexFile, outPath string, w *bytes.Buffer) error {
-	py, err := exec.LookPath("python3")
-	if err != nil {
-		if py, err = exec.LookPath("python"); err != nil {
-			return fmt.Errorf("python3/python not found in PATH")
-		}
-	}
+func convertVtexWithPython(py, vtexFile, outPath string, w *bytes.Buffer) error {
 
 	script := `
 import io
