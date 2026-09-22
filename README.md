@@ -178,7 +178,7 @@ Releases run from **Actions → Release → Run workflow**, with `mode` set to `
 
 ## License
 
-csm is source available under the [PolyForm Noncommercial License 1.0.0](LICENSE). Free for personal use, clubs, LAN parties and non-profits. Commercial use needs permission — contact [Auto-Tournament](https://github.com/Auto-Tournament). The [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) plugin stays MIT.
+PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial use; commercial use (paid hosting, selling it, paid-entry events, business use) needs a license. See [LICENSING.md](LICENSING.md). The [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) plugin stays MIT.
 
 ## Links
 
