@@ -644,6 +644,8 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 		"curl", "wget", "file", "tar", "bzip2", "xz-utils", "unzip",
 		"ca-certificates", "lib32gcc-s1", "lib32stdc++6", "libc6-i386",
 		"net-tools", "tmux", "steamcmd", "rsync", "jq",
+		// Map thumbnail extraction runs Python in a csm-owned venv.
+		"python3", "python3-venv",
 	}
 	args := append([]string{"install", "-y"}, pkgs...)
 
