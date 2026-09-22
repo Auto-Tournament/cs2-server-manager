@@ -78,7 +78,9 @@ sudo csm restart [server]
 sudo csm update-game            # update CS2 game files
 sudo csm update-plugins         # download and deploy plugins, restart servers
 sudo csm monitor                # run the auto-update monitor once
-sudo csm updates hold on        # no automatic restarts (e.g. during an event); "off" to resume
+sudo csm updates hold on        # no automatic restarts; "off" to resume, "auto" to let the platform decide
+sudo csm updates platform <url> <token>   # let Auto Tournament hold updates while a tournament runs
+sudo csm updates check          # ask the platform now whether updates are held
 sudo csm install-monitor-cron   # run the monitor from cron
 sudo csm remove-monitor-cron
 
@@ -102,6 +104,23 @@ sudo csm logs-file 1            # path to server 1's log file
 # Removes all CS2 data and the CS2 user
 sudo csm cleanup-all
 ```
+
+### Holding updates during a tournament
+
+The monitor restarts a server for a CS2 update once it has been idle for the grace period: nobody connected, no match loaded. That is a local judgement, and it stays right only until [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) gives that server the next match of a running tournament.
+
+Point csm at the platform and it asks before every restart:
+
+```bash
+sudo csm updates platform https://cs.example.io "$SERVER_TOKEN"
+sudo csm updates check
+```
+
+The token is the platform's `SERVER_TOKEN` — the same fleet-wide token the plugin already uses for event webhooks and demo uploads, not a new secret. csm polls the platform, so the game server needs no inbound port. `CSM_PLATFORM_URL` and `CSM_PLATFORM_TOKEN` override the stored values for hosts that keep secrets out of files; the settings file is written owner-only either way.
+
+Updates are then held while a tournament is in progress or any match is loaded or live. **If the platform cannot be reached, updates stay held** — csm will not restart a server while it cannot tell whether a tournament is running. Every skipped update says which of these it was in `auto_update_monitor.log`.
+
+`csm updates hold on` and `off` are overrides that win over the platform; `csm updates hold auto` goes back to asking it. `csm update-game` and `csm update-server` always run, hold or not.
 
 Day-to-day operation, configuration and the update monitor are covered in [Managing Servers](https://docs.sivert.io/docs/csm/user/managing-servers), [Configuration & Overrides](https://docs.sivert.io/docs/csm/user/configuration) and [Auto Updates](https://docs.sivert.io/docs/csm/user/auto-updates).
 

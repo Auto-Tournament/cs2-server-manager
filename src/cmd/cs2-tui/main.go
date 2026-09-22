@@ -807,7 +807,9 @@ func main() {
 			return
 		case "updates":
 			out, err := runUpdatesCommand(args[1:])
-			csm.LogAction("cli", "updates "+strings.Join(args[1:], " "), out, err)
+			// `updates platform <url> <token>` carries a secret: the action
+			// log and the printed output must not keep it.
+			csm.LogAction("cli", "updates "+strings.Join(redactUpdatesArgs(args[1:]), " "), out, err)
 			if out != "" {
 				fmt.Print(out)
 			}
@@ -975,9 +977,11 @@ func printUsage() {
 	fmt.Println("  self-update            Update csm itself to the latest release")
 	fmt.Println("  dedupe-vpk [server]    Hardlink server VPKs to master-install to save disk (--dry-run, --verify, --undo)")
 	fmt.Println("  monitor                Update servers with a pending CS2 update once idle (cron runs this)")
-	fmt.Println("  updates hold on|off    Pause/resume automatic updates (e.g. during an event)")
-	fmt.Println("  updates status         Show hold state and idle grace period")
+	fmt.Println("  updates hold on|off|auto  Pause/resume automatic updates; auto lets Auto Tournament decide")
+	fmt.Println("  updates status         Show hold state, platform and idle grace period")
 	fmt.Println("  updates grace <min>    Minutes a server must be idle before it is auto-updated")
+	fmt.Println("  updates platform       Point csm at an Auto Tournament instance (<url> <token>, or off)")
+	fmt.Println("  updates check          Ask the platform now whether updates are held")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
 	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
 	fmt.Println("  install-deps           Install system dependencies")
@@ -985,20 +989,48 @@ func printUsage() {
 	fmt.Println("If no command is given, the interactive TUI is started.")
 }
 
-// runUpdatesCommand handles `csm updates hold on|off`, `csm updates status`
-// and `csm updates grace <minutes>`.
+// redactUpdatesArgs hides the platform token before the command line is
+// written to the action log.
+func redactUpdatesArgs(args []string) []string {
+	out := append([]string(nil), args...)
+	if len(out) >= 3 && strings.EqualFold(out[0], "platform") {
+		out[2] = "***"
+	}
+	return out
+}
+
+// runUpdatesCommand handles `csm updates hold on|off|auto`, `csm updates
+// status`, `csm updates grace <minutes>`, `csm updates platform ...` and
+// `csm updates check`.
 func runUpdatesCommand(args []string) (string, error) {
 	status := func(st csm.AutoUpdateSettings) string {
-		hold := "off (the monitor updates idle servers)"
-		if st.Hold {
-			hold = "ON (the monitor only reports available updates)"
+		var out strings.Builder
+		mode := st.Mode()
+		switch mode {
+		case csm.HoldModeOn:
+			out.WriteString("Automatic updates hold: ON (manual; the monitor only reports available updates)\n")
+		case csm.HoldModeOff:
+			out.WriteString("Automatic updates hold: off (manual; the platform is not consulted)\n")
+		default:
+			out.WriteString("Automatic updates hold: auto (Auto Tournament decides)\n")
 		}
-		out := fmt.Sprintf("Automatic updates hold: %s\n", hold)
 		if st.HoldChangedAt != "" {
-			out += fmt.Sprintf("Hold last changed:      %s\n", st.HoldChangedAt)
+			fmt.Fprintf(&out, "Hold last changed:      %s\n", st.HoldChangedAt)
 		}
-		out += fmt.Sprintf("Idle grace period:      %s\n", st.IdleGrace())
-		return out
+		platform := st.Platform.Resolved()
+		if platform.Configured() {
+			fmt.Fprintf(&out, "Platform:               %s\n", platform.BaseURL)
+			if csm.PlainHTTPToRemoteHost(platform.BaseURL) {
+				out.WriteString("                        warning: plain http to a remote host sends the token unencrypted\n")
+			}
+		} else {
+			out.WriteString("Platform:               not configured (csm updates platform <url> <token>)\n")
+		}
+		fmt.Fprintf(&out, "Idle grace period:      %s\n", st.IdleGrace())
+		if mode == csm.HoldModeAuto && platform.Configured() {
+			out.WriteString("\nRun `csm updates check` to ask the platform now.\n")
+		}
+		return out.String()
 	}
 	if len(args) == 0 || args[0] == "status" {
 		st, err := csm.LoadAutoUpdateSettings()
@@ -1010,18 +1042,13 @@ func runUpdatesCommand(args []string) (string, error) {
 	switch args[0] {
 	case "hold":
 		if len(args) != 2 {
-			return "", fmt.Errorf("usage: csm updates hold on|off")
+			return "", fmt.Errorf("usage: csm updates hold on|off|auto")
 		}
-		var on bool
-		switch strings.ToLower(args[1]) {
-		case "on", "true", "1", "yes":
-			on = true
-		case "off", "false", "0", "no":
-			on = false
-		default:
-			return "", fmt.Errorf("hold takes on or off, not %q", args[1])
+		mode, err := csm.ParseHoldMode(args[1])
+		if err != nil {
+			return "", err
 		}
-		st, err := csm.SetUpdateHold(on)
+		st, err := csm.SetUpdateHoldMode(mode)
 		if err != nil {
 			return "", err
 		}
@@ -1039,18 +1066,71 @@ func runUpdatesCommand(args []string) (string, error) {
 			return "", err
 		}
 		return status(st), nil
+	case "platform":
+		switch len(args) {
+		case 2:
+			if !strings.EqualFold(args[1], "off") && !strings.EqualFold(args[1], "none") {
+				return "", fmt.Errorf("usage: csm updates platform <url> <token> | off")
+			}
+			st, err := csm.SetPlatform("", "")
+			if err != nil {
+				return "", err
+			}
+			return "Platform cleared; the automatic hold is off until one is set again.\n\n" + status(st), nil
+		case 3:
+			st, err := csm.SetPlatform(args[1], args[2])
+			if err != nil {
+				return "", err
+			}
+			return status(st), nil
+		}
+		return "", fmt.Errorf("usage: csm updates platform <url> <token> | off")
+	case "check":
+		st, err := csm.LoadAutoUpdateSettings()
+		if err != nil {
+			return "", err
+		}
+		platform := st.Platform.Resolved()
+		if !platform.Configured() {
+			return "", fmt.Errorf("no platform is configured (csm updates platform <url> <token>)")
+		}
+		answer, err := csm.FetchPlatformHold(context.Background(), platform)
+		if err != nil {
+			// A failed check is exactly what the monitor would see, so say
+			// what it would then do.
+			return "", fmt.Errorf("%w\n\nThe monitor holds updates while this fails", err)
+		}
+		hold := "off"
+		if answer.Hold {
+			hold = "ON"
+		}
+		out := fmt.Sprintf("Platform:  %s\nHold:      %s\nReason:    %s\n", platform.BaseURL, hold, answer.Reason)
+		if answer.TournamentStatus != "" {
+			out += fmt.Sprintf("Tournament: %s\n", answer.TournamentStatus)
+		}
+		if st.Mode() != csm.HoldModeAuto {
+			out += fmt.Sprintf("\nNote: the hold is set to %q, so this answer is not used.\n", st.Mode())
+		}
+		return out, nil
 	}
 	return "", fmt.Errorf("unknown subcommand %q", args[0])
 }
 
 func printUpdatesUsage(w *os.File) {
-	fmt.Fprintln(w, "usage: sudo csm updates hold on|off | status | grace <minutes>")
+	fmt.Fprintln(w, "usage: sudo csm updates hold on|off|auto | status | grace <minutes> | platform <url> <token> | check")
 	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "  hold auto     ask Auto Tournament (the default); it holds while a tournament runs")
 	fmt.Fprintln(w, "  hold on       the monitor never restarts servers; it only logs that an update is available")
-	fmt.Fprintln(w, "  hold off      the monitor updates servers once idle (no players, no match loaded)")
+	fmt.Fprintln(w, "  hold off      the monitor updates servers once idle, without asking the platform")
 	fmt.Fprintln(w, "  status        show the current settings")
 	fmt.Fprintln(w, "  grace <min>   how long a server must stay idle before it is updated (default 10)")
+	fmt.Fprintln(w, "  platform      point csm at an Auto Tournament instance; `platform off` clears it")
+	fmt.Fprintln(w, "                the token is the platform's SERVER_TOKEN; CSM_PLATFORM_URL and")
+	fmt.Fprintln(w, "                CSM_PLATFORM_TOKEN override the stored values")
+	fmt.Fprintln(w, "  check         ask the platform now and print its answer")
 	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "In `auto`, a platform that cannot be reached holds updates: csm does not restart")
+	fmt.Fprintln(w, "a server while it cannot tell whether a tournament is running.")
 	fmt.Fprintln(w, "`csm update-game` and `csm update-server` always run, hold or not.")
 }
 
