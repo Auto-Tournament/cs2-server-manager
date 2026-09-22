@@ -450,32 +450,52 @@ func sharedConfigPath(user string) string {
 // detectRCONPassword is the internal implementation.
 // Reads from the shared cs2-config/server.cfg (applies to all servers)
 func detectRCONPassword(user string) string {
-	cfg := sharedConfigPath(user)
-	data, err := os.ReadFile(cfg)
+	data, err := os.ReadFile(sharedConfigPath(user))
 	if err != nil {
 		// Silently return empty string - this is expected if config doesn't exist yet
 		// (e.g., during first install). No need to log as this is a best-effort read.
 		return ""
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	return parseRCONPassword(string(data))
+}
+
+// parseRCONPassword returns the rcon_password a cfg file sets. The game runs
+// a cfg top to bottom, so when the file sets it more than once the last
+// value wins. Quoted values may contain spaces; a trailing // comment after
+// an unquoted value is ignored. Returns "" when the file does not set one.
+func parseRCONPassword(cfg string) string {
+	password := ""
+	for _, line := range strings.Split(cfg, "\n") {
 		line = strings.TrimSpace(line)
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "//") {
-			continue
-		}
 		if !strings.HasPrefix(line, "rcon_password") {
 			continue
 		}
-		// Expect formats like: rcon_password "value"
-		parts := strings.Fields(line)
-		if len(parts) >= 2 {
-			val := strings.Trim(parts[1], `"`)
-			if val != "" {
-				return val
+		rest := strings.TrimPrefix(line, "rcon_password")
+		if rest != "" && rest[0] != ' ' && rest[0] != '\t' && rest[0] != '"' {
+			continue // a different cvar, e.g. rcon_password_foo
+		}
+		rest = strings.TrimSpace(rest)
+		var val string
+		if strings.HasPrefix(rest, `"`) {
+			rest = rest[1:]
+			if end := strings.Index(rest, `"`); end >= 0 {
+				val = rest[:end]
+			} else {
+				val = rest
+			}
+		} else {
+			if i := strings.Index(rest, "//"); i >= 0 {
+				rest = rest[:i]
+			}
+			if fields := strings.Fields(rest); len(fields) > 0 {
+				val = fields[0]
 			}
 		}
+		if val != "" {
+			password = val
+		}
 	}
-	return ""
+	return password
 }
 
 // DetectHostnamePrefix reads server-1's hostname and derives the base prefix so

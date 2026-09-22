@@ -72,7 +72,9 @@ func main() {
 				EnableMetamod:  intFromEnv("ENABLE_METAMOD", 1) != 0,
 				FreshInstall:   intFromEnv("FRESH_INSTALL", 0) != 0,
 				UpdateMaster:   intFromEnv("UPDATE_MASTER", 1) != 0,
-				RCONPassword:   getenvDefault("RCON_PASSWORD", csm.DefaultRCONPassword),
+				// Empty keeps the password already in cs2-config's
+				// server.cfg (falls back to the default on a first install).
+				RCONPassword: getenvDefault("RCON_PASSWORD", ""),
 
 				MatchzySkipDocker: intFromEnv("MATCHZY_SKIP_DOCKER", 0) != 0,
 				// MATCHZY_DB_ENGINE=sqlite gives each server its own SQLite
