@@ -13,6 +13,13 @@ GOOS=linux GOARCH=amd64 go build -o csm ./src/cmd/cs2-tui
 
 csm only runs on Linux, and most commands need `sudo` and a real CS2 install. Test changes on a Linux machine or VM you don't mind breaking.
 
+## Contributor License Agreement
+
+Before your first pull request can be merged, you sign the [CLA](../CLA.md) by
+commenting on the pull request as the CLA bot asks. You keep your copyright;
+the CLA lets the maintainer offer the project under both the non-commercial
+licence and commercial licences.
+
 ## Pull requests
 
 - Keep each PR to one fix or feature.
