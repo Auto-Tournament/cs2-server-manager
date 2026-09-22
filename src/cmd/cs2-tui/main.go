@@ -805,6 +805,18 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "updates":
+			out, err := runUpdatesCommand(args[1:])
+			csm.LogAction("cli", "updates "+strings.Join(args[1:], " "), out, err)
+			if out != "" {
+				fmt.Print(out)
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "updates: %v\n", err)
+				printUpdatesUsage(os.Stderr)
+				os.Exit(1)
+			}
+			return
 		case "install-monitor-cron":
 			interval := ""
 			if len(args) > 1 {
@@ -962,12 +974,84 @@ func printUsage() {
 	fmt.Println("  update-plugins         Update plugins and deploy to servers")
 	fmt.Println("  self-update            Update csm itself to the latest release")
 	fmt.Println("  dedupe-vpk [server]    Hardlink server VPKs to master-install to save disk (--dry-run, --verify, --undo)")
-	fmt.Println("  monitor                Run auto-update monitor loop")
+	fmt.Println("  monitor                Update servers with a pending CS2 update once idle (cron runs this)")
+	fmt.Println("  updates hold on|off    Pause/resume automatic updates (e.g. during an event)")
+	fmt.Println("  updates status         Show hold state and idle grace period")
+	fmt.Println("  updates grace <min>    Minutes a server must be idle before it is auto-updated")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
 	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
 	fmt.Println("  install-deps           Install system dependencies")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")
+}
+
+// runUpdatesCommand handles `csm updates hold on|off`, `csm updates status`
+// and `csm updates grace <minutes>`.
+func runUpdatesCommand(args []string) (string, error) {
+	status := func(st csm.AutoUpdateSettings) string {
+		hold := "off (the monitor updates idle servers)"
+		if st.Hold {
+			hold = "ON (the monitor only reports available updates)"
+		}
+		out := fmt.Sprintf("Automatic updates hold: %s\n", hold)
+		if st.HoldChangedAt != "" {
+			out += fmt.Sprintf("Hold last changed:      %s\n", st.HoldChangedAt)
+		}
+		out += fmt.Sprintf("Idle grace period:      %s\n", st.IdleGrace())
+		return out
+	}
+	if len(args) == 0 || args[0] == "status" {
+		st, err := csm.LoadAutoUpdateSettings()
+		if err != nil {
+			return "", err
+		}
+		return status(st), nil
+	}
+	switch args[0] {
+	case "hold":
+		if len(args) != 2 {
+			return "", fmt.Errorf("usage: csm updates hold on|off")
+		}
+		var on bool
+		switch strings.ToLower(args[1]) {
+		case "on", "true", "1", "yes":
+			on = true
+		case "off", "false", "0", "no":
+			on = false
+		default:
+			return "", fmt.Errorf("hold takes on or off, not %q", args[1])
+		}
+		st, err := csm.SetUpdateHold(on)
+		if err != nil {
+			return "", err
+		}
+		return status(st), nil
+	case "grace":
+		if len(args) != 2 {
+			return "", fmt.Errorf("usage: csm updates grace <minutes>")
+		}
+		n, err := strconv.Atoi(args[1])
+		if err != nil {
+			return "", fmt.Errorf("grace takes a whole number of minutes, not %q", args[1])
+		}
+		st, err := csm.SetIdleGraceMinutes(n)
+		if err != nil {
+			return "", err
+		}
+		return status(st), nil
+	}
+	return "", fmt.Errorf("unknown subcommand %q", args[0])
+}
+
+func printUpdatesUsage(w *os.File) {
+	fmt.Fprintln(w, "usage: sudo csm updates hold on|off | status | grace <minutes>")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "  hold on       the monitor never restarts servers; it only logs that an update is available")
+	fmt.Fprintln(w, "  hold off      the monitor updates servers once idle (no players, no match loaded)")
+	fmt.Fprintln(w, "  status        show the current settings")
+	fmt.Fprintln(w, "  grace <min>   how long a server must stay idle before it is updated (default 10)")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "`csm update-game` and `csm update-server` always run, hold or not.")
 }
 
 func printDedupeVPKUsage(w *os.File) {
