@@ -133,6 +133,16 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if strings.TrimSpace(cfg.HostnamePrefix) == "" {
 		cfg.HostnamePrefix = "CS2 Server"
 	}
+	// No password given: keep the one the servers already use (the shared
+	// cs2-config server.cfg) instead of resetting it to the default. A
+	// re-run of bootstrap used to overwrite a hand-set rcon_password with
+	// the default, and the platform then failed RCON logins.
+	if strings.TrimSpace(cfg.RCONPassword) == "" {
+		if existing := detectRCONPassword(cfg.CS2User); existing != "" {
+			log("  [i] No RCON password supplied; keeping the existing one from %s", sharedConfigPath(cfg.CS2User))
+			cfg.RCONPassword = existing
+		}
+	}
 	switch cfg.RCONPassword {
 	case "":
 		// Use a neutral fallback rather than an event-specific password; the
