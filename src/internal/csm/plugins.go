@@ -433,7 +433,19 @@ func (up *PluginUpdater) downloadCounterStrikeSharp(w io.Writer) error {
 	}
 
 	fmt.Fprintf(w, "[CSS] Extracting to %s/csgo/...\n", up.GameDir)
-	return up.unzipTo(tmpZip, filepath.Join(up.GameDir, "csgo"))
+	if err := up.unzipTo(tmpZip, filepath.Join(up.GameDir, "csgo")); err != nil {
+		return err
+	}
+
+	// glibc 2.41+ (Debian 13, Ubuntu 25.04) will not load libraries that ask
+	// for an executable stack, and counterstrikesharp.so does. Clear the flag
+	// in the staged copy; every server gets its addons from here. Best-effort:
+	// older distros load the library either way.
+	cssDir := filepath.Join(up.GameDir, "csgo", "addons", "counterstrikesharp")
+	if err := clearExecStackInTree(w, cssDir); err != nil {
+		fmt.Fprintf(w, "[CSS] [WARN] Some libraries still request an executable stack; CounterStrikeSharp may not load on Debian 13 / Ubuntu 25.04: %v\n", err)
+	}
+	return nil
 }
 
 func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
