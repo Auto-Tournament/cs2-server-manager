@@ -78,6 +78,7 @@ sudo csm restart [server]
 sudo csm update-game            # update CS2 game files
 sudo csm update-plugins         # download and deploy plugins, restart servers
 sudo csm monitor                # run the auto-update monitor once
+sudo csm updates hold on        # no automatic restarts (e.g. during an event); "off" to resume
 sudo csm install-monitor-cron   # run the monitor from cron
 sudo csm remove-monitor-cron
 
