@@ -7,14 +7,28 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
 
-// RunAutoUpdateMonitor implements a simplified Go-native auto-update monitor.
-// It is intentionally conservative: it only attempts an update when all
-// servers are stopped and logs its decisions to /var/log/cs2_auto_update_monitor.log.
+// Update markers the monitor looks for in each server's tmux log.
+const (
+	// Legacy AutoUpdater plugin: the server shuts itself down.
+	autoUpdaterShutdownMarker = "plugin:AutoUpdater Shutting the server down due to the new game update"
+	// Auto Tournament CS2 plugin (MatchZy): printed in warn_only mode, the
+	// server keeps running.
+	matchzyUpdateAvailableMarker = "[MATCHZY_UPDATE_AVAILABLE] required_version="
+)
+
+// RunAutoUpdateMonitor checks every server's log for a pending CS2 update and
+// applies it where that is safe (see auto_update.go):
+//
+//   - a stopped server is updated and started, as before;
+//   - a running server is updated only once it has been idle (no players,
+//     no match loaded) for the grace period, one server at a time;
+//   - nothing is restarted while updates are on hold (`csm updates hold on`).
+//
+// Decisions are logged to auto_update_monitor.log.
 func RunAutoUpdateMonitor() error {
 	var buf bytes.Buffer
 	log := func(format string, args ...any) {
@@ -37,6 +51,13 @@ func RunAutoUpdateMonitor() error {
 		return writeMonitorLog(buf.String(), fmt.Errorf("monitor must be run as root (use sudo)"))
 	}
 
+	unlock, err := lockAutoUpdate()
+	if err != nil {
+		log("Skipping this cycle: %v", err)
+		return writeMonitorLog(buf.String(), nil)
+	}
+	defer unlock()
+
 	mgr, err := NewTmuxManager()
 	if err != nil {
 		log("Failed to initialize tmux manager: %v", err)
@@ -48,17 +69,22 @@ func RunAutoUpdateMonitor() error {
 		return writeMonitorLog(buf.String(), nil)
 	}
 
-	log("Detected %d CS2 servers for user %s", mgr.NumServers, mgr.CS2User)
+	settings, err := LoadAutoUpdateSettings()
+	if err != nil {
+		// Fail safe: an unreadable settings file must not lift a hold.
+		log("Could not read auto-update settings (%v); treating updates as on hold.", err)
+		settings.Hold = true
+	}
+	grace := settings.IdleGrace()
+	log("Detected %d CS2 servers for user %s (hold: %v, idle grace: %s)", mgr.NumServers, mgr.CS2User, settings.Hold, grace)
 
-	// Step 1: Inspect each server log for update markers.
-	// - Legacy workflow: server shuts down with an AutoUpdater shutdown marker.
-	// - MAT workflow (default): MatchZy Enhanced emits an "available" marker in warn-only mode.
-	//
-	// This monitor only runs the update when the tmux session is NOT running.
-	// If we see the "available" marker while the session is running, we log a
-	// targeted hint (stop the server or switch MatchZy to restart mode).
-	const shutdownMarker = "plugin:AutoUpdater Shutting the server down due to the new game update"
-	const matchzyAvailableMarker = "[MATCHZY_UPDATE_AVAILABLE] required_version="
+	state := loadAutoUpdateState()
+	saveState := func() {
+		if err := state.save(); err != nil {
+			log("Failed to save auto-update state: %v", err)
+		}
+	}
+	ctx := context.Background()
 
 	for i := 1; i <= mgr.NumServers; i++ {
 		logPath := mgr.ServerLogPath(i)
@@ -66,84 +92,83 @@ func RunAutoUpdateMonitor() error {
 			log("Server-%d: no tmux log path available; skipping.", i)
 			continue
 		}
+		st := state.server(i)
 
-		session := mgr.sessionName(i)
-		cmd := mgr.runAsCS2User("tmux has-session -t " + session)
-		if err := cmd.Run(); err == nil {
-			// Session still running. In warn-only mode MatchZy will not quit the server,
-			// so the shutdown marker never appears. If we detect the MatchZy marker
-			// while running, provide actionable guidance.
-			foundAvailable, err := tailContains(logPath, matchzyAvailableMarker, 64*1024)
-			if err != nil {
+		marker, logSize, err := logHasMarkerAfter(logPath, st.LogOffset, autoUpdaterShutdownMarker, matchzyUpdateAvailableMarker)
+		if err != nil {
+			if !os.IsNotExist(err) {
 				log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
+			}
+			continue
+		}
+		if marker == "" {
+			if st.IdleSince != 0 {
+				st.IdleSince = 0
+				saveState()
+			}
+			continue
+		}
+		log("Server-%d: CS2 update available (marker in %s).", i, logPath)
+
+		if settings.Hold {
+			log("Server-%d: updates are on hold; not restarting. Run `csm updates hold off` to allow, or `sudo csm update-server %d` to update now.", i, i)
+			continue
+		}
+		if st.LastUpdate > 0 {
+			if since := time.Since(time.Unix(st.LastUpdate, 0)); since < autoUpdateCooldown {
+				log("Server-%d: updated %s ago; waiting for the %s cooldown.", i, since.Round(time.Second), autoUpdateCooldown)
 				continue
 			}
-			if foundAvailable {
-				log("Server-%d: MatchZy update marker found, but server is still running. (Default MAT behavior is warn-only.)", i)
-				log("  - To proceed automatically: set matchzy_safeautoupdater_action restart (MatchZy will quit once idle/postgame).")
-				log("  - To proceed manually: stop server-%d, then rerun: sudo csm monitor", i)
+		}
+
+		running := mgr.IsRunning(i)
+		gamePort, _ := detectServerPorts(mgr.CS2User, i)
+		addr := fmt.Sprintf("127.0.0.1:%d", gamePort)
+		password := serverRCONPassword(mgr.CS2User, i)
+
+		if running {
+			probe := probeServerIdle(addr, password)
+			var idleSince time.Time
+			if st.IdleSince > 0 {
+				idleSince = time.Unix(st.IdleSince, 0)
 			}
-			continue
-		}
-
-		foundShutdown, err := tailContains(logPath, shutdownMarker, 64*1024)
-		if err != nil {
-			log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
-			continue
-		}
-		foundAvailable, err := tailContains(logPath, matchzyAvailableMarker, 64*1024)
-		if err != nil {
-			log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
-			continue
-		}
-		if !foundShutdown && !foundAvailable {
-			continue
-		}
-
-		if foundShutdown {
-			log("Server-%d: AutoUpdater shutdown marker found in tmux log (%s).", i, logPath)
+			d := decideAutoUpdate(probe, settings.Hold, idleSince, time.Now(), grace)
+			if d.Idle {
+				st.IdleSince = d.IdleSince.Unix()
+			} else {
+				st.IdleSince = 0
+			}
+			saveState()
+			if !d.Update {
+				log("Server-%d: not updating yet: %s.", i, d.Reason)
+				continue
+			}
+			log("Server-%d: %s; updating now.", i, d.Reason)
 		} else {
-			log("Server-%d: MatchZy update marker found in tmux log (%s).", i, logPath)
+			log("Server-%d: server is stopped; updating.", i)
 		}
 
-		info, err := os.Stat(logPath)
-		if err != nil {
-			log("Server-%d: failed to stat tmux log %s: %v", i, logPath, err)
-			continue
-		}
-		eventUnix := info.ModTime().Unix()
+		// Everything logged so far has been handled; markers printed after
+		// the restart count as a new update.
+		st.LogOffset = logSize
+		st.LastUpdate = time.Now().Unix()
+		st.IdleSince = 0
+		saveState()
 
-		stateFile := fmt.Sprintf("/tmp/cs2_auto_update_server_%s_%d", mgr.CS2User, i)
-
-		// Step 2: Apply a per-server cooldown (so we don't spam updates if
-		// AutoUpdater bounces the server repeatedly) and ensure we only react
-		// to log entries that are newer than the last processed event.
-		should, reason, err := shouldProcessUpdate(stateFile, eventUnix)
-		if err != nil {
-			log("Server-%d: failed to evaluate auto-update cooldown state: %v", i, err)
-			continue
-		}
-		if !should {
-			log("Server-%d: %s", i, reason)
-			continue
-		}
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		log("Server-%d: proceeding with automated update via UpdateServerWithContext()...", i)
-		out, err := UpdateServerWithContext(ctx, i)
-		if out != "" {
-			log("%s", out)
+		if running {
+			err = updateIdleServer(ctx, log, i, addr, password)
+		} else {
+			var out string
+			out, err = UpdateServerWithContext(ctx, i)
+			if out != "" {
+				log("%s", out)
+			}
 		}
 		if err != nil {
-			log("Server-%d: UpdateServerWithContext failed: %v", i, err)
+			log("Server-%d: automatic update failed: %v", i, err)
 			continue
 		}
-
-		if err := markUpdateProcessed(stateFile, log); err != nil {
-			log("Server-%d: failed to record auto-update state: %v", i, err)
-		}
+		log("Server-%d: automatic update done.", i)
 	}
 
 	log("Monitor cycle complete.")
@@ -218,12 +243,13 @@ func RemoveAutoUpdateCronWithContext(ctx context.Context) (string, error) {
 		return string(out), fmt.Errorf("failed to remove cron entry: %w", err)
 	}
 
-	// Also clean up any state files (per-server state files from the monitor)
+	// Also clean up the monitor's per-server state (idle tracking, handled
+	// log offsets) and the state files older versions kept in /tmp.
+	_ = os.Remove(autoUpdateStatePath())
 	mgr, err := NewTmuxManager()
 	if err == nil && mgr.NumServers > 0 {
 		for i := 1; i <= mgr.NumServers; i++ {
-			stateFile := fmt.Sprintf("/tmp/cs2_auto_update_server_%s_%d", mgr.CS2User, i)
-			_ = os.Remove(stateFile) // Ignore errors if file doesn't exist
+			_ = os.Remove(fmt.Sprintf("/tmp/cs2_auto_update_server_%s_%d", mgr.CS2User, i))
 		}
 	}
 
@@ -233,77 +259,4 @@ func RemoveAutoUpdateCronWithContext(ctx context.Context) (string, error) {
 func writeMonitorLog(content string, err error) error {
 	AppendLog("auto_update_monitor.log", content)
 	return err
-}
-
-// tailContains checks whether the last up-to-maxBytes contents of path contain
-// the given substring. It avoids reading the entire file when logs grow large.
-func tailContains(path, substr string, maxBytes int64) (bool, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	info, err := f.Stat()
-	if err != nil {
-		return false, err
-	}
-
-	size := info.Size()
-	start := int64(0)
-	if size > maxBytes {
-		start = size - maxBytes
-	}
-	if _, err := f.Seek(start, 0); err != nil {
-		return false, err
-	}
-
-	buf := make([]byte, size-start)
-	if _, err := f.Read(buf); err != nil {
-		return false, err
-	}
-
-	return strings.Contains(string(buf), substr), nil
-}
-
-// shouldProcessUpdate enforces a simple cooldown based on a timestamp file on
-// disk so the monitor does not run updates too frequently (for example, if
-// AutoUpdater restarts servers multiple times in quick succession). The
-// eventUnix argument represents the timestamp of the triggering log entry; if
-// it is not newer than the last processed timestamp, the update is skipped.
-func shouldProcessUpdate(stateFile string, eventUnix int64) (bool, string, error) {
-	data, err := os.ReadFile(stateFile)
-	if err != nil {
-		// No state file: we should process the update.
-		return true, "", nil
-	}
-	str := strings.TrimSpace(string(data))
-	if str == "" {
-		return true, "", nil
-	}
-	last, err := strconv.ParseInt(str, 10, 64)
-	if err != nil {
-		return true, "", nil
-	}
-
-	now := time.Now().Unix()
-	diff := now - last
-	if eventUnix > 0 && eventUnix <= last {
-		return false, "No new AutoUpdater shutdown detected since last processed update; skipping", nil
-	}
-	if diff > 3600 {
-		return true, "", nil
-	}
-	return false, fmt.Sprintf("Update already processed recently (%ds ago), skipping", diff), nil
-}
-
-// markUpdateProcessed writes the current timestamp into the state file so
-// subsequent monitor runs can enforce a cooldown.
-func markUpdateProcessed(stateFile string, logf func(string, ...any)) error {
-	now := time.Now().Unix()
-	if err := os.WriteFile(stateFile, []byte(fmt.Sprintf("%d\n", now)), 0o644); err != nil {
-		return err
-	}
-	logf("Marked update as processed at %s", time.Unix(now, 0).Format(time.RFC3339))
-	return nil
 }
