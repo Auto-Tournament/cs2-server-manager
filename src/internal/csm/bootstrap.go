@@ -277,6 +277,9 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		}
 	}
 
+	libRepair := newServerLibRepair(cfg.CS2User, filepath.Join("/home", cfg.CS2User, "master-install"))
+	var brokenServers []string
+
 	for i := 1; i <= cfg.NumServers; i++ {
 		gamePort := cfg.BaseGamePort + (i-1)*10
 		tvPort := cfg.BaseTVPort + (i-1)*10
@@ -289,6 +292,14 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 
 		if err := copyMasterToServerGo(ctx, &buf, cfg.CS2User, i, cfg.FreshInstall); err != nil {
 			log("  [!] Copy master to server-%d failed: %v", i, err)
+		}
+
+		// A cut-short copy used to leave libserver.so / libv8.so missing and
+		// the server "ready" but unable to boot. Check and repair here.
+		serverGame := filepath.Join("/home", cfg.CS2User, fmt.Sprintf("server-%d", i), "game")
+		if err := libRepair.ensure(ctx, &buf, fmt.Sprintf("server-%d", i), serverGame); err != nil {
+			log("  [!] server-%d game files are incomplete and it will not boot: %v", i, err)
+			brokenServers = append(brokenServers, fmt.Sprintf("server-%d", i))
 		}
 
 		if err := overlayConfigToServerGo(ctx, &buf, cfg.CS2User, i); err != nil {
@@ -318,6 +329,12 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		}
 
 		log("  [✓] Server-%d ready (port %d, TV %d)", i, gamePort, tvPort)
+		log("")
+	}
+
+	if len(brokenServers) > 0 {
+		log("[!] WARNING: %s cannot boot: required game files (cs2, libserver.so, libv8.so) are missing.", strings.Join(brokenServers, ", "))
+		log("[!] Fix: sudo csm fix-libv8 0   (SteamCMD validate + re-copy), then check disk space and the SteamCMD output above.")
 		log("")
 	}
 

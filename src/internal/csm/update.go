@@ -159,6 +159,7 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 
 	log("")
 	log("Syncing updated game files to server instances...")
+	libRepair := newServerLibRepair(cs2User, masterDir)
 	for i := 1; i <= mgr.NumServers; i++ {
 		if err := checkCtx(); err != nil {
 			return buf.String(), err
@@ -176,6 +177,9 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 			// to try remaining servers so a partial update doesn't block
 			// others.
 			continue
+		}
+		if err := libRepair.ensure(ctx, &buf, fmt.Sprintf("server-%d", i), filepath.Join(mgr.serverDir(i), "game")); err != nil {
+			log("  [!] server-%d game files are incomplete and it will not boot: %v (try: sudo csm fix-libv8 %d)", i, err, i)
 		}
 
 		// Ensure Metamod remains in sync with the pre-update setting.
@@ -748,6 +752,9 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 	if err := syncMasterToServerWithContext(ctx, &buf, logFile, masterDir, mgr, server); err != nil {
 		// Errors are logged inside the helper.
 		return buf.String(), err
+	}
+	if err := newServerLibRepair(cs2User, masterDir).ensure(ctx, &buf, fmt.Sprintf("server-%d", server), filepath.Join(mgr.serverDir(server), "game")); err != nil {
+		log("  [!] server-%d game files are incomplete and it will not boot: %v (try: sudo csm fix-libv8 %d)", server, err, server)
 	}
 
 	// Ensure Metamod remains in sync with the pre-update setting.

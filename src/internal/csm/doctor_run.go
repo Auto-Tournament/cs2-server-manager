@@ -287,7 +287,7 @@ func checkLibV8(meta DoctorMeta, opts DoctorOptions) DoctorCheck {
 	if len(meta.Servers) == 0 {
 		return DoctorCheck{
 			ID:     "libv8",
-			Title:  "CS2 shared libs (libv8.so) present",
+			Title:  "CS2 game files (cs2, libserver.so, libv8.so) present",
 			Status: DoctorWarn,
 			Detail: "No servers discovered; skipping libv8 check.",
 		}
@@ -297,18 +297,17 @@ func checkLibV8(meta DoctorMeta, opts DoctorOptions) DoctorCheck {
 	var hints []string
 	for _, n := range meta.Servers {
 		root := filepath.Join("/home", meta.CS2User, fmt.Sprintf("server-%d", n), "game")
-		ok, hint := serverHasLibV8(root)
-		if !ok {
+		if libs := missingServerLibs(root); len(libs) > 0 {
 			missing = append(missing, n)
-			hints = append(hints, fmt.Sprintf("server-%d checked: %s", n, hint))
+			hints = append(hints, fmt.Sprintf("server-%d is missing %s (under %s)", n, strings.Join(libs, ", "), root))
 		}
 	}
 	if len(missing) == 0 {
 		return DoctorCheck{
 			ID:     "libv8",
-			Title:  "CS2 shared libs (libv8.so) present",
+			Title:  "CS2 game files (cs2, libserver.so, libv8.so) present",
 			Status: DoctorOK,
-			Detail: "libv8.so appears present for checked servers.",
+			Detail: "cs2, libserver.so and libv8.so present for checked servers.",
 		}
 	}
 
@@ -320,7 +319,7 @@ func checkLibV8(meta DoctorMeta, opts DoctorOptions) DoctorCheck {
 	}
 	return DoctorCheck{
 		ID:     "libv8",
-		Title:  "CS2 shared libs (libv8.so) present",
+		Title:  "CS2 game files (cs2, libserver.so, libv8.so) present",
 		Status: DoctorFail,
 		Detail: fmt.Sprintf("Missing or not found for: %s\n%s", joinInts(missing), strings.Join(hints, "\n")),
 		Fix: func(ctx context.Context) (string, error) {
