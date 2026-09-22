@@ -176,6 +176,10 @@ Match stats already in the shared database stay where they are.
 
 Releases run from **Actions → Release → Run workflow**, with `mode` set to `patch`, `minor`, `major` or `explicit` (and `version` as `X.Y.Z` or `vX.Y.Z` when `mode=explicit`). The workflow runs `scripts/release.sh`, the same script used for local releases, and uploads `csm-linux-amd64` and `csm-linux-arm64`. It uses the repository's `GITHUB_TOKEN`. Set the `DISCORD_WEBHOOK_URL` secret for Discord notifications.
 
+## License
+
+csm is source available under the [PolyForm Noncommercial License 1.0.0](LICENSE). Free for personal use, clubs, LAN parties and non-profits. Commercial use needs permission — contact [Auto-Tournament](https://github.com/Auto-Tournament). The [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) plugin stays MIT.
+
 ## Links
 
 - [Documentation](https://docs.sivert.io/docs/csm)
