@@ -27,19 +27,72 @@ import (
 // During an event the host can put updates on hold (`csm updates hold on`).
 // While on hold the monitor only reports that an update is available.
 // Manual `csm update-game` / `csm update-server` ignore the hold.
+//
+// The hold can also come from the Auto Tournament platform, which is the only
+// party that knows a tournament is running: see platform_hold.go. The manual
+// setting still wins — `hold on` holds whatever the platform says, `hold off`
+// allows updates without asking it, and `hold auto` (the default) asks.
 
 // DefaultIdleGrace is how long a server must stay idle before the monitor
 // updates it.
 const DefaultIdleGrace = 10 * time.Minute
 
+// The three hold modes. See AutoUpdateSettings.Mode.
+const (
+	// HoldModeAuto asks the platform, when one is configured.
+	HoldModeAuto = "auto"
+	// HoldModeOn holds updates unconditionally.
+	HoldModeOn = "on"
+	// HoldModeOff allows updates without asking the platform.
+	HoldModeOff = "off"
+)
+
 // AutoUpdateSettings are the host's persisted auto-update choices.
 type AutoUpdateSettings struct {
-	// Hold stops the monitor from restarting any server for an update.
+	// Hold is the legacy boolean csm <= 1.8.0 wrote and read. It is kept in
+	// sync with HoldMode ("on" <-> true) so an older binary, or a rollback,
+	// still sees a manual hold. New code reads Mode() instead.
 	Hold bool `json:"hold"`
-	// HoldChangedAt records when Hold was last changed (RFC3339).
+	// HoldMode is "auto", "on" or "off". Empty means the file predates the
+	// platform hold; Mode() reads Hold in that case.
+	HoldMode string `json:"hold_mode,omitempty"`
+	// HoldChangedAt records when the mode was last changed (RFC3339).
 	HoldChangedAt string `json:"hold_changed_at,omitempty"`
 	// IdleGraceMinutes overrides DefaultIdleGrace when > 0.
 	IdleGraceMinutes int `json:"idle_grace_minutes,omitempty"`
+	// Platform is the Auto Tournament instance to ask in "auto" mode.
+	Platform PlatformSettings `json:"platform,omitempty"`
+}
+
+// Mode returns the hold mode, reading the legacy boolean when the file was
+// written before hold_mode existed. An unknown value is treated as "auto", so
+// a hand-edited typo asks the platform rather than silently never holding.
+func (s AutoUpdateSettings) Mode() string {
+	switch strings.ToLower(strings.TrimSpace(s.HoldMode)) {
+	case HoldModeOn:
+		return HoldModeOn
+	case HoldModeOff:
+		return HoldModeOff
+	case HoldModeAuto:
+		return HoldModeAuto
+	}
+	if s.Hold {
+		return HoldModeOn
+	}
+	return HoldModeAuto
+}
+
+// ParseHoldMode reads the argument of `csm updates hold <arg>`.
+func ParseHoldMode(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "on", "true", "1", "yes":
+		return HoldModeOn, nil
+	case "off", "false", "0", "no":
+		return HoldModeOff, nil
+	case "auto", "platform":
+		return HoldModeAuto, nil
+	}
+	return "", fmt.Errorf("hold takes on, off or auto, not %q", raw)
 }
 
 // IdleGrace returns the configured grace period.
@@ -72,19 +125,56 @@ func LoadAutoUpdateSettings() (AutoUpdateSettings, error) {
 	return s, nil
 }
 
-// SaveAutoUpdateSettings writes the settings atomically.
+// SaveAutoUpdateSettings writes the settings atomically. The file holds the
+// platform token, so it is owner-only.
 func SaveAutoUpdateSettings(s AutoUpdateSettings) error {
-	return writeJSONAtomic(autoUpdateSettingsPath(), s)
+	// Keep the legacy boolean in step for csm <= 1.8.0 and for rollbacks.
+	s.Hold = s.Mode() == HoldModeOn
+	return writeJSONAtomicMode(autoUpdateSettingsPath(), s, 0o600)
 }
 
-// SetUpdateHold turns the update hold on or off and persists it.
-func SetUpdateHold(on bool) (AutoUpdateSettings, error) {
+// SetUpdateHoldMode sets the hold mode ("auto", "on" or "off") and persists it.
+func SetUpdateHoldMode(mode string) (AutoUpdateSettings, error) {
 	s, err := LoadAutoUpdateSettings()
 	if err != nil {
 		return s, err
 	}
-	s.Hold = on
+	s.HoldMode = mode
 	s.HoldChangedAt = time.Now().UTC().Format(time.RFC3339)
+	return s, SaveAutoUpdateSettings(s)
+}
+
+// SetUpdateHold turns the manual hold on or off. `off` is an override that
+// stops the platform being consulted; use SetUpdateHoldMode(HoldModeAuto) to
+// go back to asking it.
+func SetUpdateHold(on bool) (AutoUpdateSettings, error) {
+	if on {
+		return SetUpdateHoldMode(HoldModeOn)
+	}
+	return SetUpdateHoldMode(HoldModeOff)
+}
+
+// SetPlatform points csm at an Auto Tournament instance, or clears it when
+// both arguments are empty.
+func SetPlatform(baseURL, token string) (AutoUpdateSettings, error) {
+	s, err := LoadAutoUpdateSettings()
+	if err != nil {
+		return s, err
+	}
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	token = strings.TrimSpace(token)
+	if baseURL == "" && token == "" {
+		s.Platform = PlatformSettings{}
+		return s, SaveAutoUpdateSettings(s)
+	}
+	if baseURL == "" || token == "" {
+		return s, fmt.Errorf("both a URL and a token are needed (csm updates platform <url> <token>)")
+	}
+	candidate := PlatformSettings{BaseURL: baseURL, Token: token}
+	if _, err := candidate.holdURL(); err != nil {
+		return s, err
+	}
+	s.Platform = candidate
 	return s, SaveAutoUpdateSettings(s)
 }
 
@@ -102,6 +192,10 @@ func SetIdleGraceMinutes(minutes int) (AutoUpdateSettings, error) {
 }
 
 func writeJSONAtomic(path string, v any) error {
+	return writeJSONAtomicMode(path, v, 0o644)
+}
+
+func writeJSONAtomicMode(path string, v any, mode os.FileMode) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
@@ -110,7 +204,12 @@ func writeJSONAtomic(path string, v any) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o644); err != nil {
+	if err := os.WriteFile(tmp, append(data, '\n'), mode); err != nil {
+		return err
+	}
+	// WriteFile only applies mode when it creates the file; an existing temp
+	// from an interrupted write would keep its old, wider permissions.
+	if err := os.Chmod(tmp, mode); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -184,10 +283,15 @@ type autoUpdateDecision struct {
 
 // decideAutoUpdate decides whether a running server with a pending update
 // may be restarted now. It is pure so it can be table-tested.
-func decideAutoUpdate(p serverIdleProbe, hold bool, idleSince, now time.Time, grace time.Duration) autoUpdateDecision {
+//
+// The hold is reported in every reason, even when the server would not have
+// been updated anyway: whoever reads auto_update_monitor.log during an event
+// wants to know that the hold is doing its job, not to infer it from a server
+// that happens to be busy.
+func decideAutoUpdate(p serverIdleProbe, hold UpdateHold, idleSince, now time.Time, grace time.Duration) autoUpdateDecision {
 	notIdle := func(reason string) autoUpdateDecision {
-		if hold {
-			reason += "; updates are on hold"
+		if hold.On {
+			reason += "; updates are on hold (" + hold.Reason + ")"
 		}
 		return autoUpdateDecision{Reason: reason}
 	}
@@ -210,8 +314,11 @@ func decideAutoUpdate(p serverIdleProbe, hold bool, idleSince, now time.Time, gr
 	d := autoUpdateDecision{Idle: true, IdleSince: idleSince}
 	idleFor := now.Sub(idleSince)
 	switch {
-	case hold:
-		d.Reason = "idle, but updates are on hold (csm updates hold off to allow)"
+	case hold.On:
+		d.Reason = "idle, but updates are on hold (" + hold.Reason + ")"
+		if hold.Source == HoldSourceManual {
+			d.Reason += "; `csm updates hold auto` or `off` allows updates"
+		}
 	case idleFor < grace:
 		d.Reason = fmt.Sprintf("idle for %s, waiting for the %s grace period", idleFor.Round(time.Second), grace)
 	default:

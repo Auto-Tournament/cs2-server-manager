@@ -26,7 +26,10 @@ const (
 //   - a stopped server is updated and started, as before;
 //   - a running server is updated only once it has been idle (no players,
 //     no match loaded) for the grace period, one server at a time;
-//   - nothing is restarted while updates are on hold (`csm updates hold on`).
+//   - nothing is restarted while updates are on hold — either because the
+//     host set `csm updates hold on`, or because the Auto Tournament platform
+//     says a tournament is running, or because the platform could not be
+//     reached and csm therefore cannot tell (platform_hold.go).
 //
 // Decisions are logged to auto_update_monitor.log.
 func RunAutoUpdateMonitor() error {
@@ -69,14 +72,23 @@ func RunAutoUpdateMonitor() error {
 		return writeMonitorLog(buf.String(), nil)
 	}
 
+	ctx := context.Background()
+
 	settings, err := LoadAutoUpdateSettings()
+	hold := UpdateHold{}
 	if err != nil {
 		// Fail safe: an unreadable settings file must not lift a hold.
 		log("Could not read auto-update settings (%v); treating updates as on hold.", err)
-		settings.Hold = true
+		hold = UpdateHold{On: true, Source: HoldSourceManual,
+			Reason: fmt.Sprintf("the settings file could not be read: %v", err)}
+	} else {
+		// One question per cycle, not one per server: the answer is about the
+		// tournament, not about any single server, and a cycle that asked
+		// repeatedly would hammer the platform for the same answer.
+		hold = ResolveUpdateHold(ctx, settings)
 	}
 	grace := settings.IdleGrace()
-	log("Detected %d CS2 servers for user %s (hold: %v, idle grace: %s)", mgr.NumServers, mgr.CS2User, settings.Hold, grace)
+	log("Detected %d CS2 servers for user %s (hold: %s, idle grace: %s)", mgr.NumServers, mgr.CS2User, hold.Describe(), grace)
 
 	state := loadAutoUpdateState()
 	saveState := func() {
@@ -84,7 +96,6 @@ func RunAutoUpdateMonitor() error {
 			log("Failed to save auto-update state: %v", err)
 		}
 	}
-	ctx := context.Background()
 
 	for i := 1; i <= mgr.NumServers; i++ {
 		logPath := mgr.ServerLogPath(i)
@@ -110,8 +121,10 @@ func RunAutoUpdateMonitor() error {
 		}
 		log("Server-%d: CS2 update available (marker in %s).", i, logPath)
 
-		if settings.Hold {
-			log("Server-%d: updates are on hold; not restarting. Run `csm updates hold off` to allow, or `sudo csm update-server %d` to update now.", i, i)
+		if hold.On {
+			log("Server-%d: not restarting: updates are on hold (%s: %s). "+
+				"Run `sudo csm update-server %d` to update it now, or see `csm updates status`.",
+				i, hold.Source, hold.Reason, i)
 			continue
 		}
 		if st.LastUpdate > 0 {
@@ -132,7 +145,7 @@ func RunAutoUpdateMonitor() error {
 			if st.IdleSince > 0 {
 				idleSince = time.Unix(st.IdleSince, 0)
 			}
-			d := decideAutoUpdate(probe, settings.Hold, idleSince, time.Now(), grace)
+			d := decideAutoUpdate(probe, hold, idleSince, time.Now(), grace)
 			if d.Idle {
 				st.IdleSince = d.IdleSince.Unix()
 			} else {
