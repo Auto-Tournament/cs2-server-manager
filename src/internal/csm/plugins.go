@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -67,32 +66,13 @@ func NewPluginUpdater() *PluginUpdater {
 	}
 }
 
-// CheckDiskSpaceForPluginUpdate checks if there's sufficient disk space
-// for plugin updates. It ensures the directory exists before checking,
-// and requires at least 1GB of free space.
+// CheckDiskSpaceForPluginUpdate checks that the filesystem that holds (or
+// will hold) gameDir has at least 1GB free for plugin updates. gameDir does
+// not need to exist yet: on a fresh install game_files/game is only created by
+// the update itself, so the check inspects the closest existing parent.
 func CheckDiskSpaceForPluginUpdate(gameDir string) error {
-	// Ensure the directory exists before checking disk space
-	if err := os.MkdirAll(gameDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", gameDir, err)
-	}
-
-	// Check disk space using the filesystem that contains the directory
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(gameDir, &stat); err != nil {
-		return fmt.Errorf("failed to check disk space at %s: %w", gameDir, err)
-	}
-
-	// Calculate free space in GB
-	blockSize := float64(stat.Bsize)
-	freeGB := (float64(stat.Bavail) * blockSize) / (1024 * 1024 * 1024)
-
-	// Require at least 1GB of free space for plugin updates
 	const minRequiredGB = 1.0
-	if freeGB < minRequiredGB {
-		return fmt.Errorf("insufficient disk space: %.2f GB free, need at least %.2f GB", freeGB, minRequiredGB)
-	}
-
-	return nil
+	return requireFreeDiskGB(gameDir, minRequiredGB)
 }
 
 // UpdatePlugins downloads and stages Metamod:Source (pinned, see
@@ -137,8 +117,11 @@ func UpdatePlugins() (string, error) {
 		log("")
 
 		// Check disk space before starting downloads
+		// A real shortage already says "insufficient disk space"; any other
+		// error means the check itself could not run, and must not be
+		// reported as a full disk.
 		if err := CheckDiskSpaceForPluginUpdate(up.GameDir); err != nil {
-			resultErr = fmt.Errorf("insufficient disk space for plugin update: %w", err)
+			resultErr = fmt.Errorf("plugin update pre-check failed: %w", err)
 			return resultErr
 		}
 
