@@ -16,10 +16,12 @@ func TestDecideAutoUpdate(t *testing.T) {
 	idle := serverIdleProbe{Reachable: true, PlayersKnown: true, HumanPlayers: 0, MatchState: "none"}
 	with := func(f func(*serverIdleProbe)) serverIdleProbe { p := idle; f(&p); return p }
 
+	held := UpdateHold{On: true, Source: HoldSourcePlatform, Reason: "a tournament is in progress"}
+
 	tests := []struct {
 		name      string
 		probe     serverIdleProbe
-		hold      bool
+		hold      UpdateHold
 		idleSince time.Time
 		wantIdle  bool
 		wantUpd   bool
@@ -39,8 +41,8 @@ func TestDecideAutoUpdate(t *testing.T) {
 		{name: "match state unknown is not idle", probe: with(func(p *serverIdleProbe) { p.MatchState = "" }), idleSince: now.Add(-time.Hour), reason: "match state unknown"},
 		{name: "player count unknown is not idle", probe: with(func(p *serverIdleProbe) { p.PlayersKnown = false }), reason: "player count"},
 		{name: "rcon unreachable is not idle", probe: serverIdleProbe{}, idleSince: now.Add(-time.Hour), reason: "RCON unreachable"},
-		{name: "hold blocks idle server", probe: idle, hold: true, idleSince: now.Add(-time.Hour), wantIdle: true, wantSince: now.Add(-time.Hour), reason: "on hold"},
-		{name: "hold with players", probe: with(func(p *serverIdleProbe) { p.HumanPlayers = 3 }), hold: true, reason: "on hold"},
+		{name: "hold blocks idle server", probe: idle, hold: held, idleSince: now.Add(-time.Hour), wantIdle: true, wantSince: now.Add(-time.Hour), reason: "on hold (a tournament is in progress)"},
+		{name: "hold with players", probe: with(func(p *serverIdleProbe) { p.HumanPlayers = 3 }), hold: held, reason: "on hold (a tournament is in progress)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -54,7 +56,7 @@ func TestDecideAutoUpdate(t *testing.T) {
 			if tt.reason != "" && !strings.Contains(d.Reason, tt.reason) {
 				t.Fatalf("reason %q does not mention %q", d.Reason, tt.reason)
 			}
-			if tt.hold && d.Update {
+			if tt.hold.On && d.Update {
 				t.Fatal("never update while on hold")
 			}
 		})
