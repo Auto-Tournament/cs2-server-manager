@@ -27,6 +27,8 @@ Not sure whether your use counts as commercial? Ask first.
 
 Contact the author, Sivert Gullberg Hansen, through the [Auto Tournament Discord](https://discord.gg/n7gHYau7aW) or the [Auto-Tournament organization on GitHub](https://github.com/Auto-Tournament).
 
+Contributions are accepted under the [Contributor License Agreement](CLA.md).
+
 ## Older versions
 
 Earlier versions were published without a license file. Everything from the addition of the LICENSE file on is under the PolyForm Noncommercial License 1.0.0.
