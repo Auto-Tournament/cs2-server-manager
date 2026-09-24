@@ -134,4 +134,3 @@ func ensureHomeWritable(user string) error {
 	}
 	return ensureOwnedByUser(user, fmt.Sprintf("/home/%s", user))
 }
-
