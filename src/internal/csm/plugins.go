@@ -204,15 +204,24 @@ func (up *PluginUpdater) httpClient() *http.Client {
 // MetamodPinnedVersion is the Metamod:Source GitHub release tag CSM installs
 // by default.
 //
-// Metamod commit 0cc4e20 ("Bump MMS Api version, and min load version",
-// 2026-09-08) raised the minimum plugin API version. CounterStrikeSharp
-// v1.0.374 is built against the old API, so newer Metamod builds refuse to
-// load it ("Plugin uses old SourceHook Metamod build ... (17 < 18)") and
-// neither CounterStrikeSharp nor MatchZy loads. 2.0.0.1411 (2026-08-31) is the
-// last build published before that change and before the SourceHook rewrite.
+// CounterStrikeSharp installs from its latest release, so this pin has to
+// move in step with what that release needs:
 //
-// Raise this once a CounterStrikeSharp release loads on the newer Metamod API.
-const MetamodPinnedVersion = "2.0.0.1411"
+//   - Metamod commit 0cc4e20 ("Bump MMS Api version, and min load version",
+//     2026-09-08) raised the minimum plugin API version. CounterStrikeSharp up
+//     to v1.0.374 was built against the old API and fails on newer Metamod
+//     ("Plugin uses old SourceHook Metamod build ... (17 < 18)"), so this was
+//     pinned to 2.0.0.1411, the last build before that change.
+//   - CounterStrikeSharp v1.0.375 (2026-09-24) moved from SourceHook to KHook
+//     and requires Metamod build 1467 or newer with KHook support. It is also
+//     the release that fixes the CS2 1.41.8.x update, so it cannot be skipped:
+//     on 1.0.374 the CBaseEntity_Teleport offset is stale (162 vs 164 on
+//     Linux), and any plugin that teleports an entity silently misbehaves.
+//
+// So 2.0.0.1469, the newest build and >= 1467. The two only work as a pair:
+// CounterStrikeSharp v1.0.375+ on this, and never v1.0.374 or older. Check
+// what the latest CounterStrikeSharp release requires before changing this.
+const MetamodPinnedVersion = "2.0.0.1469"
 
 // metamodVersionEnv overrides MetamodPinnedVersion. Set it to a release tag
 // from alliedmodders/metamod-source (e.g. "2.0.0.1468") or to "latest" to
