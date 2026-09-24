@@ -142,7 +142,7 @@ On newer distributions such as Debian 13 and Ubuntu 25.04+, CounterStrikeSharp c
 
 ## Metamod version
 
-CounterStrikeSharp and MatchZy install from their latest releases. Metamod:Source is pinned to `2.0.0.1411`, because Metamod builds from 2026-09-08 onward raised the plugin API version, and the current CounterStrikeSharp release fails on them with `Plugin uses old SourceHook Metamod build ... (17 < 18)`.
+CounterStrikeSharp and MatchZy install from their latest releases. Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `sudo csm update-plugins` to get both at once.
 
 `sudo csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
 
