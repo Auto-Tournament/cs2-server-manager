@@ -337,6 +337,7 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 				log("  [OK] Shared addons updated (%s)", sharedAddonsDir)
 			}
 			cfgRsyncCancel()
+			_ = removeLegacyATCS2Plugin(w, "cs2-config", filepath.Dir(sharedAddonsDir))
 		}
 	} else {
 		log("  [i] Plugin bundle addons directory not found at %s; skipping shared addons sync", srcAddons)
@@ -358,8 +359,9 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 
 		// Fully replace the server's addons tree so no stale plugin files linger
 		// between updates. The plugin keeps its SQLite database inside its own
-		// plugin folder, so that file is moved aside first and put back after
-		// (withPluginSQLitePreserved).
+		// plugin folder, so that file is moved aside first and put back after,
+		// and the old plugin folder's matchzy.db is carried over to the new
+		// one.
 		addonsOK := true
 		replaceAddons := func() error {
 			if err := os.RemoveAll(dstAddons); err != nil && !os.IsNotExist(err) {
@@ -368,7 +370,7 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 			if err := os.MkdirAll(dstAddons, 0o755); err != nil {
 				log("  [ERROR] Failed to recreate addons directory for server-%d at %s: %v", i, dstAddons, err)
 				addonsOK = false
-				return nil
+				return err
 			}
 			if os.Geteuid() == 0 {
 				_ = ensureOwnedByUser(mgr.CS2User, dstAddons)
@@ -392,12 +394,12 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 				} else {
 					log("  [ERROR] rsync addons for server-%d failed: %v", i, err)
 				}
-			} else {
-				log("  [OK] Updated addons on server-%d", i)
+				return nil
 			}
-			return nil
+			log("  [OK] Updated addons on server-%d", i)
+			return removeLegacyATCS2Plugin(w, fmt.Sprintf("server-%d", i), dstGame)
 		}
-		if err := withPluginSQLitePreserved(w, serverDir, replaceAddons); err != nil {
+		if err := withATCS2SQLitePreserved(w, serverDir, replaceAddons); err != nil {
 			log("  [ERROR] server-%d: %v", i, err)
 		}
 		if !addonsOK {
@@ -405,7 +407,7 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 		}
 
 		// For configs, treat the shared cs2-config tree as the canonical source
-		// so that any MatchZy or other plugin configs maintained there are
+		// so that any Auto Tournament CS2 or other plugin configs maintained there are
 		// propagated to all servers.
 		if fi, err := os.Stat(sharedCfgDir); err == nil && fi.IsDir() {
 			cfgRsyncCtx, cfgRsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
@@ -650,7 +652,7 @@ func applyOverridesToSharedConfigs(w io.Writer, mgr *TmuxManager) error {
 // UpdateServerWithContext updates the game files for a single server via
 // SteamCMD (against the shared master install) and rsync, without touching
 // other servers. It is intended for targeted update flows such as reacting to
-// a MatchZy-driven update shutdown of a specific server.
+// an update shutdown requested by the Auto Tournament CS2 plugin of a specific server.
 func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 	var buf bytes.Buffer
 

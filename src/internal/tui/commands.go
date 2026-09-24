@@ -205,17 +205,17 @@ func runRestartAllServers() tea.Cmd {
 	}
 }
 
-// runMatchzyDBDetail runs the MatchZy DB verification/repair flow via the
-// Go-native csm.VerifyMatchzyDB helper and shows the output on a simple
+// runATCS2DBDetail runs the Auto Tournament CS2 DB verification/repair flow via the
+// Go-native csm.VerifyATCS2DB helper and shows the output on a simple
 // action-result page instead of a scrollable viewport. The content is
 // typically short enough that scrolling is unnecessary.
-func runMatchzyDBDetail() tea.Cmd {
+func runATCS2DBDetail() tea.Cmd {
 	return func() tea.Msg {
-		out, err := csm.VerifyMatchzyDB()
+		out, err := csm.VerifyATCS2DB()
 		return commandFinishedMsg{
 			item: menuItem{
-				title: "MatchZy DB: verify/repair",
-				kind:  itemMatchzyDBViewport,
+				title: "Plugin DB: verify/repair",
+				kind:  itemATCS2DBViewport,
 			},
 			output: out,
 			err:    err,
@@ -540,7 +540,7 @@ func runEditConfigFile(title, configPath string) tea.Cmd {
 			return commandFinishedMsg{
 				item: menuItem{
 					title: title,
-					kind:  itemEditMatchZyConfig, // placeholder
+					kind:  itemEditATCS2Config, // placeholder
 				},
 				output: fmt.Sprintf("Failed to detect CS2 user: %v", err),
 				err:    err,
@@ -553,6 +553,9 @@ func runEditConfigFile(title, configPath string) tea.Cmd {
 		// Use the same overrides folder update-plugins reads, after copying
 		// over anything older builds left in the legacy <root>/overrides.
 		csm.EnsureOverridesMigrated(mgr.CS2User)
+		// Likewise carry cfg/MatchZy/ over to cfg/AutoTournamentCS2/ first,
+		// so the editor opens the operator's file and not a new blank one.
+		_ = csm.EnsureATCS2CfgCarriedOver(io.Discard, mgr.CS2User)
 
 		// Try overrides first (user's custom configs)
 		overridePath := filepath.Join(csm.OverridesDir(mgr.CS2User), configPath)
@@ -671,9 +674,9 @@ echo "Run 'sudo csm' to restart the TUI."
 func runCleanupAllGo() tea.Cmd {
 	return func() tea.Msg {
 		cfg := csm.CleanupConfig{
-			CS2User:          os.Getenv("CS2_USER"),
-			MatchzyContainer: os.Getenv("MATCHZY_DB_CONTAINER"),
-			MatchzyVolume:    os.Getenv("MATCHZY_DB_VOLUME"),
+			CS2User:        os.Getenv("CS2_USER"),
+			ATCS2Container: os.Getenv("AT_DB_CONTAINER"),
+			ATCS2Volume:    os.Getenv("AT_DB_VOLUME"),
 		}
 		out, err := csm.CleanupAll(cfg)
 		return commandFinishedMsg{

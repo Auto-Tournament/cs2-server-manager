@@ -67,7 +67,7 @@ func TestApplyLaunchModeFlags(t *testing.T) {
 // Restart calls Start, so Start and Debug cover every entry point.
 func TestServerLaunchHonoursModeForStartAndDebug(t *testing.T) {
 	t.Setenv("CSM_STEAMRT", "0")
-	t.Setenv("CSM_MATCHZY_SCOPE_PREFIX", "box")
+	t.Setenv("CSM_AT_SCOPE_PREFIX", "box")
 	t.Setenv("CSM_ALTERNATE_LAUNCHER", "")
 
 	tests := []struct {
@@ -102,7 +102,7 @@ func TestServerLaunchHonoursModeForStartAndDebug(t *testing.T) {
 			if !strings.HasPrefix(start, tt.wantPrefix) {
 				t.Fatalf("command %q does not start with %q", start, tt.wantPrefix)
 			}
-			if c := strings.Count(start, MatchzyConfigScopeArg+" box-server-2"); c != 1 {
+			if c := strings.Count(start, ATCS2ConfigScopeArg+" box-server-2"); c != 1 {
 				t.Fatalf("command has %d scope args, want 1: %q", c, start)
 			}
 			_, err := os.Stat(filepath.Join(gameDir, "csm.sh"))
@@ -127,7 +127,7 @@ func TestServerLaunchCommandSteamRuntimeKeepsModeAndScope(t *testing.T) {
 			t.Fatalf("%s: wrapped command %q does not run %q", mode, wrapped, plain)
 		}
 		// The wrapper repeats the command once for its fallback.
-		if c := strings.Count(wrapped, MatchzyConfigScopeArg+" cs2-server-1"); c != 2 {
+		if c := strings.Count(wrapped, ATCS2ConfigScopeArg+" cs2-server-1"); c != 2 {
 			t.Fatalf("%s: wrapped command has %d scope args, want 2: %q", mode, c, wrapped)
 		}
 	}

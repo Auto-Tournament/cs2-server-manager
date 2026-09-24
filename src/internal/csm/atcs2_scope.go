@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// MatchZy persistent config scoping.
+// Auto Tournament CS2 persistent config scoping.
 //
-// MatchZy stores per-server settings (matchzy_server_id, bootstrap URL/token,
+// The plugin stores per-server settings (at_server_id, bootstrap URL/token,
 // remote log URL, demo upload URL, ...) in its database. Before
 // Auto-Tournament/cs2-plugin#17 those rows were keyed by setting name only, so
 // several servers sharing one MySQL database overwrote each other and all
@@ -21,50 +21,47 @@ import (
 // server's start command line.
 
 const (
-	// MatchzyConfigScopeArg is the start argument MatchZy-Enhanced reads to pin
-	// a server's persistent config scope.
-	MatchzyConfigScopeArg = "+matchzy_config_scope"
+	// ATCS2ConfigScopeArg is the start argument the plugin reads to pin a
+	// server's persistent config scope.
+	ATCS2ConfigScopeArg = "+at_config_scope"
 
-	// MatchzyConfigScopeConVar is the convar name behind the start argument. It
-	// is also the string the doctor looks for in MatchZy.dll to tell whether an
-	// installed build supports scoping.
-	MatchzyConfigScopeConVar = "matchzy_config_scope"
+	// ATCS2ConfigScopeConVar is the convar name behind the start argument. It
+	// is also the string the doctor looks for in AutoTournamentCS2.dll to
+	// tell whether an installed build supports scoping.
+	ATCS2ConfigScopeConVar = "at_config_scope"
 
-	// MatchzyScopingPR is the MatchZy-Enhanced change that adds per-server
-	// config scoping.
-	MatchzyScopingPR = "https://github.com/Auto-Tournament/cs2-plugin/pull/17"
+	// ATCS2ScopingPR is the plugin change that adds per-server config
+	// scoping.
+	ATCS2ScopingPR = "https://github.com/Auto-Tournament/cs2-plugin/pull/17"
 
-	// MatchzyScopingMinVersion is the first plugin release on which several
-	// servers can share one MySQL database:
+	// ATCS2MinVersion is the oldest plugin release csm supports. 2.0.0 is
+	// the release that renamed the plugin (AutoTournamentCS2.dll, cfg/
+	// AutoTournamentCS2/, at_* convars and the +at_config_scope start
+	// argument). An older build is the old plugin under its old name: it
+	// does not read +at_config_scope, so servers sharing one MySQL database
+	// overwrite each other's settings, and it cannot talk to Auto Tournament
+	// 3.0. It must be replaced, not kept alongside.
 	//
-	//   - v1.4.26 shipped MatchzyScopingPR but could not read the start
-	//     arguments inside the game process, so every server on a box resolved
-	//     the same scope and they still overwrote each other.
-	//   - v1.4.27 (cs2-plugin#18) is the first release that reads
-	//     +matchzy_config_scope, from /proc/self/cmdline.
-	//   - v1.4.28 (cs2-plugin#19) stops a controller's URL/token update from
-	//     fetching another server's bootstrap payload, which on a shared
-	//     database still overwrote matchzy_server_id with another server's id.
-	//
-	// The docs require 1.4.28 for a shared database, so the doctor does too.
-	MatchzyScopingMinVersion = "1.4.28"
+	// Per-server scoping itself landed in the 1.4.x line (cs2-plugin#17,
+	// #18, #19), so every 2.0.0 build has it.
+	ATCS2MinVersion = "2.0.0"
 
-	// MatchzyReleaseMarkerFile is written next to MatchZy.dll by
+	// ATCS2ReleaseMarkerFile is written next to AutoTournamentCS2.dll by
 	// `csm update-plugins` and holds the deployed release tag.
-	MatchzyReleaseMarkerFile = ".csm-release"
+	ATCS2ReleaseMarkerFile = ".csm-release"
 
-	// matchzyScopeMaxLen keeps scopes well under the plugin's own 180-char cap
+	// atcs2ScopeMaxLen keeps scopes well under the plugin's own 180-char cap
 	// so the plugin never truncates (and so never changes) what CSM passes.
-	matchzyScopeMaxLen = 64
+	atcs2ScopeMaxLen = 64
 )
 
-// MatchzyScopingRequirement describes the plugin build shared MySQL needs, for
-// use in wizard text, doctor output and logs.
-func MatchzyScopingRequirement() string {
-	return fmt.Sprintf("Auto Tournament CS2 (formerly MatchZy Enhanced) %s or newer", MatchzyScopingMinVersion)
+// ATCS2Requirement describes the plugin build csm needs, for use in wizard
+// text, doctor output and logs.
+func ATCS2Requirement() string {
+	return fmt.Sprintf("Auto Tournament CS2 %s or newer", ATCS2MinVersion)
 }
 
-// MatchzyConfigScope returns the persistent config scope for server-N on this
+// ATCS2ConfigScope returns the persistent config scope for server-N on this
 // machine: "<hostname>-server-<N>", for example "cs2-server-1".
 //
 //   - server-N is the server's directory name. It is unique per server on one
@@ -76,24 +73,24 @@ func MatchzyScopingRequirement() string {
 //
 // Operators who rename the machine, or run several machines with the same
 // hostname against one database, can pin the prefix with
-// CSM_MATCHZY_SCOPE_PREFIX.
-func MatchzyConfigScope(serverNum int) string {
-	prefix := strings.TrimSpace(os.Getenv("CSM_MATCHZY_SCOPE_PREFIX"))
+// CSM_AT_SCOPE_PREFIX.
+func ATCS2ConfigScope(serverNum int) string {
+	prefix := strings.TrimSpace(os.Getenv("CSM_AT_SCOPE_PREFIX"))
 	if prefix == "" {
 		if h, err := os.Hostname(); err == nil {
 			prefix = h
 		}
 	}
-	return matchzyConfigScopeFor(prefix, serverNum)
+	return atcs2ConfigScopeFor(prefix, serverNum)
 }
 
-// matchzyConfigScopeFor builds the scope from an explicit prefix. It is split
-// out from MatchzyConfigScope so it can be tested without depending on the
+// atcs2ConfigScopeFor builds the scope from an explicit prefix. It is split
+// out from ATCS2ConfigScope so it can be tested without depending on the
 // test machine's hostname or environment.
-func matchzyConfigScopeFor(prefix string, serverNum int) string {
+func atcs2ConfigScopeFor(prefix string, serverNum int) string {
 	suffix := fmt.Sprintf("server-%d", serverNum)
 	p := sanitizeScopeToken(prefix)
-	maxPrefix := matchzyScopeMaxLen - len(suffix) - 1
+	maxPrefix := atcs2ScopeMaxLen - len(suffix) - 1
 	if len(p) > maxPrefix {
 		p = strings.Trim(p[:maxPrefix], "-.")
 	}
@@ -139,12 +136,12 @@ func sanitizeScopeToken(s string) string {
 	return strings.Trim(b.String(), "-.")
 }
 
-// matchzyScopeLaunchArg returns " +matchzy_config_scope <scope>" for appending
+// atcs2ScopeLaunchArg returns " +at_config_scope <scope>" for appending
 // to a launch command, or "" when the scope sanitises to nothing.
-func matchzyScopeLaunchArg(scope string) string {
+func atcs2ScopeLaunchArg(scope string) string {
 	s := sanitizeScopeToken(scope)
 	if s == "" {
 		return ""
 	}
-	return " " + MatchzyConfigScopeArg + " " + s
+	return " " + ATCS2ConfigScopeArg + " " + s
 }

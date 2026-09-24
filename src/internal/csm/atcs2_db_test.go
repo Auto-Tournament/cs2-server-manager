@@ -16,27 +16,27 @@ const liveWorkaroundDBJSON = `{
   "DatabaseType": "SQLite",
   "MySqlHost": "127.0.0.1",
   "MySqlPort": 3306,
-  "MySqlDatabase": "matchzy",
-  "MySqlUsername": "matchzy",
-  "MySqlPassword": "matchzy",
-  "__CSM_NOTE": "SQLite per server: a shared MySQL made every server load the same matchzy_server_id/bootstrap_url (all reported s_3). MAT keeps its own database.",
+  "MySqlDatabase": "stats",
+  "MySqlUsername": "stats",
+  "MySqlPassword": "stats",
+  "__CSM_NOTE": "SQLite per server: a shared MySQL made every server load the same at_server_id/bootstrap_url (all reported s_3). The platform keeps its own database.",
   "__CSM_DB_MODE": "docker"
 }`
 
-func readDBFile(t *testing.T, path string) matchzyDBFile {
+func readDBFile(t *testing.T, path string) atcs2DBFile {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var f matchzyDBFile
+	var f atcs2DBFile
 	if err := json.Unmarshal(data, &f); err != nil {
 		t.Fatalf("invalid JSON in %s: %v", path, err)
 	}
 	return f
 }
 
-func TestWriteManagedMatchzyDBConfigLeavesOperatorFilesAlone(t *testing.T) {
+func TestWriteManagedATCS2DBConfigLeavesOperatorFilesAlone(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -55,8 +55,8 @@ func TestWriteManagedMatchzyDBConfigLeavesOperatorFilesAlone(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			desired, mode := wizardMatchzyDBConfig(BootstrapConfig{DBMode: "docker"})
-			wrote, err := writeManagedMatchzyDBConfig(path, desired, mode)
+			desired, mode := wizardATCS2DBConfig(BootstrapConfig{DBMode: "docker"})
+			wrote, err := writeManagedATCS2DBConfig(path, desired, mode)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -71,13 +71,13 @@ func TestWriteManagedMatchzyDBConfigLeavesOperatorFilesAlone(t *testing.T) {
 	}
 }
 
-func TestWriteManagedMatchzyDBConfigRewritesManagedAndCreatesMissing(t *testing.T) {
+func TestWriteManagedATCS2DBConfigRewritesManagedAndCreatesMissing(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "missing.json")
 	managed := filepath.Join(dir, "managed.json")
-	embedded, err := defaultOverridesFS.ReadFile("defaults/overrides/game/csgo/cfg/MatchZy/database.json")
+	embedded, err := defaultOverridesFS.ReadFile("defaults/overrides/game/csgo/cfg/AutoTournamentCS2/database.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,9 +85,9 @@ func TestWriteManagedMatchzyDBConfigRewritesManagedAndCreatesMissing(t *testing.
 		t.Fatal(err)
 	}
 
-	desired, mode := wizardMatchzyDBConfig(BootstrapConfig{DBEngine: MatchzyDBEngineSQLite})
+	desired, mode := wizardATCS2DBConfig(BootstrapConfig{DBEngine: ATCS2DBEngineSQLite})
 	for _, path := range []string{missing, managed} {
-		wrote, err := writeManagedMatchzyDBConfig(path, desired, mode)
+		wrote, err := writeManagedATCS2DBConfig(path, desired, mode)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,13 +95,13 @@ func TestWriteManagedMatchzyDBConfigRewritesManagedAndCreatesMissing(t *testing.
 			t.Fatalf("%s: expected write", filepath.Base(path))
 		}
 		f := readDBFile(t, path)
-		if f.DatabaseType != "SQLite" || f.DBMode != MatchzyDBEngineSQLite || !isCSMManagedDBNote(f.CSMNote) {
+		if f.DatabaseType != "SQLite" || f.DBMode != ATCS2DBEngineSQLite || !isCSMManagedDBNote(f.CSMNote) {
 			t.Fatalf("%s: got %+v", filepath.Base(path), f)
 		}
 	}
 }
 
-func TestWizardMatchzyDBConfig(t *testing.T) {
+func TestWizardATCS2DBConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -112,15 +112,15 @@ func TestWizardMatchzyDBConfig(t *testing.T) {
 		wantHost string
 	}{
 		{"default docker mysql", BootstrapConfig{DBMode: "docker"}, "MySQL", "docker", "127.0.0.1"},
-		{"sqlite per server", BootstrapConfig{DBMode: "docker", DBEngine: "sqlite"}, "SQLite", MatchzyDBEngineSQLite, "127.0.0.1"},
-		{"sqlite wins over external", BootstrapConfig{DBMode: "external", DBEngine: "SQLite", ExternalDBHost: "db"}, "SQLite", MatchzyDBEngineSQLite, "127.0.0.1"},
+		{"sqlite per server", BootstrapConfig{DBMode: "docker", DBEngine: "sqlite"}, "SQLite", ATCS2DBEngineSQLite, "127.0.0.1"},
+		{"sqlite wins over external", BootstrapConfig{DBMode: "external", DBEngine: "SQLite", ExternalDBHost: "db"}, "SQLite", ATCS2DBEngineSQLite, "127.0.0.1"},
 		{"external mysql", BootstrapConfig{DBMode: "external", DBEngine: "mysql", ExternalDBHost: "db.internal", ExternalDBPort: 3307}, "MySQL", "external", "db.internal"},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			c, mode := wizardMatchzyDBConfig(tt.cfg)
+			c, mode := wizardATCS2DBConfig(tt.cfg)
 			if c.DatabaseType != tt.wantType || mode != tt.wantMode || c.MySQLHost != tt.wantHost {
 				t.Fatalf("got type=%q mode=%q host=%q, want %q %q %q", c.DatabaseType, mode, c.MySQLHost, tt.wantType, tt.wantMode, tt.wantHost)
 			}
@@ -128,23 +128,23 @@ func TestWizardMatchzyDBConfig(t *testing.T) {
 	}
 }
 
-func TestNormalizeMatchzyDBEngine(t *testing.T) {
+func TestNormalizeATCS2DBEngine(t *testing.T) {
 	t.Parallel()
 
 	for in, want := range map[string]string{
 		"":                  "",
-		"mysql":             MatchzyDBEngineMySQL,
-		" MySQL ":           MatchzyDBEngineMySQL,
-		"shared":            MatchzyDBEngineMySQL,
-		"sqlite":            MatchzyDBEngineSQLite,
-		"SQLite-per-server": MatchzyDBEngineSQLite,
+		"mysql":             ATCS2DBEngineMySQL,
+		" MySQL ":           ATCS2DBEngineMySQL,
+		"shared":            ATCS2DBEngineMySQL,
+		"sqlite":            ATCS2DBEngineSQLite,
+		"SQLite-per-server": ATCS2DBEngineSQLite,
 	} {
-		got, err := NormalizeMatchzyDBEngine(in)
+		got, err := NormalizeATCS2DBEngine(in)
 		if err != nil || got != want {
-			t.Fatalf("NormalizeMatchzyDBEngine(%q) = %q, %v; want %q", in, got, err, want)
+			t.Fatalf("NormalizeATCS2DBEngine(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	if _, err := NormalizeMatchzyDBEngine("postgres"); err == nil {
+	if _, err := NormalizeATCS2DBEngine("postgres"); err == nil {
 		t.Fatal("expected an error for an unknown engine")
 	}
 }
@@ -152,33 +152,33 @@ func TestNormalizeMatchzyDBEngine(t *testing.T) {
 func newOverridesDir(t *testing.T) (overrides, dbPath string) {
 	t.Helper()
 	overrides = t.TempDir()
-	dbPath = filepath.Join(overrides, "game", "csgo", "cfg", "MatchZy", "database.json")
+	dbPath = filepath.Join(overrides, "game", "csgo", "cfg", ATCS2CfgDirName, "database.json")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return overrides, dbPath
 }
 
-func TestSetupMatchZyDatabaseSQLiteMode(t *testing.T) {
+func TestSetupATCS2DatabaseSQLiteMode(t *testing.T) {
 	t.Parallel()
 
 	overrides, dbPath := newOverridesDir(t)
 	var buf bytes.Buffer
 	// Fresh install: the embedded default (CSM-managed) is already seeded.
-	embedded, _ := defaultOverridesFS.ReadFile("defaults/overrides/game/csgo/cfg/MatchZy/database.json")
+	embedded, _ := defaultOverridesFS.ReadFile("defaults/overrides/game/csgo/cfg/AutoTournamentCS2/database.json")
 	if err := os.WriteFile(dbPath, embedded, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	err := setupMatchZyDatabaseGo(&buf, BootstrapConfig{
+	err := setupATCS2DatabaseGo(&buf, BootstrapConfig{
 		CS2User:      "nobody-csm-test",
 		NumServers:   3,
 		OverridesDir: overrides,
 		DBMode:       "docker",
-		DBEngine:     MatchzyDBEngineSQLite,
+		DBEngine:     ATCS2DBEngineSQLite,
 	})
 	if err != nil {
-		t.Fatalf("setupMatchZyDatabaseGo: %v\n%s", err, buf.String())
+		t.Fatalf("setupATCS2DatabaseGo: %v\n%s", err, buf.String())
 	}
 	if f := readDBFile(t, dbPath); f.DatabaseType != "SQLite" {
 		t.Fatalf("DatabaseType = %q, want SQLite", f.DatabaseType)
@@ -188,7 +188,7 @@ func TestSetupMatchZyDatabaseSQLiteMode(t *testing.T) {
 	}
 }
 
-func TestSetupMatchZyDatabaseLeavesCustomFile(t *testing.T) {
+func TestSetupATCS2DatabaseLeavesCustomFile(t *testing.T) {
 	t.Parallel()
 
 	overrides, dbPath := newOverridesDir(t)
@@ -198,17 +198,17 @@ func TestSetupMatchZyDatabaseLeavesCustomFile(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	err := setupMatchZyDatabaseGo(&buf, BootstrapConfig{
+	err := setupATCS2DatabaseGo(&buf, BootstrapConfig{
 		CS2User:      "nobody-csm-test",
 		NumServers:   3,
 		OverridesDir: overrides,
 		DBMode:       "docker",
-		DBEngine:     MatchzyDBEngineSQLite,
+		DBEngine:     ATCS2DBEngineSQLite,
 		// Keep the test off Docker: the untouched file is MySQL.
-		MatchzySkipDocker: true,
+		ATCS2SkipDocker: true,
 	})
 	if err != nil {
-		t.Fatalf("setupMatchZyDatabaseGo: %v\n%s", err, buf.String())
+		t.Fatalf("setupATCS2DatabaseGo: %v\n%s", err, buf.String())
 	}
 	if got, _ := os.ReadFile(dbPath); string(got) != custom {
 		t.Fatalf("custom database.json was modified:\n%s", got)
@@ -222,7 +222,7 @@ func TestSharedMySQLScopingNoticeNamesRequirement(t *testing.T) {
 	t.Parallel()
 
 	msg := sharedMySQLScopingNotice(3)
-	for _, want := range []string{MatchzyScopingRequirement(), MatchzyConfigScopeArg, "SQLite"} {
+	for _, want := range []string{ATCS2Requirement(), ATCS2ConfigScopeArg, "SQLite"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("notice %q does not mention %q", msg, want)
 		}

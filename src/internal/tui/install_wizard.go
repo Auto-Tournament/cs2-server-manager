@@ -271,13 +271,13 @@ const (
 	wizardFieldCount
 )
 
-// toggleDBEngine flips the MatchZy storage choice between shared MySQL and
+// toggleDBEngine flips the plugin storage choice between shared MySQL and
 // SQLite per server.
 func toggleDBEngine(engine string) string {
-	if engine == csm.MatchzyDBEngineSQLite {
-		return csm.MatchzyDBEngineMySQL
+	if engine == csm.ATCS2DBEngineSQLite {
+		return csm.ATCS2DBEngineMySQL
 	}
-	return csm.MatchzyDBEngineSQLite
+	return csm.ATCS2DBEngineSQLite
 }
 
 // wizardPage defines which fields appear on each page
@@ -520,14 +520,14 @@ func (m model) viewInstallWizard() string {
 			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
 				dbLabel = "External MySQL (no Docker provisioning)"
 			}
-			renderRow(wizardFieldDBMode, "MatchZy DB:", dbLabel)
+			renderRow(wizardFieldDBMode, "Plugin DB:", dbLabel)
 
 		case wizardFieldDBEngine:
 			engineLabel := "Shared MySQL (stats shared across servers)"
-			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
-				engineLabel = "SQLite per server (safe with any MatchZy build)"
+			if m.wizard.cfg.dbEngine == csm.ATCS2DBEngineSQLite {
+				engineLabel = "SQLite per server (stats not shared)"
 			}
-			renderRow(wizardFieldDBEngine, "MatchZy storage:", engineLabel)
+			renderRow(wizardFieldDBEngine, "Plugin storage:", engineLabel)
 
 		case wizardFieldNumServers:
 			numServersVal := m.wizard.numServersStr
@@ -714,14 +714,14 @@ func (m model) viewInstallWizard() string {
 		switch selectedField {
 		case wizardFieldDBMode:
 			desc = "Choose Docker-managed MySQL (recommended) or an existing external MySQL server."
-			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
+			if m.wizard.cfg.dbEngine == csm.ATCS2DBEngineSQLite {
 				desc += " Not used while storage is SQLite per server."
 			}
 		case wizardFieldDBEngine:
-			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
-				desc = "Each server keeps its own matchzy.db. Stats are not shared, but servers can never load each other's server id or bootstrap URL, on any MatchZy build."
+			if m.wizard.cfg.dbEngine == csm.ATCS2DBEngineSQLite {
+				desc = "Each server keeps its own " + csm.ATCS2SQLiteFile + ". Stats are not shared, but servers can never load each other's server id or bootstrap URL."
 			} else {
-				desc = "One MySQL database for every server, so stats are shared. With 2+ servers this needs " + csm.MatchzyScopingRequirement() + "; older builds make every server load the same matchzy_server_id. Pick SQLite per server if you are on an older build."
+				desc = "One MySQL database for every server, so stats are shared. Each server keeps its own at_server_id and settings (csm starts it with " + csm.ATCS2ConfigScopeArg + "). Needs " + csm.ATCS2Requirement() + ", which csm installs."
 			}
 		case wizardFieldNumServers:
 			desc = "How many CS2 game servers to create on this machine."
@@ -737,9 +737,9 @@ func (m model) viewInstallWizard() string {
 			desc = "Install Metamod so you can run SourceMod and other plugins."
 		case wizardFieldFreshInstall:
 			if m.wizard.cfg.freshInstall {
-				desc = "Perform a full fresh install: delete existing master install, MatchZy DB container/volume, and all server-* directories before recreating everything."
+				desc = "Perform a full fresh install: delete existing master install, plugin DB container/volume, and all server-* directories before recreating everything."
 			} else {
-				desc = "Reuse the existing master install, MatchZy DB, and servers; only update what is needed."
+				desc = "Reuse the existing master install, plugin DB, and servers; only update what is needed."
 			}
 		case wizardFieldUpdateMaster:
 			desc = "Run SteamCMD to update the master CS2 install before deploying servers."
@@ -755,23 +755,23 @@ func (m model) viewInstallWizard() string {
 			desc = "Steam Game Server Login Token (GSLT) for server authentication. Optional but recommended for public servers."
 		case wizardFieldDBExternalHost:
 			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL host for MatchZy (used when MatchZy DB is set to external)."
+				desc = "External MySQL host for Auto Tournament CS2 (used when Plugin DB is set to external)."
 			}
 		case wizardFieldDBExternalPort:
 			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL port for MatchZy (typically 3306)."
+				desc = "External MySQL port for Auto Tournament CS2 (typically 3306)."
 			}
 		case wizardFieldDBExternalName:
 			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL database name for MatchZy (e.g. \"matchzy\")."
+				desc = "External MySQL database name for Auto Tournament CS2 (e.g. \"" + csm.DefaultATCS2DBName + "\")."
 			}
 		case wizardFieldDBExternalUser:
 			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL username for MatchZy."
+				desc = "External MySQL username for Auto Tournament CS2."
 			}
 		case wizardFieldDBExternalPassword:
 			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL password for MatchZy."
+				desc = "External MySQL password for Auto Tournament CS2."
 			}
 		case wizardFieldNext:
 			desc = "Continue to the next page."
@@ -1307,11 +1307,11 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				MaxPlayers:     cfg.maxPlayers,
 				GSLT:           cfg.gslt,
 
-				// MatchZy database choices. database.json is only rewritten
+				// Auto Tournament CS2 database choices. database.json is only rewritten
 				// when it carries CSM's managed note.
 				DBMode:             cfg.dbMode,
 				DBEngine:           cfg.dbEngine,
-				MatchzySkipDocker:  cfg.matchzySkipDocker,
+				ATCS2SkipDocker:    cfg.atcs2SkipDocker,
 				ExternalDBHost:     cfg.externalDBHost,
 				ExternalDBPort:     cfg.externalDBPort,
 				ExternalDBName:     cfg.externalDBName,

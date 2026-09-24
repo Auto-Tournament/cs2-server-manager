@@ -259,7 +259,7 @@ func TestPruneStaleVPKsSkipsAddonsAndNonVPK(t *testing.T) {
 	copyTree(t, master, server)
 	writeFile(t, filepath.Join(server, "csgo", "maps", "de_removed.vpk"), "old", testMtime)
 	writeFile(t, filepath.Join(server, "csgo", "addons", "plugin.vpk"), "addon", testMtime)
-	writeFile(t, filepath.Join(server, "csgo", "MatchZy", "backup.txt"), "keep", testMtime)
+	writeFile(t, filepath.Join(server, "csgo", "AutoTournamentCS2", "backup.txt"), "keep", testMtime)
 
 	st, err := newVPKLinker(io.Discard).relinkServer(context.Background(), master, server)
 	if err != nil {
@@ -271,7 +271,7 @@ func TestPruneStaleVPKsSkipsAddonsAndNonVPK(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(server, "csgo", "maps", "de_removed.vpk")); !os.IsNotExist(err) {
 		t.Error("stale VPK should be removed")
 	}
-	for _, keep := range []string{"csgo/addons/plugin.vpk", "csgo/MatchZy/backup.txt"} {
+	for _, keep := range []string{"csgo/addons/plugin.vpk", "csgo/AutoTournamentCS2/backup.txt"} {
 		if _, err := os.Stat(filepath.Join(server, keep)); err != nil {
 			t.Errorf("%s should be untouched: %v", keep, err)
 		}

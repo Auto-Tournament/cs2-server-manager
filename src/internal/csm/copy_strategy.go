@@ -227,7 +227,7 @@ var serverOwnedCfgFiles = []string{
 //
 //   - the server-owned files above, when the server already has them, from
 //     being overwritten by master's version, and
-//   - every csgo/cfg entry master does not have (MatchZy/, custom cfgs) from
+//   - every csgo/cfg entry master does not have (AutoTournamentCS2/, custom cfgs) from
 //     rsync --delete.
 //
 // Before this, update-game replaced server.cfg with master's copy and deleted

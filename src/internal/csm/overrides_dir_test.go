@@ -61,7 +61,7 @@ func readTestFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-const testCfgRel = "game/csgo/cfg/MatchZy/config.cfg"
+const testCfgRel = "game/csgo/cfg/AutoTournamentCS2/config.cfg"
 
 func TestMigrateLegacyOverridesCopiesMissing(t *testing.T) {
 	oldDir, newDir := t.TempDir(), filepath.Join(t.TempDir(), "overrides")

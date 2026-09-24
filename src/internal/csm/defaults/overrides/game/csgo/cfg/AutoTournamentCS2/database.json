@@ -2,8 +2,8 @@
   "DatabaseType": "MySQL",
   "MySqlHost": "127.0.0.1",
   "MySqlPort": 3306,
-  "MySqlDatabase": "matchzy",
-  "MySqlUsername": "matchzy",
-  "MySqlPassword": "matchzy",
+  "MySqlDatabase": "auto_tournament_cs2",
+  "MySqlUsername": "auto_tournament_cs2",
+  "MySqlPassword": "auto_tournament_cs2",
   "__CSM_NOTE": "This file is managed by CSM's install wizard. Manual edits may be overwritten."
 }

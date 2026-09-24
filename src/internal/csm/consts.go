@@ -30,22 +30,37 @@ const (
 	DefaultMasterDiskGB          = 71.0
 	DefaultPerServerLinkedDiskGB = 2.0
 
-	// DefaultMatchzyContainerName and DefaultMatchzyVolumeName define the
-	// Docker resources used for the MatchZy MySQL database when running in
-	// Docker-managed mode.
-	DefaultMatchzyContainerName = "matchzy-mysql"
-	DefaultMatchzyVolumeName    = "matchzy-mysql-data"
+	// DefaultATCS2ContainerName is the Docker container csm runs for the
+	// Auto Tournament CS2 MySQL database in Docker-managed mode.
+	DefaultATCS2ContainerName = "auto-tournament-cs2-mysql"
 
-	// DefaultMatchzyDBName / User / Password are the defaults used when
-	// provisioning a fresh MatchZy database, both for Docker-managed and
-	// external DB setups when the user has not supplied explicit values.
-	DefaultMatchzyDBName     = "matchzy"
-	DefaultMatchzyDBUser     = "matchzy"
-	DefaultMatchzyDBPassword = "matchzy"
+	// LegacyATCS2ContainerName is the name csm gave that container before
+	// the plugin was renamed. Updates rename an existing container from this
+	// name to DefaultATCS2ContainerName (see migrateLegacyATCS2Container).
+	LegacyATCS2ContainerName = "matchzy-mysql"
 
-	// DefaultMatchzyRootPassword is the default MySQL root password used for the
-	// Docker-managed MatchZy database unless overridden via environment.
-	DefaultMatchzyRootPassword = "MatchZyRoot!2025"
+	// DefaultATCS2VolumeName is the Docker volume that holds the plugin
+	// database. It keeps the name csm has always used: Docker cannot rename
+	// a volume, and a new name would start every existing install on an
+	// empty database. Fresh installs use the same name, so there is one
+	// volume name to document and clean up.
+	DefaultATCS2VolumeName = "matchzy-mysql-data"
+
+	// DefaultATCS2DBName / User / Password are the defaults used when
+	// provisioning a fresh Auto Tournament CS2 database, both for
+	// Docker-managed and external DB setups when the user has not supplied
+	// explicit values. An existing install keeps the values already in its
+	// database.json.
+	DefaultATCS2DBName     = "auto_tournament_cs2"
+	DefaultATCS2DBUser     = "auto_tournament_cs2"
+	DefaultATCS2DBPassword = "auto_tournament_cs2"
+
+	// DefaultATCS2RootPassword is the default MySQL root password used for
+	// the Docker-managed database unless overridden via AT_DB_ROOT_PASSWORD.
+	// MySQL only reads the root password when it initialises an empty volume,
+	// so this value is kept as it was: every existing volume was initialised
+	// with it, and csm needs it to create the database and user.
+	DefaultATCS2RootPassword = "MatchZyRoot!2025"
 
 	// DefaultRootDir is the default on-disk root where CSM stores its state
 	// (overrides, game_files, logs, etc.) when CSM_ROOT is not explicitly set.

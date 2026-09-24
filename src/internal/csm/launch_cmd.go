@@ -23,8 +23,8 @@ type launchSpec struct {
 	MaxPlayers int
 	GSLT       string
 
-	// ConfigScope is the MatchZy persistent config scope for this server (see
-	// MatchzyConfigScope). Empty omits the argument.
+	// ConfigScope is the Auto Tournament CS2 persistent config scope for this server (see
+	// ATCS2ConfigScope). Empty omits the argument.
 	ConfigScope string
 }
 
@@ -87,9 +87,9 @@ func (s launchSpec) usesCSMLauncherSh() bool {
 //   - `+map` to load a map at startup
 //   - `+maxplayers` for the player limit
 //
-// followed by `+matchzy_config_scope <scope>` and the optional GSLT.
+// followed by `+at_config_scope <scope>` and the optional GSLT.
 func buildLaunchCommand(s launchSpec) string {
-	extra := matchzyScopeLaunchArg(s.ConfigScope)
+	extra := atcs2ScopeLaunchArg(s.ConfigScope)
 	if s.GSLT != "" {
 		extra += fmt.Sprintf(" -gslt %s", s.GSLT)
 	}

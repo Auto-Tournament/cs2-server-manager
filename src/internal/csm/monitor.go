@@ -15,9 +15,9 @@ import (
 const (
 	// Legacy AutoUpdater plugin: the server shuts itself down.
 	autoUpdaterShutdownMarker = "plugin:AutoUpdater Shutting the server down due to the new game update"
-	// Auto Tournament CS2 plugin (MatchZy): printed in warn_only mode, the
+	// Auto Tournament CS2 plugin: printed in warn_only mode, the
 	// server keeps running.
-	matchzyUpdateAvailableMarker = "[MATCHZY_UPDATE_AVAILABLE] required_version="
+	atcs2UpdateAvailableMarker = "[AT_UPDATE_AVAILABLE] required_version="
 )
 
 // RunAutoUpdateMonitor checks every server's log for a pending CS2 update and
@@ -105,7 +105,7 @@ func RunAutoUpdateMonitor() error {
 		}
 		st := state.server(i)
 
-		marker, logSize, err := logHasMarkerAfter(logPath, st.LogOffset, autoUpdaterShutdownMarker, matchzyUpdateAvailableMarker)
+		marker, logSize, err := logHasMarkerAfter(logPath, st.LogOffset, autoUpdaterShutdownMarker, atcs2UpdateAvailableMarker)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)

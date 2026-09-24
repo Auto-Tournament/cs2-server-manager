@@ -47,7 +47,7 @@ const (
 	itemUpdateNow
 	itemForceUpdateNow
 	itemServersStatusViewport
-	itemMatchzyDBViewport
+	itemATCS2DBViewport
 	itemLogsViewport
 	itemUpdateGameGo
 	itemDeployPluginsGo
@@ -65,8 +65,8 @@ const (
 	itemAttachServerGo
 	itemUpdateServerConfigs
 	itemViewServerConfig
-	itemEditMatchZyConfig
-	itemEditMatchZyDatabase
+	itemEditATCS2Config
+	itemEditATCS2Database
 	itemEditCSSAdmins
 	itemUnbanIP
 	itemUnbanAllIPs
@@ -107,7 +107,7 @@ type viewportFinishedMsg struct {
 
 type installConfig struct {
 	dbMode             string // "docker" or "external"
-	dbEngine           string // csm.MatchzyDBEngineMySQL (shared) or csm.MatchzyDBEngineSQLite (per server)
+	dbEngine           string // csm.ATCS2DBEngineMySQL (shared) or csm.ATCS2DBEngineSQLite (per server)
 	numServers         int
 	basePort           int
 	tvPort             int
@@ -123,7 +123,7 @@ type installConfig struct {
 	steamcmdValidate   bool   // include "validate" in steamcmd app_update 730
 	updatePlugins      bool
 	installMonitor     bool
-	matchzySkipDocker  bool
+	atcs2SkipDocker    bool
 	externalDBHost     string
 	externalDBPort     int
 	externalDBName     string
@@ -468,14 +468,14 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemViewServerConfig,
 			},
 			{
-				title:       "Edit MatchZy config.cfg",
-				description: "Edit shared MatchZy configuration (applies to all servers).",
-				kind:        itemEditMatchZyConfig,
+				title:       "Edit Auto Tournament CS2 config.cfg",
+				description: "Edit shared Auto Tournament CS2 configuration (applies to all servers).",
+				kind:        itemEditATCS2Config,
 			},
 			{
-				title:       "Edit MatchZy database.json",
-				description: "Edit MatchZy database connection settings.",
-				kind:        itemEditMatchZyDatabase,
+				title:       "Edit Auto Tournament CS2 database.json",
+				description: "Edit Auto Tournament CS2 database connection settings.",
+				kind:        itemEditATCS2Database,
 			},
 			{
 				title:       "Edit CounterStrikeSharp admins.json",
@@ -486,9 +486,9 @@ func buildItemsForTab(t tab) []menuItem {
 	case tabTools:
 		return []menuItem{
 			{
-				title:       "MatchZy DB: verify/repair",
-				description: "Verify MatchZy database setup and repair in a scrollable view.",
-				kind:        itemMatchzyDBViewport,
+				title:       "Plugin DB: verify/repair",
+				description: "Verify the Auto Tournament CS2 database setup and repair in a scrollable view.",
+				kind:        itemATCS2DBViewport,
 			},
 			{
 				title:       "Unban IP address",
@@ -545,7 +545,7 @@ func (m *model) initWizardDefaults() {
 	// Start with defaults
 	cfg := installConfig{
 		dbMode:         "docker",
-		dbEngine:       csm.MatchzyDBEngineMySQL,
+		dbEngine:       csm.ATCS2DBEngineMySQL,
 		numServers:     csm.DefaultNumServers,
 		basePort:       csm.DefaultBaseGamePort,
 		tvPort:         csm.DefaultBaseTVPort,
@@ -563,12 +563,12 @@ func (m *model) initWizardDefaults() {
 		steamcmdValidate:   true,
 		updatePlugins:      true,
 		installMonitor:     true,
-		matchzySkipDocker:  false,
+		atcs2SkipDocker:    false,
 		externalDBHost:     "127.0.0.1",
 		externalDBPort:     3306,
-		externalDBName:     "matchzy",
-		externalDBUser:     "matchzy",
-		externalDBPassword: "matchzy",
+		externalDBName:     csm.DefaultATCS2DBName,
+		externalDBUser:     csm.DefaultATCS2DBUser,
+		externalDBPassword: csm.DefaultATCS2DBPassword,
 	}
 
 	// Try to detect existing configuration from installed servers
@@ -854,7 +854,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		// While in a scrollable viewport (servers dashboard, logs, MatchZy DB,
+		// While in a scrollable viewport (servers dashboard, logs, plugin DB,
 		// etc.), delegate navigation keys to the viewport component and use
 		// Enter/q/Esc to return to the main menu.
 		if m.view == viewViewport {
@@ -1065,11 +1065,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Loading server status (checking for tmux sessions and installed servers)..."
 				m.lastOutput = ""
 				cmds = append(cmds, runTmuxStatusViewport(), m.spin.Tick)
-			case itemMatchzyDBViewport:
+			case itemATCS2DBViewport:
 				m.running = true
-				m.status = "Verifying MatchZy database..."
+				m.status = "Verifying Auto Tournament CS2 database..."
 				m.lastOutput = ""
-				cmds = append(cmds, runMatchzyDBDetail(), m.spin.Tick)
+				cmds = append(cmds, runATCS2DBDetail(), m.spin.Tick)
 			case itemLogsViewport:
 				m.view = viewLogsPrompt
 				m.status = "Logs: enter server number."
@@ -1193,10 +1193,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = viewDoctorConfirm
 				m.status = ""
 				m.lastOutput = ""
-			case itemEditMatchZyConfig:
-				cmds = append(cmds, runEditConfigFile("MatchZy config.cfg", "game/csgo/cfg/MatchZy/config.cfg"))
-			case itemEditMatchZyDatabase:
-				cmds = append(cmds, runEditConfigFile("MatchZy database.json", "game/csgo/cfg/MatchZy/database.json"))
+			case itemEditATCS2Config:
+				cmds = append(cmds, runEditConfigFile("Auto Tournament CS2 config.cfg", "game/csgo/cfg/"+csm.ATCS2CfgDirName+"/config.cfg"))
+			case itemEditATCS2Database:
+				cmds = append(cmds, runEditConfigFile("Auto Tournament CS2 database.json", "game/csgo/cfg/"+csm.ATCS2CfgDirName+"/database.json"))
 			case itemEditCSSAdmins:
 				cmds = append(cmds, runEditConfigFile("CounterStrikeSharp admins.json", "game/csgo/addons/counterstrikesharp/configs/admins.json"))
 			case itemCLIHelp:
@@ -1568,10 +1568,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentInstallStep == installStepBootstrap && m.wizard.cfg.freshInstall {
 				header := []string{
 					"[2/4] Performing fresh CS2 install (cleanup + steamcmd + bootstrap)...",
-					"  • Run full cleanup (same as Danger zone: remove CS2 user, home, MatchZy DB container/volume)",
+					"  • Run full cleanup (same as Danger zone: remove CS2 user, home, plugin DB container/volume)",
 					"  • Recreate CS2 user",
 					"  • Reinstall master via SteamCMD",
-					"  • Provision a clean MatchZy database (Docker mode)",
+					"  • Provision a clean Auto Tournament CS2 database (Docker mode)",
 					"  • Recreate all servers from the new master",
 					"",
 					fmt.Sprintf("Live output (showing last %d lines):", len(m.logLines)),
@@ -1966,8 +1966,8 @@ func (m model) View() string {
 			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:
 			desc = "Download the latest plugin bundle, then sync plugins/configs to all servers."
-		case itemMatchzyDBViewport:
-			desc = "Verify and (if needed) repair the MatchZy MySQL database in a scrollable view."
+		case itemATCS2DBViewport:
+			desc = "Verify and (if needed) repair the Auto Tournament CS2 MySQL database in a scrollable view."
 		case itemPublicIPGo:
 			desc = "Resolve and show the server's public IP on a dedicated screen."
 		case itemForceUpdateNow:

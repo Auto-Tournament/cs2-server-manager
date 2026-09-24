@@ -86,7 +86,7 @@ func DoctorScan(ctx context.Context, opts DoctorOptions) (DoctorMeta, []DoctorCh
 	checks = append(checks, checkOwnership(meta))
 	checks = append(checks, checkSteamRT(meta))
 	checks = append(checks, checkLibV8(meta, opts))
-	checks = append(checks, checkMatchzyConfigScope(meta))
+	checks = append(checks, checkATCS2ConfigScope(meta))
 
 	return meta, checks, nil
 }
