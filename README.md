@@ -10,12 +10,11 @@
 </div>
 
 > **Moved:** this repository is now part of the [Auto-Tournament](https://github.com/Auto-Tournament)
-> organisation, together with Auto Tournament (formerly MatchZy Auto Tournament). Old links
-> redirect, and nothing changes for existing installs.
+> organisation, together with Auto Tournament. Old links redirect.
 
-csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, sets up Metamod:Source, CounterStrikeSharp and [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) (formerly MatchZy Enhanced) on every server, runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
+csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, sets up Metamod:Source, CounterStrikeSharp and [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) on every server, runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
 
-It's for people running their own match servers: LAN organisers, small leagues, and anyone using [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) who needs servers for it to control. The default MatchZy database is MySQL in a Docker container, so Docker is needed for that setup.
+It's for people running their own match servers: LAN organisers, small leagues, and anyone using [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) who needs servers for it to control. The plugin's default database is MySQL in a Docker container, so Docker is needed for that setup.
 
 Full documentation lives at [docs.sivert.io/docs/csm](https://docs.sivert.io/docs/csm).
 
@@ -134,7 +133,7 @@ sudo csm start --alternate 1    # just server 1
 sudo csm start --binary         # run the cs2 binary directly
 ```
 
-`--alternate` and `--binary` work on `start`, `restart` and `debug`, and only apply to that one command. To use a launcher everywhere csm starts servers (including `update-plugins`, `update-game` and the monitor), set `CSM_LAUNCH_MODE=alternate` or `CSM_LAUNCH_MODE=binary`, for example `sudo CSM_LAUNCH_MODE=alternate csm restart`. A flag overrides the variable. Every launcher gets the same `+matchzy_config_scope` argument (see below).
+`--alternate` and `--binary` work on `start`, `restart` and `debug`, and only apply to that one command. To use a launcher everywhere csm starts servers (including `update-plugins`, `update-game` and the monitor), set `CSM_LAUNCH_MODE=alternate` or `CSM_LAUNCH_MODE=binary`, for example `sudo CSM_LAUNCH_MODE=alternate csm restart`. A flag overrides the variable. Every launcher gets the same `+at_config_scope` argument (see below).
 
 ### Newer distros and Steam Runtime
 
@@ -142,7 +141,7 @@ On newer distributions such as Debian 13 and Ubuntu 25.04+, CounterStrikeSharp c
 
 ## Metamod version
 
-CounterStrikeSharp and MatchZy install from their latest releases. Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `sudo csm update-plugins` to get both at once.
+CounterStrikeSharp and Auto Tournament CS2 install from their latest releases. Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `sudo csm update-plugins` to get both at once.
 
 `sudo csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
 
@@ -150,7 +149,7 @@ CounterStrikeSharp and MatchZy install from their latest releases. Metamod:Sourc
 
 A full copy of `master-install` is about 67 GB, and nearly all of it is `*.vpk` archives that CS2 only reads. csm hardlinks the VPKs from `/home/<cs2user>/master-install/game` into each `server-N/game`, so each extra server costs about 1.2 GB on disk instead of 67 GB. The install wizard estimates about 71 GB for `master-install` plus about 2 GB per server.
 
-- Only VPKs are shared. `cfg/`, `addons/`, `gameinfo.gi`, MatchZy data, demos and logs stay separate per server. Hardlinks are used instead of symlinks because symlinked game directories broke demo recording and per-server configs.
+- Only VPKs are shared. `cfg/`, `addons/`, `gameinfo.gi`, plugin data, demos and logs stay separate per server. Hardlinks are used instead of symlinks because symlinked game directories broke demo recording and per-server configs.
 - `master-install` and the servers must be on the same filesystem (the default layout under `/home/<cs2user>` is). If linking fails, csm logs it once and copies instead.
 - SteamCMD only updates `master-install` and writes changed files as new files, so the servers' links aren't modified. `update-game` then syncs each server: it rsyncs everything except `*.vpk` and `csgo/addons/`, deletes VPKs removed from master, and re-links every VPK atomically. A running server keeps reading the old file until it restarts.
 - `CSM_VPK_HARDLINK=0` turns this off, and new syncs make full copies again.
@@ -168,29 +167,33 @@ sudo csm start
 
 To undo it: `sudo csm stop && sudo csm dedupe-vpk --undo && sudo csm start`. This needs about 70 GB free per server and checks first. Also set `CSM_VPK_HARDLINK=0` wherever csm runs (for example `sudo CSM_VPK_HARDLINK=0 csm update-game`, and the monitor cron), or the next sync links them again.
 
-## Several servers and the MatchZy database
+## Several servers and the plugin database
 
-By default every server on the machine uses one MySQL database (`matchzy` in the `matchzy-mysql` container), so match stats end up in one place.
+By default every server on the machine uses one MySQL database, run by csm in the `auto-tournament-cs2-mysql` Docker container, so match stats end up in one place. A fresh install names the database and its user `auto_tournament_cs2`; an existing install keeps the names already in its `database.json`.
 
-MatchZy also stores per-server settings in that database: `matchzy_server_id`, the bootstrap URL and token, the remote log URL, the demo upload URL and so on. Older MatchZy builds key those rows by setting name only, so the last server to save wins and every server loads its values on start. A tournament manager like MAT then sees one server several times, matches get loaded twice, and results overwrite each other. This affects any install with 2 or more servers on shared MySQL.
+The plugin also stores per-server settings in that database: `at_server_id`, the bootstrap URL and token, the remote log URL, the demo upload URL and so on. The plugin keys those rows by server, but it tells servers apart by bind address and port, and csm starts servers with `-ip 0.0.0.0`. The plugin would then fall back to the machine name, which every server on the machine shares, and a tournament manager would see one server several times.
 
-The fix has two parts:
+So csm passes `+at_config_scope <hostname>-server-<N>` (for example `cs2-server-1`) when it starts each server. The name comes from the server's directory, so it survives restarts, updates, reinstalls and port changes, and the hostname keeps two machines sharing one database apart. If you rename the machine, or several machines share a hostname, set `CSM_AT_SCOPE_PREFIX` (for example `eu-1`) wherever csm starts servers.
 
-- [Auto Tournament CS2 1.4.28](https://github.com/Auto-Tournament/cs2-plugin/releases/tag/v1.4.28) and newer store those settings per server ([#17](https://github.com/Auto-Tournament/cs2-plugin/pull/17)). 1.4.26 added this but could not read `+matchzy_config_scope` ([#18](https://github.com/Auto-Tournament/cs2-plugin/pull/18), fixed in 1.4.27), and 1.4.27 could still load another server's `matchzy_server_id` ([#19](https://github.com/Auto-Tournament/cs2-plugin/pull/19), fixed in 1.4.28). It tells servers apart by bind address and port, but csm starts servers with `-ip 0.0.0.0`, so MatchZy would fall back to the machine name, which every server on the machine shares.
-- csm therefore passes `+matchzy_config_scope <hostname>-server-<N>` (for example `cs2-server-1`) when it starts each server. The name comes from the server's directory, so it survives restarts, updates, reinstalls and port changes, and the hostname keeps two machines sharing one database apart. If you rename the machine, or several machines share a hostname, set `CSM_MATCHZY_SCOPE_PREFIX` (for example `eu-1`) wherever csm starts servers.
+The install wizard's **Plugin storage** option picks between shared MySQL (the default) and SQLite per server, where each server keeps its own `auto_tournament_cs2.db` and stats aren't shared. For a non-interactive install use `sudo AT_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
 
-The install wizard's **MatchZy storage** option picks between shared MySQL (the default; needs the CS2 plugin 1.4.28+ with 2 or more servers) and SQLite per server, where each server keeps its own `matchzy.db`. SQLite works on any MatchZy build but stats aren't shared. For a non-interactive install use `sudo MATCHZY_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
+`sudo csm doctor` checks this under "Auto Tournament CS2 plugin (version, per-server config)". It fails when a server still runs a plugin older than 2.0.0 or still has the old plugin folder, when 2 or more servers report the same `at_server_id`, or when servers share MySQL and run without `+at_config_scope`, and it prints how to fix it.
 
-`sudo csm doctor` checks this under "MatchZy per-server config (shared database)". It fails when 2 or more servers report the same `matchzy_server_id`, or when servers share MySQL and run MatchZy older than 1.4.28 or without `+matchzy_config_scope`, and it prints how to fix it.
+## Upgrading to Auto Tournament CS2 2.0.0
 
-To migrate an existing install:
+Plugin 2.0.0 renamed everything the plugin puts on disk, and this csm installs only 2.0.0 and newer. Auto Tournament 3.0 needs plugin 2.0.0, so update csm, the plugin and the platform together.
 
 1. Update csm.
-2. Run `sudo csm update-plugins`. It installs the latest CS2 plugin, redeploys and restarts every server, which also picks up the new start argument. If you're already on 1.4.28 or newer, `sudo csm restart` is enough. If you can't update MatchZy, set `"DatabaseType": "SQLite"` in `/home/<cs2user>/overrides/game/csgo/cfg/MatchZy/database.json` and `/home/<cs2user>/cs2-config/game/csgo/cfg/MatchZy/database.json`, then run `sudo csm update-plugins`.
-3. Reconfigure each server once from your tournament manager (in MAT, re-save or re-bootstrap each server). Until a server saves its own values it still reads the old shared ones.
-4. Run `sudo csm doctor` to confirm.
+2. Run `sudo csm update-plugins`. It downloads `AutoTournamentCS2-<version>.zip`, redeploys and restarts every server. On the first run it also carries your install over:
+   - Your own files in `cfg/MatchZy/` move to `cfg/AutoTournamentCS2/`, in `/home/<cs2user>/overrides/game/csgo/cfg/` and in `/home/<cs2user>/cs2-config/game/csgo/cfg/`. A file that already exists under the new name is never overwritten; the old one is left where it was and the log says so. This happens once per folder and is logged in `csm.log` under `atcs2-rename.log`.
+   - The old plugin folder `addons/counterstrikesharp/plugins/MatchZy/` is removed from the staging tree, from `cs2-config` and from every server, so two copies of the plugin never load.
+   - With SQLite per server, each server's `matchzy.db` becomes `plugins/AutoTournamentCS2/auto_tournament_cs2.db`.
+   - The Docker container `matchzy-mysql` is renamed to `auto-tournament-cs2-mysql` in place (`docker rename`): same container, same data, and MySQL keeps running. Its volume keeps its name, `matchzy-mysql-data`, because Docker can't rename volumes. Fresh installs use that volume name too.
+3. Rename the settings in your config files. The plugin no longer reads `matchzy_*` lines: `matchzy_knife_enabled_default` becomes `at_knife_enabled_default`, and so on. csm moves your files but doesn't rewrite them, and it warns about every file that still has `matchzy_*` lines.
+4. Rename the environment variables csm reads, if you set any: `MATCHZY_DB_ENGINE`, `MATCHZY_SKIP_DOCKER`, `MATCHZY_DB_CONTAINER`, `MATCHZY_DB_VOLUME`, `MATCHZY_DB_IMAGE` and `MATCHZY_DB_ROOT_PASSWORD` become `AT_DB_ENGINE`, `AT_SKIP_DOCKER`, `AT_DB_CONTAINER`, `AT_DB_VOLUME`, `AT_DB_IMAGE` and `AT_DB_ROOT_PASSWORD`, and `CSM_MATCHZY_SCOPE_PREFIX` becomes `CSM_AT_SCOPE_PREFIX`. The old names are not read, and csm refuses to set up the database while one of them is still set.
+5. Run `sudo csm doctor` to confirm.
 
-Match stats already in the shared database stay where they are.
+The plugin renames its own database tables (`matchzy_*` to `at_*`) the first time 2.0.0 starts.
 
 ## Releasing
 
@@ -205,5 +208,5 @@ PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial us
 - [Documentation](https://docs.sivert.io/docs/csm)
 - [Troubleshooting](https://docs.sivert.io/docs/csm/user/troubleshooting)
 - [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), a web app for running tournaments on these servers
-- [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin), the CS2 plugin csm installs (formerly MatchZy Enhanced)
+- [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin), the CS2 plugin csm installs. Auto Tournament CS2 is forked from [MatchZy](https://github.com/shobhit-pathak/MatchZy) by shobhit-pathak.
 - [Issues](https://github.com/Auto-Tournament/cs2-server-manager/issues)

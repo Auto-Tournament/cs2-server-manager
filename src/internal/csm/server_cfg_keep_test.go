@@ -50,7 +50,7 @@ func TestServerCfgKeepExcludes(t *testing.T) {
 	for _, rel := range []string{"server.cfg", "gamemode_competitive.cfg"} {
 		writeFile(t, filepath.Join(master, "csgo", "cfg", rel), "master", testMtime)
 	}
-	for _, rel := range []string{"server.cfg", "autoexec.cfg", "banned_ip.cfg", "gamemode_competitive.cfg", "custom.cfg", filepath.Join("MatchZy", "config.cfg")} {
+	for _, rel := range []string{"server.cfg", "autoexec.cfg", "banned_ip.cfg", "gamemode_competitive.cfg", "custom.cfg", filepath.Join("AutoTournamentCS2", "config.cfg")} {
 		writeFile(t, filepath.Join(server, "csgo", "cfg", rel), "server", testMtime)
 	}
 
@@ -60,7 +60,7 @@ func TestServerCfgKeepExcludes(t *testing.T) {
 		"--exclude /csgo/cfg/autoexec.cfg",
 		"--exclude /csgo/cfg/banned_ip.cfg",
 		"--exclude /csgo/cfg/custom.cfg",
-		"--exclude /csgo/cfg/MatchZy/",
+		"--exclude /csgo/cfg/AutoTournamentCS2/",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
@@ -99,10 +99,10 @@ func TestResyncKeepsServerConfigs(t *testing.T) {
 			cfg := filepath.Join(server, "csgo", "cfg")
 			serverCfg := "rcon_password \"from-server-cfg\"\nhostname \"Server #1\""
 			files := map[string]string{
-				"server.cfg":                         serverCfg,
-				"autoexec.cfg":                       "rcon_password \"from-server-cfg\"",
-				"banned_ip.cfg":                      "",
-				filepath.Join("MatchZy", "live.cfg"): "mp_maxrounds 24",
+				"server.cfg":    serverCfg,
+				"autoexec.cfg":  "rcon_password \"from-server-cfg\"",
+				"banned_ip.cfg": "",
+				filepath.Join("AutoTournamentCS2", "live.cfg"): "mp_maxrounds 24",
 			}
 			for rel, body := range files {
 				writeFile(t, filepath.Join(cfg, rel), body, testMtime)

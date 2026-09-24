@@ -20,7 +20,7 @@ func holdServer(t *testing.T, status int, body any) (url string, token *string) 
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		seen = r.Header.Get("X-MatchZy-Token")
+		seen = r.Header.Get("X-Auto-Tournament-Token")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		if s, ok := body.(string); ok {

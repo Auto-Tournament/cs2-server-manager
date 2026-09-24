@@ -76,10 +76,10 @@ func main() {
 				// server.cfg (falls back to the default on a first install).
 				RCONPassword: getenvDefault("RCON_PASSWORD", ""),
 
-				MatchzySkipDocker: intFromEnv("MATCHZY_SKIP_DOCKER", 0) != 0,
-				// MATCHZY_DB_ENGINE=sqlite gives each server its own SQLite
+				ATCS2SkipDocker: intFromEnv("AT_SKIP_DOCKER", 0) != 0,
+				// AT_DB_ENGINE=sqlite gives each server its own SQLite
 				// database; mysql (or unset) keeps the shared MySQL database.
-				DBEngine:     getenvDefault("MATCHZY_DB_ENGINE", ""),
+				DBEngine:     getenvDefault("AT_DB_ENGINE", ""),
 				GameFilesDir: getenvDefault("GAME_FILES_DIR", ""),
 				OverridesDir: getenvDefault("OVERRIDES_DIR", ""),
 			}
@@ -95,9 +95,9 @@ func main() {
 			return
 		case "cleanup-all":
 			cfg := csm.CleanupConfig{
-				CS2User:          getenvDefault("CS2_USER", csm.DefaultCS2User),
-				MatchzyContainer: getenvDefault("MATCHZY_DB_CONTAINER", csm.DefaultMatchzyContainerName),
-				MatchzyVolume:    getenvDefault("MATCHZY_DB_VOLUME", csm.DefaultMatchzyVolumeName),
+				CS2User:        getenvDefault("CS2_USER", csm.DefaultCS2User),
+				ATCS2Container: getenvDefault("AT_DB_CONTAINER", csm.DefaultATCS2ContainerName),
+				ATCS2Volume:    getenvDefault("AT_DB_VOLUME", csm.DefaultATCS2VolumeName),
 			}
 			out, err := csm.CleanupAll(cfg)
 			csm.LogAction("cli", "cleanup-all", out, err)

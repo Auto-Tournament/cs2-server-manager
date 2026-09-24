@@ -20,6 +20,8 @@ type PluginUpdater struct {
 	GameDir      string
 	OverridesDir string
 	TempDir      string
+	// CS2User is the detected CS2 user, or "" when it could not be found.
+	CS2User string
 }
 
 type metamodReleaseAsset struct {
@@ -44,10 +46,12 @@ func NewPluginUpdater() *PluginUpdater {
 	// Try to get the CS2 user for overrides location
 	overridesDir := ""
 	tempDir := ""
+	cs2User := ""
 	if mgr, err := NewTmuxManager(); err == nil && mgr.CS2User != "" {
 		// Overrides are in the CS2 user's home directory. Copy over any files
 		// older TUI builds left in the legacy <root>/overrides folder first.
 		EnsureOverridesMigrated(mgr.CS2User)
+		cs2User = mgr.CS2User
 		overridesDir = OverridesGameDir(mgr.CS2User)
 		// Temp files go to /tmp with user-specific directory to avoid conflicts
 		tempDir = filepath.Join(os.TempDir(), fmt.Sprintf("csm-plugin-downloads-%s", mgr.CS2User))
@@ -63,6 +67,7 @@ func NewPluginUpdater() *PluginUpdater {
 		GameDir:      filepath.Join(root, "game_files", "game"),
 		OverridesDir: overridesDir,
 		TempDir:      tempDir,
+		CS2User:      cs2User,
 	}
 }
 
@@ -76,8 +81,13 @@ func CheckDiskSpaceForPluginUpdate(gameDir string) error {
 }
 
 // UpdatePlugins downloads and stages Metamod:Source (pinned, see
-// MetamodPinnedVersion), the latest CounterStrikeSharp and MatchZy (enhanced if available) plugins into
-// game_files/, then applies overrides.
+// MetamodPinnedVersion), the latest CounterStrikeSharp and Auto Tournament CS2
+// plugins into game_files/, then applies overrides.
+//
+// It also carries an install made before plugin 2.0.0 over to the new names:
+// cfg/MatchZy/ becomes cfg/AutoTournamentCS2/ (EnsureATCS2CfgCarriedOver),
+// the old plugins/MatchZy/ folder is removed from the staging tree, and the
+// plugin database container is renamed (migrateLegacyATCS2Container).
 // This function is protected by a mutex to prevent concurrent updates.
 func UpdatePlugins() (string, error) {
 	var result string
@@ -125,6 +135,18 @@ func UpdatePlugins() (string, error) {
 			return resultErr
 		}
 
+		// Carry an install made before the plugin rename over to the new
+		// names before anything reads or writes the new cfg folder.
+		if err := EnsureATCS2CfgCarriedOver(w, up.CS2User); err != nil {
+			log("[WARN] Carrying cfg/%s over to cfg/%s did not finish: %v", legacyATCS2CfgDirName, ATCS2CfgDirName, err)
+		}
+		for _, p := range legacyATCS2EnvProblems() {
+			log("[WARN] %s", p)
+		}
+		if err := migrateLegacyATCS2Container(w, atcs2DBContainerName()); err != nil {
+			log("[WARN] Plugin database container: %v", err)
+		}
+
 		// Ensure a clean plugin baseline before downloading new bundles so that
 		// stale files from previous versions are not carried forward. The deploy
 		// step will mirror this clean tree into each server's addons directory.
@@ -159,14 +181,17 @@ func UpdatePlugins() (string, error) {
 			log("[ERROR] CounterStrikeSharp update failed: %v", err)
 			failed = append(failed, "CounterStrikeSharp")
 		}
-		if err := up.downloadMatchZy(w); err != nil {
-			log("[ERROR] MatchZy update failed: %v", err)
-			failed = append(failed, "MatchZy")
+		if err := up.downloadATCS2(w); err != nil {
+			log("[ERROR] Auto Tournament CS2 update failed: %v", err)
+			failed = append(failed, "Auto Tournament CS2")
 		}
 
 		if len(failed) == 0 {
 			// Apply overrides to game_files/ for consistency (staging area)
 			up.applyOverrides(w)
+			// The staging addons were emptied above, so the old plugin folder
+			// can only be back if an override put it there. Never ship it.
+			_ = removeLegacyATCS2Plugin(w, "game_files", filepath.Join(up.GameDir, "csgo"))
 		}
 
 		log("")
@@ -174,10 +199,10 @@ func UpdatePlugins() (string, error) {
 			log("[✓] All plugins updated successfully!")
 			log("")
 			log("Installation summary:")
-			log("  • Metamod:Source     → game_files/game/csgo/addons/metamod/")
-			log("  • CounterStrikeSharp → game_files/game/csgo/addons/counterstrikesharp/")
-			log("  • MatchZy            → game_files/game/csgo/addons/counterstrikesharp/plugins/MatchZy/")
-			log("  • User overrides     → Applied to game_files/ and cs2-config/")
+			log("  • Metamod:Source      → game_files/game/csgo/addons/metamod/")
+			log("  • CounterStrikeSharp  → game_files/game/csgo/addons/counterstrikesharp/")
+			log("  • Auto Tournament CS2 → game_files/game/csgo/addons/counterstrikesharp/plugins/%s/", ATCS2PluginDirName)
+			log("  • User overrides      → Applied to game_files/ and cs2-config/")
 
 			result = buf.String()
 			return nil
@@ -457,16 +482,25 @@ func (up *PluginUpdater) downloadCounterStrikeSharp(w io.Writer) error {
 	return nil
 }
 
-func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
-	fmt.Fprintln(w, "[MatchZy] Fetching the latest Auto Tournament CS2 plugin release...")
+// selectATCS2Asset returns the name and download URL of the plugin release
+// asset, AutoTournamentCS2-<version>.zip, or "" when the release has none.
+// Releases before 2.0.0 ship MatchZy-<version>.zip, which is never picked.
+func selectATCS2Asset(assets []metamodReleaseAsset) (string, string) {
+	for _, a := range assets {
+		if strings.HasPrefix(a.Name, ATCS2AssetPrefix) && strings.HasSuffix(a.Name, ATCS2AssetSuffix) {
+			return a.Name, a.URL
+		}
+	}
+	return "", ""
+}
+
+func (up *PluginUpdater) downloadATCS2(w io.Writer) error {
+	fmt.Fprintln(w, "[Auto Tournament CS2] Fetching the latest Auto Tournament CS2 plugin release...")
 
 	type release struct {
-		TagName string `json:"tag_name"`
-		HTMLURL string `json:"html_url"`
-		Assets  []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
+		TagName string                `json:"tag_name"`
+		HTMLURL string                `json:"html_url"`
+		Assets  []metamodReleaseAsset `json:"assets"`
 	}
 
 	var rel release
@@ -474,35 +508,21 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 		return fmt.Errorf("failed to fetch Auto Tournament CS2 releases from Auto-Tournament/cs2-plugin: %w", err)
 	}
 
-	var downloadURL string
-	for _, a := range rel.Assets {
-		if strings.Contains(a.Name, "MatchZy") && !strings.Contains(a.Name, "with") {
-			downloadURL = a.URL
-			break
-		}
-	}
+	assetName, downloadURL := selectATCS2Asset(rel.Assets)
 	if downloadURL == "" {
-		for _, a := range rel.Assets {
-			if strings.HasSuffix(a.Name, ".zip") {
-				downloadURL = a.URL
-				break
-			}
-		}
-	}
-	if downloadURL == "" {
-		return fmt.Errorf("no suitable MatchZy asset found")
+		return fmt.Errorf("release %s has no %s-<version>%s asset; csm needs %s", rel.TagName, ATCS2AssetPrefix, ATCS2AssetSuffix, ATCS2Requirement())
 	}
 
-	fmt.Fprintf(w, "[MatchZy] Target: Auto Tournament CS2 %s\n", rel.TagName)
-	fmt.Fprintln(w, "[MatchZy] Downloading...")
+	fmt.Fprintf(w, "[Auto Tournament CS2] Target: Auto Tournament CS2 %s (%s)\n", rel.TagName, assetName)
+	fmt.Fprintln(w, "[Auto Tournament CS2] Downloading...")
 
 	resp, err := RetryHTTPGet(up.httpClient(), downloadURL, DefaultRetryConfig())
 	if err != nil {
-		return fmt.Errorf("failed to download MatchZy archive from %s after retries: %w", downloadURL, err)
+		return fmt.Errorf("failed to download Auto Tournament CS2 archive from %s after retries: %w", downloadURL, err)
 	}
 	defer resp.Body.Close()
 
-	tmpZip := filepath.Join(up.TempDir, "matchzy.zip")
+	tmpZip := filepath.Join(up.TempDir, "auto_tournament_cs2.zip")
 	f, err := os.Create(tmpZip)
 	if err != nil {
 		return err
@@ -511,7 +531,7 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	pw := &downloadProgressWriter{
 		dest:     f,
 		progress: w,
-		label:    "[MatchZy]",
+		label:    "[Auto Tournament CS2]",
 		total:    resp.ContentLength,
 	}
 	if _, err := io.Copy(pw, resp.Body); err != nil {
@@ -522,7 +542,7 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 		return err
 	}
 
-	extractDir := filepath.Join(up.TempDir, "matchzy_extract")
+	extractDir := filepath.Join(up.TempDir, "auto_tournament_cs2_extract")
 	// Clean up extract directory if it exists from a previous failed attempt
 	if err := os.RemoveAll(extractDir); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to clean extract directory %s: %w", extractDir, err)
@@ -536,43 +556,43 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	}
 
 	// Try to find a root containing addons/counterstrikesharp.
-	matchzyRoot := ""
+	pluginRoot := ""
 	_ = filepath.WalkDir(extractDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
 		}
 		if strings.HasSuffix(path, "addons/counterstrikesharp") {
-			matchzyRoot = filepath.Dir(filepath.Dir(path)) // up to csgo/
-			return io.EOF                                  // early stop
+			pluginRoot = filepath.Dir(filepath.Dir(path)) // up to csgo/
+			return io.EOF                                 // early stop
 		}
 		return nil
 	})
-	if matchzyRoot == "" {
-		// Fallback: look for any directory that contains MatchZy files
-		// The zip might extract to a versioned subdirectory like MatchZy-1.4.10/
+	if pluginRoot == "" {
+		// Fallback: the zip might extract to a versioned subdirectory like
+		// AutoTournamentCS2-2.0.0/
 		entries, err := os.ReadDir(extractDir)
 		if err == nil && len(entries) == 1 && entries[0].IsDir() {
 			// Single subdirectory - likely the versioned folder
-			matchzyRoot = filepath.Join(extractDir, entries[0].Name())
+			pluginRoot = filepath.Join(extractDir, entries[0].Name())
 			// Check if this subdirectory has the structure we need
-			if _, err := os.Stat(filepath.Join(matchzyRoot, "csgo", "addons")); err == nil {
+			if _, err := os.Stat(filepath.Join(pluginRoot, "csgo", "addons")); err == nil {
 				// Found csgo/addons structure, use this
-			} else if _, err := os.Stat(filepath.Join(matchzyRoot, "addons")); err == nil {
+			} else if _, err := os.Stat(filepath.Join(pluginRoot, "addons")); err == nil {
 				// Found addons at root, need to go up one level conceptually
-				// But actually the structure might be matchzyRoot/csgo/addons or matchzyRoot/addons
+				// But actually the structure might be pluginRoot/csgo/addons or pluginRoot/addons
 				// Let's check for csgo first
-				matchzyRoot = extractDir // Use extract dir and let rsync handle it
+				pluginRoot = extractDir // Use extract dir and let rsync handle it
 			} else {
-				matchzyRoot = extractDir
+				pluginRoot = extractDir
 			}
 		} else {
-			matchzyRoot = extractDir
+			pluginRoot = extractDir
 		}
 	}
 
 	// Verify the source directory exists before rsync
-	if fi, err := os.Stat(matchzyRoot); err != nil || !fi.IsDir() {
-		return fmt.Errorf("MatchZy extract directory not found or invalid: %s (error: %v)", matchzyRoot, err)
+	if fi, err := os.Stat(pluginRoot); err != nil || !fi.IsDir() {
+		return fmt.Errorf("Auto Tournament CS2 extract directory not found or invalid: %s (error: %v)", pluginRoot, err)
 	}
 
 	// Ensure destination exists - use absolute paths to avoid rsync getcwd() errors
@@ -592,13 +612,13 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 	}
 
 	// Use absolute paths for rsync to avoid getcwd() errors
-	matchzyRootAbs, err := filepath.Abs(matchzyRoot)
+	pluginRootAbs, err := filepath.Abs(pluginRoot)
 	if err != nil {
 		return fmt.Errorf("failed to resolve absolute path for source: %w", err)
 	}
 
-	fmt.Fprintf(w, "[MatchZy] Syncing from %s to %s...\n", matchzyRootAbs, dstDirAbs)
-	fmt.Fprintf(w, "[MatchZy] Root dir: %s, Game dir: %s\n", up.RootDir, up.GameDir)
+	fmt.Fprintf(w, "[Auto Tournament CS2] Syncing from %s to %s...\n", pluginRootAbs, dstDirAbs)
+	fmt.Fprintf(w, "[Auto Tournament CS2] Root dir: %s, Game dir: %s\n", up.RootDir, up.GameDir)
 
 	// Sync into game_files/game/csgo/ using absolute paths
 	// Change to a safe directory before rsync to avoid getcwd() errors
@@ -614,15 +634,21 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 		return fmt.Errorf("failed to change to temp directory: %w", err)
 	}
 
-	if err := runCmdLogged(w, "rsync", "-a", matchzyRootAbs+string(os.PathSeparator), dstDirAbs+string(os.PathSeparator)); err != nil {
-		return fmt.Errorf("rsync failed: %w (source: %s, dest: %s, root: %s)", err, matchzyRootAbs, dstDirAbs, up.RootDir)
+	if err := runCmdLogged(w, "rsync", "-a", pluginRootAbs+string(os.PathSeparator), dstDirAbs+string(os.PathSeparator)); err != nil {
+		return fmt.Errorf("rsync failed: %w (source: %s, dest: %s, root: %s)", err, pluginRootAbs, dstDirAbs, up.RootDir)
 	}
 
-	// Record the release next to MatchZy.dll. It travels with the addons to
-	// every server, so `csm doctor` can tell which build is deployed.
-	marker := filepath.Join(dstDirAbs, "addons", "counterstrikesharp", "plugins", "MatchZy", MatchzyReleaseMarkerFile)
+	// The release must have put the plugin where every server loads it from.
+	pluginDir := atcs2PluginDir(dstDirAbs)
+	if _, err := os.Stat(filepath.Join(pluginDir, ATCS2DLLName)); err != nil {
+		return fmt.Errorf("%s from release %s does not contain addons/counterstrikesharp/plugins/%s/%s", assetName, rel.TagName, ATCS2PluginDirName, ATCS2DLLName)
+	}
+
+	// Record the release next to AutoTournamentCS2.dll. It travels with the
+	// addons to every server, so `csm doctor` can tell which build is deployed.
+	marker := filepath.Join(pluginDir, ATCS2ReleaseMarkerFile)
 	if err := os.WriteFile(marker, []byte(strings.TrimSpace(rel.TagName)+"\n"), 0o644); err != nil {
-		fmt.Fprintf(w, "[MatchZy] [WARN] Could not record release version in %s: %v\n", marker, err)
+		fmt.Fprintf(w, "[Auto Tournament CS2] [WARN] Could not record release version in %s: %v\n", marker, err)
 	}
 	return nil
 }

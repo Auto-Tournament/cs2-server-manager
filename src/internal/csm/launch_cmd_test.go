@@ -16,11 +16,11 @@ func baseSpec(mode string, server int) launchSpec {
 		TVPort:      DefaultBaseTVPort + (server-1)*10,
 		MaxPlayers:  10,
 		GSLT:        "ABCDEF0123456789",
-		ConfigScope: matchzyConfigScopeFor("cs2", server),
+		ConfigScope: atcs2ConfigScopeFor("cs2", server),
 	}
 }
 
-func TestMatchzyConfigScopeFor(t *testing.T) {
+func TestATCS2ConfigScopeFor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -40,22 +40,22 @@ func TestMatchzyConfigScopeFor(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			if got := matchzyConfigScopeFor(tt.prefix, tt.server); got != tt.want {
-				t.Fatalf("matchzyConfigScopeFor(%q, %d) = %q, want %q", tt.prefix, tt.server, got, tt.want)
+			if got := atcs2ConfigScopeFor(tt.prefix, tt.server); got != tt.want {
+				t.Fatalf("atcs2ConfigScopeFor(%q, %d) = %q, want %q", tt.prefix, tt.server, got, tt.want)
 			}
 		})
 	}
 }
 
-func TestMatchzyConfigScopeLongPrefixKeepsServerSuffix(t *testing.T) {
+func TestATCS2ConfigScopeLongPrefixKeepsServerSuffix(t *testing.T) {
 	t.Parallel()
 
 	prefix := strings.Repeat("very-long-hostname-", 10)
 	seen := map[string]int{}
 	for n := 1; n <= 12; n++ {
-		s := matchzyConfigScopeFor(prefix, n)
-		if len(s) > matchzyScopeMaxLen {
-			t.Fatalf("scope %q is %d chars, max %d", s, len(s), matchzyScopeMaxLen)
+		s := atcs2ConfigScopeFor(prefix, n)
+		if len(s) > atcs2ScopeMaxLen {
+			t.Fatalf("scope %q is %d chars, max %d", s, len(s), atcs2ScopeMaxLen)
 		}
 		if !scopeTokenRE.MatchString(s) {
 			t.Fatalf("scope %q has characters outside [a-z0-9._-]", s)
@@ -67,13 +67,13 @@ func TestMatchzyConfigScopeLongPrefixKeepsServerSuffix(t *testing.T) {
 	}
 }
 
-func TestMatchzyConfigScopeUsesPrefixEnv(t *testing.T) {
-	t.Setenv("CSM_MATCHZY_SCOPE_PREFIX", "Tournament EU")
-	if got, want := MatchzyConfigScope(2), "tournament-eu-server-2"; got != want {
-		t.Fatalf("MatchzyConfigScope(2) = %q, want %q", got, want)
+func TestATCS2ConfigScopeUsesPrefixEnv(t *testing.T) {
+	t.Setenv("CSM_AT_SCOPE_PREFIX", "Tournament EU")
+	if got, want := ATCS2ConfigScope(2), "tournament-eu-server-2"; got != want {
+		t.Fatalf("ATCS2ConfigScope(2) = %q, want %q", got, want)
 	}
 	// Stable across calls (restarts).
-	if MatchzyConfigScope(2) != MatchzyConfigScope(2) {
+	if ATCS2ConfigScope(2) != ATCS2ConfigScope(2) {
 		t.Fatal("scope is not stable across calls")
 	}
 }
@@ -100,9 +100,9 @@ func TestBuildLaunchCommandIncludesScopeInEveryMode(t *testing.T) {
 			if !strings.HasPrefix(cmd, tt.prefix) {
 				t.Fatalf("command %q does not start with %q", cmd, tt.prefix)
 			}
-			want := " +matchzy_config_scope cs2-server-1"
-			if c := strings.Count(cmd, MatchzyConfigScopeArg); c != 1 {
-				t.Fatalf("command has %d %s args, want 1: %q", c, MatchzyConfigScopeArg, cmd)
+			want := " +at_config_scope cs2-server-1"
+			if c := strings.Count(cmd, ATCS2ConfigScopeArg); c != 1 {
+				t.Fatalf("command has %d %s args, want 1: %q", c, ATCS2ConfigScopeArg, cmd)
 			}
 			if !strings.Contains(cmd, want) {
 				t.Fatalf("command %q does not contain %q", cmd, want)
@@ -123,7 +123,7 @@ func TestBuildLaunchCommandUniqueScopePerServer(t *testing.T) {
 		fields := strings.Fields(cmd)
 		scope := ""
 		for i, f := range fields {
-			if f == MatchzyConfigScopeArg && i+1 < len(fields) {
+			if f == ATCS2ConfigScopeArg && i+1 < len(fields) {
 				scope = fields[i+1]
 			}
 		}
@@ -142,7 +142,7 @@ func TestBuildLaunchCommandOmitsEmptyScope(t *testing.T) {
 
 	s := baseSpec("valve", 1)
 	s.ConfigScope = "  '\"$;  "
-	if cmd := buildLaunchCommand(s); strings.Contains(cmd, MatchzyConfigScopeArg) {
+	if cmd := buildLaunchCommand(s); strings.Contains(cmd, ATCS2ConfigScopeArg) {
 		t.Fatalf("empty scope should be omitted, got %q", cmd)
 	}
 }
@@ -164,8 +164,8 @@ func TestBuildLaunchCommandEscapesHostileScope(t *testing.T) {
 	cmd := buildLaunchCommand(withScope)
 	base := buildLaunchCommand(withoutScope)
 
-	arg := matchzyScopeLaunchArg(hostileScope)
-	token := strings.TrimPrefix(arg, " "+MatchzyConfigScopeArg+" ")
+	arg := atcs2ScopeLaunchArg(hostileScope)
+	token := strings.TrimPrefix(arg, " "+ATCS2ConfigScopeArg+" ")
 	if !scopeTokenRE.MatchString(token) {
 		t.Fatalf("sanitised scope %q has shell metacharacters", token)
 	}
@@ -192,7 +192,7 @@ func TestBuildLaunchCommandEscapesHostileScope(t *testing.T) {
 
 // TestLaunchCommandShellSplitsScope runs the launch command's arguments
 // through a real shell and checks the server would receive the scope as one
-// argv entry right after +matchzy_config_scope.
+// argv entry right after +at_config_scope.
 func TestLaunchCommandShellSplitsScope(t *testing.T) {
 	sh, err := exec.LookPath("sh")
 	if err != nil {
@@ -213,15 +213,15 @@ func TestLaunchCommandShellSplitsScope(t *testing.T) {
 		want := sanitizeScopeToken(scope)
 		found := false
 		for i, a := range argv {
-			if a == MatchzyConfigScopeArg {
+			if a == ATCS2ConfigScopeArg {
 				if i+1 >= len(argv) || argv[i+1] != want {
-					t.Fatalf("argv after %s = %v, want %q", MatchzyConfigScopeArg, argv[i+1:], want)
+					t.Fatalf("argv after %s = %v, want %q", ATCS2ConfigScopeArg, argv[i+1:], want)
 				}
 				found = true
 			}
 		}
 		if !found {
-			t.Fatalf("%s not in argv %v", MatchzyConfigScopeArg, argv)
+			t.Fatalf("%s not in argv %v", ATCS2ConfigScopeArg, argv)
 		}
 	}
 }

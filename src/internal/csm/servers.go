@@ -13,7 +13,7 @@ import (
 )
 
 // AddServers creates one or more additional CS2 server instances based on the
-// existing layout. It reuses the master install, shared config and MatchZy
+// existing layout. It reuses the master install, shared config and plugin database
 // setup from previous installs so users can scale up without rerunning the
 // full wizard.
 func AddServers(count int) (string, error) {

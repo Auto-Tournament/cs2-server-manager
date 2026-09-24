@@ -40,30 +40,30 @@ func fixServerOwnership(user string) error {
 // BootstrapConfig mirrors the high-level options used by the original
 // bootstrap_cs2.sh script.
 type BootstrapConfig struct {
-	CS2User           string
-	NumServers        int
-	BaseGamePort      int
-	BaseTVPort        int
-	HostnamePrefix    string
-	EnableMetamod     bool
-	FreshInstall      bool
-	UpdateMaster      bool
-	RCONPassword      string
-	MaxPlayers        int    // 0 means use default
-	GSLT              string // Game Server Login Token (optional)
-	MatchzySkipDocker bool
-	GameFilesDir      string // typically <root>/game_files
-	OverridesDir      string // typically <root>/overrides
+	CS2User         string
+	NumServers      int
+	BaseGamePort    int
+	BaseTVPort      int
+	HostnamePrefix  string
+	EnableMetamod   bool
+	FreshInstall    bool
+	UpdateMaster    bool
+	RCONPassword    string
+	MaxPlayers      int    // 0 means use default
+	GSLT            string // Game Server Login Token (optional)
+	ATCS2SkipDocker bool
+	GameFilesDir    string // typically <root>/game_files
+	OverridesDir    string // typically <root>/overrides
 
-	// Optional MatchZy DB wiring from the install wizard. When DBMode is set
-	// to "docker" or "external", setupMatchZyDatabaseGo will treat
+	// Optional Auto Tournament CS2 DB wiring from the install wizard. When DBMode is set
+	// to "docker" or "external", setupATCS2DatabaseGo will treat
 	// database.json as wizard-managed and overwrite it using these values
 	// before proceeding. When DBMode is empty, the legacy behaviour of reading
-	// overrides/database.json as-is is preserved for CLI and VerifyMatchzyDB.
+	// overrides/database.json as-is is preserved for CLI and VerifyATCS2DB.
 	DBMode string
 	// DBEngine selects what the wizard writes into database.json:
-	// MatchzyDBEngineMySQL (one shared database, the default) or
-	// MatchzyDBEngineSQLite (one SQLite file per server). Empty keeps the
+	// ATCS2DBEngineMySQL (one shared database, the default) or
+	// ATCS2DBEngineSQLite (one SQLite file per server). Empty keeps the
 	// legacy behaviour unless DBMode is set, in which case MySQL is used.
 	DBEngine           string
 	ExternalDBHost     string
@@ -169,6 +169,13 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		cfg.OverridesDir = OverridesDir(cfg.CS2User)
 	}
 
+	// Carry cfg/MatchZy/ over to cfg/AutoTournamentCS2/ before the defaults
+	// below are seeded: a seeded default would otherwise take the new path
+	// and the operator's own file would be left behind.
+	if err := EnsureATCS2CfgCarriedOver(&buf, cfg.CS2User); err != nil {
+		log("  [!] Carrying cfg/%s over to cfg/%s did not finish: %v", legacyATCS2CfgDirName, ATCS2CfgDirName, err)
+	}
+
 	// If no overrides directory exists yet, seed it with the built-in defaults.
 	var createdOverrideFiles []string
 	if err := ensureDefaultOverridesWithTracking(cfg.OverridesDir, &createdOverrideFiles); err != nil {
@@ -236,10 +243,10 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	}
 	log("")
 
-	log("[4/5] Provisioning MatchZy database (Docker)...")
+	log("[4/5] Provisioning the Auto Tournament CS2 database (Docker)...")
 
-	if err := setupMatchZyDatabaseGo(&buf, cfg); err != nil {
-		log("  [!] MatchZy database provisioning skipped or failed: %v", err)
+	if err := setupATCS2DatabaseGo(&buf, cfg); err != nil {
+		log("  [!] Auto Tournament CS2 database provisioning skipped or failed: %v", err)
 		log("      Install Docker and rerun bootstrap if you need the built-in database.")
 	}
 	log("")
@@ -834,6 +841,10 @@ func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		fmt.Fprintf(w, "  [i] No overrides found at %s\n", srcOv)
 	}
 
+	// An override can carry the old plugin folder into cs2-config; it must
+	// never reach a server next to the new one.
+	_ = removeLegacyATCS2Plugin(w, "cs2-config", filepath.Join(configDir, "game", "csgo"))
+
 	fmt.Fprintf(w, "  [✓] Shared config ready at %s\n", filepath.Join(configDir, "game"))
 	return nil
 }
@@ -1365,9 +1376,9 @@ func storeGSLTGo(w io.Writer, user string, gslt string) error {
 	return nil
 }
 
-// --- MatchZy DB (Docker) helpers ---
+// --- Auto Tournament CS2 DB (Docker) helpers ---
 
-type matchzyDBConfig struct {
+type atcs2DBConfig struct {
 	DatabaseType  string `json:"DatabaseType"`
 	MySQLHost     string `json:"MySqlHost"`
 	MySQLPort     int    `json:"MySqlPort"`
@@ -1376,44 +1387,64 @@ type matchzyDBConfig struct {
 	MySQLPassword string `json:"MySqlPassword"`
 }
 
-func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
-	matchzyCfgPath := filepath.Join(cfg.OverridesDir, "game", "csgo", "cfg", "MatchZy", "database.json")
+func setupATCS2DatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
+	atcs2CfgPath := filepath.Join(cfg.OverridesDir, "game", "csgo", "cfg", ATCS2CfgDirName, "database.json")
 
-	// When the install wizard (or MATCHZY_DB_ENGINE) provides an explicit DB
+	// An install made before the plugin rename has database.json under
+	// cfg/MatchZy/. Move it first, or a fresh default would be written next
+	// to it and the plugin would lose its database settings.
+	// Callers carry over csm's other trees (EnsureATCS2CfgCarriedOver); this
+	// is the one read here.
+	if _, err := carryOverLegacyCfgOnce(w, "overrides", cfg.OverridesDir, filepath.Join(cfg.OverridesDir, "game", "csgo", "cfg")); err != nil {
+		return fmt.Errorf("carrying cfg/%s over to cfg/%s: %w", legacyATCS2CfgDirName, ATCS2CfgDirName, err)
+	}
+
+	// The old MATCHZY_* variables are not read. One that is still set most
+	// likely names a custom volume or root password; carrying on with the
+	// defaults would start the plugin on an empty database, so stop here.
+	if problems := legacyATCS2EnvProblems(); len(problems) > 0 {
+		for _, p := range problems {
+			fmt.Fprintf(w, "  [!] %s\n", p)
+		}
+		return fmt.Errorf("rename the old environment variables above and rerun")
+	}
+
+	// When the install wizard (or AT_DB_ENGINE) provides an explicit DB
 	// choice, write database.json from those settings on every run so the
 	// config stays in sync even if the source defaults or old overrides drift.
 	// A database.json without CSM's managed note belongs to the operator and
 	// is left exactly as it is.
-	engine, engineErr := NormalizeMatchzyDBEngine(cfg.DBEngine)
+	engine, engineErr := NormalizeATCS2DBEngine(cfg.DBEngine)
 	if engineErr != nil {
 		return engineErr
 	}
 	if strings.TrimSpace(cfg.DBMode) != "" || engine != "" {
-		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(atcs2CfgPath), 0o755); err != nil {
 			return err
 		}
 		if os.Geteuid() == 0 {
-			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(matchzyCfgPath))
+			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(atcs2CfgPath))
 		}
 
-		desired, dbMode := wizardMatchzyDBConfig(cfg)
-		wrote, err := writeManagedMatchzyDBConfig(matchzyCfgPath, desired, dbMode)
+		desired, dbMode := wizardATCS2DBConfig(cfg)
+		keepExistingDockerDBCredentials(atcs2CfgPath, &desired, dbMode)
+		wrote, err := writeManagedATCS2DBConfig(atcs2CfgPath, desired, dbMode)
 		if err != nil {
 			return err
 		}
 		if !wrote {
-			fmt.Fprintf(w, "  [i] %s exists and is not managed by CSM (no CSM __CSM_NOTE); leaving it unchanged\n", matchzyCfgPath)
+			fmt.Fprintf(w, "  [i] %s exists and is not managed by CSM (no CSM __CSM_NOTE); leaving it unchanged\n", atcs2CfgPath)
 		} else {
 			if os.Geteuid() == 0 {
-				_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
+				_ = ensureOwnedByUser(cfg.CS2User, atcs2CfgPath)
 			}
 			switch dbMode {
-			case MatchzyDBEngineSQLite:
-				fmt.Fprintln(w, "  [i] MatchZy database: SQLite per server (each server keeps its own matchzy.db; stats are not shared)")
+			case ATCS2DBEngineSQLite:
+				fmt.Fprintf(w, "  [i] Auto Tournament CS2 database: SQLite per server (each server keeps its own %s; stats are not shared)\n", ATCS2SQLiteFile)
 				// No MySQL to provision.
 				return nil
 			case "external":
-				fmt.Fprintf(w, "  [i] Using external MatchZy database at %s:%d (db=%s, user=%s)\n",
+				fmt.Fprintf(w, "  [i] Using external Auto Tournament CS2 database at %s:%d (db=%s, user=%s)\n",
 					desired.MySQLHost, desired.MySQLPort, desired.MySQLDatabase, desired.MySQLUsername)
 				if cfg.NumServers > 1 {
 					fmt.Fprintf(w, "  [!] %s\n", sharedMySQLScopingNotice(cfg.NumServers))
@@ -1422,8 +1453,8 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 				return nil
 			default:
 				// Warn about default database passwords
-				if cfg.ExternalDBPassword == "" || cfg.ExternalDBPassword == DefaultMatchzyDBPassword {
-					fmt.Fprintf(w, "  [!] WARNING: Using default MatchZy database password!\n")
+				if cfg.ExternalDBPassword == "" || cfg.ExternalDBPassword == DefaultATCS2DBPassword {
+					fmt.Fprintf(w, "  [!] WARNING: Using default Auto Tournament CS2 database password!\n")
 					fmt.Fprintf(w, "  [!] SECURITY: Change the database password in production!\n")
 				}
 				if cfg.NumServers > 1 {
@@ -1434,58 +1465,58 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	}
 
 	// Create default config if missing.
-	if _, err := os.Stat(matchzyCfgPath); err != nil {
-		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
+	if _, err := os.Stat(atcs2CfgPath); err != nil {
+		if err := os.MkdirAll(filepath.Dir(atcs2CfgPath), 0o755); err != nil {
 			return err
 		}
 		if os.Geteuid() == 0 {
-			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(matchzyCfgPath))
+			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(atcs2CfgPath))
 		}
-		def := matchzyDBConfig{
+		def := atcs2DBConfig{
 			DatabaseType:  "MySQL",
 			MySQLHost:     "127.0.0.1",
 			MySQLPort:     3306,
-			MySQLDatabase: DefaultMatchzyDBName,
-			MySQLUsername: DefaultMatchzyDBUser,
-			MySQLPassword: DefaultMatchzyDBPassword,
+			MySQLDatabase: DefaultATCS2DBName,
+			MySQLUsername: DefaultATCS2DBUser,
+			MySQLPassword: DefaultATCS2DBPassword,
 		}
 
 		onDisk := struct {
-			matchzyDBConfig
+			atcs2DBConfig
 			CSMNote string `json:"__CSM_NOTE,omitempty"`
 		}{
-			matchzyDBConfig: def,
-			CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
+			atcs2DBConfig: def,
+			CSMNote:       "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
 		}
 
 		data, err := json.MarshalIndent(onDisk, "", "  ")
 		if err != nil {
-			return fmt.Errorf("failed to marshal MatchZy database config: %w", err)
+			return fmt.Errorf("failed to marshal Auto Tournament CS2 database config: %w", err)
 		}
-		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
-			return fmt.Errorf("failed to write MatchZy database config to %s: %w", matchzyCfgPath, err)
+		if err := os.WriteFile(atcs2CfgPath, data, 0o664); err != nil {
+			return fmt.Errorf("failed to write Auto Tournament CS2 database config to %s: %w", atcs2CfgPath, err)
 		}
 		if os.Geteuid() == 0 {
-			_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
+			_ = ensureOwnedByUser(cfg.CS2User, atcs2CfgPath)
 		}
-		fmt.Fprintf(w, "  [✓] Created %s with default values\n", matchzyCfgPath)
+		fmt.Fprintf(w, "  [✓] Created %s with default values\n", atcs2CfgPath)
 	}
 
-	data, err := os.ReadFile(matchzyCfgPath)
+	data, err := os.ReadFile(atcs2CfgPath)
 	if err != nil {
 		return err
 	}
-	var dbCfg matchzyDBConfig
+	var dbCfg atcs2DBConfig
 	if err := json.Unmarshal(data, &dbCfg); err != nil {
-		return fmt.Errorf("MatchZy database config is not valid JSON: %w", err)
+		return fmt.Errorf("Auto Tournament CS2 database config is not valid JSON: %w", err)
 	}
 
 	if strings.ToLower(dbCfg.DatabaseType) != "mysql" {
 		fmt.Fprintf(w, "  [i] DatabaseType=%s; skipping Docker provisioning\n", dbCfg.DatabaseType)
 		return nil
 	}
-	if cfg.MatchzySkipDocker {
-		fmt.Fprintln(w, "  [i] MATCHZY_SKIP_DOCKER=1: Skipping Docker provisioning (using external database).")
+	if cfg.ATCS2SkipDocker {
+		fmt.Fprintln(w, "  [i] AT_SKIP_DOCKER=1: Skipping Docker provisioning (using external database).")
 		return nil
 	}
 
@@ -1497,13 +1528,21 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		dbCfg.MySQLPort = 3306
 	}
 
-	containerName := getenvDefault("MATCHZY_DB_CONTAINER", DefaultMatchzyContainerName)
-	volumeName := getenvDefault("MATCHZY_DB_VOLUME", DefaultMatchzyVolumeName)
-	imageName := getenvDefault("MATCHZY_DB_IMAGE", "mysql:8.0")
-	rootPass := getenvDefault("MATCHZY_DB_ROOT_PASSWORD", DefaultMatchzyRootPassword)
-	if rootPass == DefaultMatchzyRootPassword {
+	containerName := atcs2DBContainerName()
+	volumeName := getenvDefault("AT_DB_VOLUME", DefaultATCS2VolumeName)
+	imageName := getenvDefault("AT_DB_IMAGE", "mysql:8.0")
+	rootPass := getenvDefault("AT_DB_ROOT_PASSWORD", DefaultATCS2RootPassword)
+	if rootPass == DefaultATCS2RootPassword {
 		fmt.Fprintf(w, "  [!] WARNING: Using default MySQL root password!\n")
-		fmt.Fprintf(w, "  [!] SECURITY: Set MATCHZY_DB_ROOT_PASSWORD environment variable for production!\n")
+		fmt.Fprintf(w, "  [!] SECURITY: Set AT_DB_ROOT_PASSWORD environment variable for production!\n")
+	}
+
+	// A container from before the plugin rename is renamed in place, so the
+	// checks below find it under the new name with its data.
+	if !cfg.FreshInstall {
+		if err := migrateLegacyATCS2Container(w, containerName); err != nil {
+			return err
+		}
 	}
 
 	containerExists := false
@@ -1518,14 +1557,17 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		}
 	}
 
-	// For a full fresh install, drop any existing MatchZy container and volume
-	// so we start from a clean database state.
+	// For a full fresh install, drop any existing plugin database container
+	// (under its current or its pre-rename name) and volume so we start from
+	// a clean database state.
 	if cfg.FreshInstall {
-		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing MatchZy container %q (if present)\n", containerName)
-		if err := exec.Command("docker", "rm", "-f", containerName).Run(); err != nil {
-			fmt.Fprintf(w, "  [i] Container %q may not exist (this is fine): %v\n", containerName, err)
+		for _, name := range []string{containerName, LegacyATCS2ContainerName} {
+			fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing plugin database container %q (if present)\n", name)
+			if err := exec.Command("docker", "rm", "-f", name).Run(); err != nil {
+				fmt.Fprintf(w, "  [i] Container %q may not exist (this is fine): %v\n", name, err)
+			}
 		}
-		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing MatchZy volume %q (if present)\n", volumeName)
+		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing plugin database volume %q (if present)\n", volumeName)
 		if err := exec.Command("docker", "volume", "rm", volumeName).Run(); err != nil {
 			fmt.Fprintf(w, "  [i] Volume %q may not exist (this is fine): %v\n", volumeName, err)
 		}
@@ -1534,7 +1576,7 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	}
 
 	// Recreating the container (for a port change below) must reuse the
-	// volume it has now, whatever MATCHZY_DB_VOLUME says, or the database
+	// volume it has now, whatever AT_DB_VOLUME says, or the database
 	// would come back empty.
 	if containerExists {
 		if v := mysqlDataVolume(volumeName, containerDataVolume(containerName)); v != volumeName {
@@ -1567,10 +1609,10 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	// Update database.json with host/port/db/user/pass, preserving the
 	// wizard-management note so users know manual edits may be overwritten.
 	// An operator-owned file (no CSM note) is not rewritten.
-	if wrote, err := writeManagedMatchzyDBConfig(matchzyCfgPath, dbCfg, "docker"); err != nil {
+	if wrote, err := writeManagedATCS2DBConfig(atcs2CfgPath, dbCfg, "docker"); err != nil {
 		return err
 	} else if wrote && os.Geteuid() == 0 {
-		_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
+		_ = ensureOwnedByUser(cfg.CS2User, atcs2CfgPath)
 	}
 
 	recreate := false
@@ -1603,12 +1645,12 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		if err := runCmdLogged(w, "docker", args...); err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "  [✓] Started MatchZy MySQL container (%s) on port %d\n", containerName, dbCfg.MySQLPort)
+		fmt.Fprintf(w, "  [✓] Started Auto Tournament CS2 MySQL container (%s, volume %s) on port %d\n", containerName, volumeName, dbCfg.MySQLPort)
 	} else {
 		if err := runCmdLogged(w, "docker", "start", containerName); err != nil {
 			return err
 		}
-		fmt.Fprintf(w, "  [✓] MatchZy MySQL container (%s) already running\n", containerName)
+		fmt.Fprintf(w, "  [✓] Auto Tournament CS2 MySQL container (%s) already running\n", containerName)
 	}
 
 	// Wait for MySQL to be ready
@@ -1623,18 +1665,18 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	}
 
 	if ready {
-		fmt.Fprintf(w, "  [✓] MatchZy database is ready at %s:%d\n", hostIP, dbCfg.MySQLPort)
-		if err := ensureMatchZyDatabaseExistsGo(w, containerName, dbCfg, rootPass); err != nil {
+		fmt.Fprintf(w, "  [✓] Auto Tournament CS2 database is ready at %s:%d\n", hostIP, dbCfg.MySQLPort)
+		if err := ensureATCS2DatabaseExistsGo(w, containerName, dbCfg, rootPass); err != nil {
 			return err
 		}
 	} else {
-		fmt.Fprintln(w, "  [i] MatchZy database is starting up (Docker container is running)")
+		fmt.Fprintln(w, "  [i] Auto Tournament CS2 database is starting up (Docker container is running)")
 	}
 
 	return nil
 }
 
-func ensureMatchZyDatabaseExistsGo(w *bytes.Buffer, containerName string, cfg matchzyDBConfig, rootPass string) error {
+func ensureATCS2DatabaseExistsGo(w *bytes.Buffer, containerName string, cfg atcs2DBConfig, rootPass string) error {
 	// Check if DB exists
 	dbExistsCmd := exec.Command("docker", "exec", containerName, "mysql", "-uroot", "-p"+rootPass,
 		"-e", "SHOW DATABASES LIKE '"+cfg.MySQLDatabase+"';", "-sN")
@@ -1707,7 +1749,7 @@ func (t *teeWriter) Write(p []byte) (int, error) {
 
 func ensureDockerGo(w *bytes.Buffer) error {
 	if _, err := exec.LookPath("docker"); err != nil {
-		fmt.Fprintln(w, "  [!] Docker is required for the MatchZy database. Please install Docker Engine.")
+		fmt.Fprintln(w, "  [!] Docker is required for the Auto Tournament CS2 database. Please install Docker Engine.")
 		return fmt.Errorf("docker is required")
 	}
 	_ = exec.Command("systemctl", "enable", "docker").Run()
@@ -2037,12 +2079,13 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 	// Also sync addons (Metamod + CounterStrikeSharp + plugins) from the shared
 	// cs2-config tree. The master install sync explicitly excludes csgo/addons/,
 	// so without this step servers will not have Metamod/CSS installed.
-	// The plugin's SQLite database lives inside addons/, which --delete would
-	// remove, so it is moved aside and put back (withPluginSQLitePreserved).
+	// The plugin's SQLite database lives inside addons/, which --delete
+	// would remove, so it is moved aside and put back (see
+	// withATCS2SQLitePreserved).
 	if fi, err := os.Stat(sharedAddonsDir); err == nil && fi.IsDir() {
 		fmt.Fprintf(w, "  [*] Syncing addons to server-%d...\n", serverNum)
 		serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum))
-		if err := withPluginSQLitePreserved(w, serverDir, func() error {
+		if err := withATCS2SQLitePreserved(w, serverDir, func() error {
 			if err := os.MkdirAll(serverAddonsDir, 0o755); err != nil {
 				return fmt.Errorf("failed to create server addons directory: %w", err)
 			}
@@ -2053,7 +2096,7 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 			); err != nil {
 				return fmt.Errorf("rsync addons failed: %w", err)
 			}
-			return nil
+			return removeLegacyATCS2Plugin(w, fmt.Sprintf("server-%d", serverNum), filepath.Dir(serverAddonsDir))
 		}); err != nil {
 			return err
 		}

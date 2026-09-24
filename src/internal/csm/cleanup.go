@@ -10,13 +10,13 @@ import (
 
 // CleanupConfig controls how CleanupAll behaves.
 type CleanupConfig struct {
-	CS2User          string
-	MatchzyContainer string
-	MatchzyVolume    string
+	CS2User        string
+	ATCS2Container string
+	ATCS2Volume    string
 }
 
 // CleanupAll removes all CS2 servers, their data, and (optionally) the
-// MatchZy MySQL Docker container and volume. It mirrors the behaviour of
+// Auto Tournament CS2 MySQL Docker container and volume. It mirrors the behaviour of
 // scripts/cleanup_cs2.sh and returns a human-readable log.
 func CleanupAll(cfg CleanupConfig) (string, error) {
 	if os.Geteuid() != 0 {
@@ -27,11 +27,11 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 		// Default to the dedicated service user created by the installer.
 		cfg.CS2User = DefaultCS2User
 	}
-	if cfg.MatchzyContainer == "" {
-		cfg.MatchzyContainer = DefaultMatchzyContainerName
+	if cfg.ATCS2Container == "" {
+		cfg.ATCS2Container = DefaultATCS2ContainerName
 	}
-	if cfg.MatchzyVolume == "" {
-		cfg.MatchzyVolume = DefaultMatchzyVolumeName
+	if cfg.ATCS2Volume == "" {
+		cfg.ATCS2Volume = DefaultATCS2VolumeName
 	}
 
 	var buf bytes.Buffer
@@ -79,19 +79,28 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 		_ = exec.Command("su", "-", cfg.CS2User, "-c", "tmux kill-session -t "+session+" 2>/dev/null").Run()
 	}
 
-	// Docker cleanup for MatchZy.
-	log("[*] Cleaning up MatchZy MySQL Docker container...")
+	// Docker cleanup for the plugin database. A host that never ran an
+	// update since the plugin rename still has the container under its old
+	// name, so both names are removed.
+	log("[*] Cleaning up the Auto Tournament CS2 MySQL Docker container...")
 	if _, err := exec.LookPath("docker"); err == nil {
 		// Check if container exists.
 		if err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}").Run(); err == nil {
-			if hasDockerName(cfg.MatchzyContainer) {
-				log("  [*] Stopping and removing Docker container: %s", cfg.MatchzyContainer)
-				_ = exec.Command("docker", "stop", cfg.MatchzyContainer).Run()
-				_ = exec.Command("docker", "rm", cfg.MatchzyContainer).Run()
-				log("  [*] Removing Docker volume: %s", cfg.MatchzyVolume)
-				_ = exec.Command("docker", "volume", "rm", cfg.MatchzyVolume).Run()
+			found := false
+			for _, name := range []string{cfg.ATCS2Container, LegacyATCS2ContainerName} {
+				if !hasDockerName(name) {
+					continue
+				}
+				found = true
+				log("  [*] Stopping and removing Docker container: %s", name)
+				_ = exec.Command("docker", "stop", name).Run()
+				_ = exec.Command("docker", "rm", name).Run()
+			}
+			if found {
+				log("  [*] Removing Docker volume: %s", cfg.ATCS2Volume)
+				_ = exec.Command("docker", "volume", "rm", cfg.ATCS2Volume).Run()
 			} else {
-				log("  [i] MatchZy MySQL container not found")
+				log("  [i] Auto Tournament CS2 MySQL container not found")
 			}
 		}
 	} else {

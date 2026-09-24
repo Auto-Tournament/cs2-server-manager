@@ -24,7 +24,7 @@ What are you trying to accomplish?
 
 - **Deployment:** Docker / Local
 - **Runtime:** Bun / Node.js
-- **MatchZy Version:**
+- **Auto Tournament CS2 Version:**
 
 ## 📎 Additional Information
 

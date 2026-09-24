@@ -182,25 +182,25 @@ func TestAutoUpdateStateRoundTrip(t *testing.T) {
 func TestLogHasMarkerAfter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.log")
 	old := strings.Repeat("noise\n", 20000) // > 64 KB
-	if err := os.WriteFile(path, []byte(matchzyUpdateAvailableMarker+"1\n"+old), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(atcs2UpdateAvailableMarker+"1\n"+old), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// No state yet: only the tail is checked, so the ancient marker is ignored.
-	m, size, err := logHasMarkerAfter(path, 0, matchzyUpdateAvailableMarker)
+	m, size, err := logHasMarkerAfter(path, 0, atcs2UpdateAvailableMarker)
 	if err != nil || m != "" {
 		t.Fatalf("first scan found %q (err %v); old markers beyond the tail must not count", m, err)
 	}
 
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
-	_, _ = f.WriteString("L 12:00: " + matchzyUpdateAvailableMarker + "2\n")
+	_, _ = f.WriteString("L 12:00: " + atcs2UpdateAvailableMarker + "2\n")
 	_ = f.Close()
 
-	if m, _, _ := logHasMarkerAfter(path, size, matchzyUpdateAvailableMarker); m == "" {
+	if m, _, _ := logHasMarkerAfter(path, size, atcs2UpdateAvailableMarker); m == "" {
 		t.Fatal("marker after the offset not found")
 	}
-	_, size2, _ := logHasMarkerAfter(path, size, matchzyUpdateAvailableMarker)
-	if m, _, _ := logHasMarkerAfter(path, size2, matchzyUpdateAvailableMarker); m != "" {
+	_, size2, _ := logHasMarkerAfter(path, size, atcs2UpdateAvailableMarker)
+	if m, _, _ := logHasMarkerAfter(path, size2, atcs2UpdateAvailableMarker); m != "" {
 		t.Fatal("handled marker found again")
 	}
 
@@ -208,7 +208,7 @@ func TestLogHasMarkerAfter(t *testing.T) {
 	if err := os.WriteFile(path, []byte(autoUpdaterShutdownMarker+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if m, _, _ := logHasMarkerAfter(path, size2, matchzyUpdateAvailableMarker, autoUpdaterShutdownMarker); m != autoUpdaterShutdownMarker {
+	if m, _, _ := logHasMarkerAfter(path, size2, atcs2UpdateAvailableMarker, autoUpdaterShutdownMarker); m != autoUpdaterShutdownMarker {
 		t.Fatalf("rotated log: got %q", m)
 	}
 }

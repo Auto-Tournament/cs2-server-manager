@@ -305,7 +305,7 @@ func (m *TmuxManager) Start(server int) error {
 // serverLaunch builds the command that runs server inside gameDir. Start
 // (and so Restart) and Debug all use it, so every entry point honours the
 // launch mode (CSM_LAUNCH_MODE, set by --alternate/--binary) and passes
-// +matchzy_config_scope the same way. It makes sure csm.sh exists when that
+// +at_config_scope the same way. It makes sure csm.sh exists when that
 // launcher is selected and installs Steam Runtime when it is enabled, falling
 // back to the plain command if that install fails. logTag prefixes log lines.
 func (m *TmuxManager) serverLaunch(server int, gameDir string, gamePort, tvPort, maxPlayers int, logTag string) (launch string, useSteamRT bool, rtMode string) {
@@ -316,7 +316,7 @@ func (m *TmuxManager) serverLaunch(server int, gameDir string, gamePort, tvPort,
 		TVPort:      tvPort,
 		MaxPlayers:  maxPlayers,
 		GSLT:        m.getGSLT(server),
-		ConfigScope: MatchzyConfigScope(server),
+		ConfigScope: ATCS2ConfigScope(server),
 	}
 	if spec.usesCSMLauncherSh() {
 		// Ensure alternate launcher exists (keep Valve's cs2.sh intact).

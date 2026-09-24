@@ -18,7 +18,7 @@ import (
 // Every server-N/game tree used to be a full copy of master-install/game
 // (~67 GB each). About 98% of that is *.vpk archives, which CS2 only ever
 // reads. Those files are now hardlinked from master-install into each server,
-// while every other file (cfg, addons, gameinfo.gi, MatchZy data, demos, logs)
+// while every other file (cfg, addons, gameinfo.gi, plugin data, demos, logs)
 // stays a real per-server copy.
 //
 // Hardlinks (not symlinks) are used on purpose: the game resolves paths

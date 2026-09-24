@@ -39,7 +39,7 @@ Provide clear steps for how community members can help:
 - **Deployment:** Docker / Local
 - **Runtime:** Bun / Node.js (version: )
 - **OS:**
-- **MatchZy Version:**
+- **Auto Tournament CS2 Version:**
 - **Other requirements:**
 
 ## 📝 What Feedback You're Looking For

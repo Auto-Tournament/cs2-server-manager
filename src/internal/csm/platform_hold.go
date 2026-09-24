@@ -23,7 +23,7 @@ import (
 // The platform knows. csm asks it:
 //
 //	GET <base>/api/servers/update-hold
-//	X-MatchZy-Token: <server token>
+//	X-Auto-Tournament-Token: <server token>
 //	-> {"success":true,"hold":true,"reason":"tournament \"X\" is in progress ..."}
 //
 // csm polls instead of the platform pushing, because a game host is behind
@@ -44,7 +44,7 @@ import (
 type PlatformSettings struct {
 	// BaseURL is the platform's public base URL, e.g. https://cs.example.io.
 	BaseURL string `json:"base_url,omitempty"`
-	// Token is the platform's SERVER_TOKEN, sent as X-MatchZy-Token. It is the
+	// Token is the platform's SERVER_TOKEN, sent as X-Auto-Tournament-Token. It is the
 	// same fleet-wide token the plugin uses, not a per-host secret.
 	Token string `json:"token,omitempty"`
 }
@@ -147,7 +147,7 @@ func FetchPlatformHold(ctx context.Context, p PlatformSettings) (PlatformHoldAns
 	if err != nil {
 		return answer, err
 	}
-	req.Header.Set("X-MatchZy-Token", p.Token)
+	req.Header.Set("X-Auto-Tournament-Token", p.Token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := (&http.Client{Timeout: platformHoldTimeout}).Do(req)
