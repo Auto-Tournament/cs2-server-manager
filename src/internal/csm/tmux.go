@@ -187,55 +187,6 @@ func (m *TmuxManager) IsRunning(server int) bool {
 	return exec.Command("tmux", "has-session", "-t", session).Run() == nil
 }
 
-// Status returns a human-readable status for all known servers/sessions.
-func (m *TmuxManager) Status() (string, error) {
-	var buf bytes.Buffer
-	fmt.Fprintln(&buf, "==========================================")
-	fmt.Fprintln(&buf, "  CS2 Server Status (Tmux)")
-	fmt.Fprintln(&buf, "==========================================")
-	fmt.Fprintln(&buf)
-
-	if m.NumServers <= 0 {
-		fmt.Fprintln(&buf, "No CS2 servers found.")
-		fmt.Fprintln(&buf, "Run the install wizard from the Setup tab to create servers.")
-		fmt.Fprintln(&buf)
-		fmt.Fprintln(&buf, "==========================================")
-		return buf.String(), nil
-	}
-
-	for i := 1; i <= m.NumServers; i++ {
-		gamePort, tvPort := detectServerPorts(m.CS2User, i)
-		session := m.sessionName(i)
-		cmd := m.runAsCS2User("tmux has-session -t " + session)
-
-		running := cmd.Run() == nil
-
-		status := "STOPPED"
-		color := "\x1b[31m" // red
-		if running {
-			status = "RUNNING"
-			color = "\x1b[32m" // green
-		}
-
-		// Overlay any transient status marker (e.g. UPDATING) if present.
-		if data, err := os.ReadFile(m.serverStatusFile(i)); err == nil {
-			if s := strings.TrimSpace(string(data)); s == "UPDATING" {
-				status = s
-				color = "\x1b[33m" // yellow
-			}
-		}
-
-		fmt.Fprintf(&buf, "Server %d (Game %d, GOTV %d): %s%s\x1b[0m\n", i, gamePort, tvPort, color, status)
-		if running {
-			fmt.Fprintf(&buf, "  Attach: csm attach %d\n", i)
-		}
-		fmt.Fprintln(&buf)
-	}
-
-	fmt.Fprintln(&buf, "==========================================")
-	return buf.String(), nil
-}
-
 // StartAll starts all servers (creating tmux sessions if needed).
 func (m *TmuxManager) StartAll() error {
 	if m.NumServers <= 0 {

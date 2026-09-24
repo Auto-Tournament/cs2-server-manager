@@ -132,18 +132,8 @@ func main() {
 			fmt.Println(ip)
 			return
 		case "status":
-			mgr, err := csm.NewTmuxManager()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "tmux status failed: %v\n", err)
-				os.Exit(1)
-			}
-			out, err := mgr.Status()
-			csm.LogAction("cli", "status", out, err)
-			if out != "" {
-				fmt.Print(out)
-			}
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "tmux status failed: %v\n", err)
+			if err := runStatusCommand(args[1:]); err != nil {
+				fmt.Fprintf(os.Stderr, "status failed: %v\n", err)
 				os.Exit(1)
 			}
 			return
@@ -193,6 +183,7 @@ func main() {
 			}
 			return
 		case "stop":
+			stopForce, stopArgs := extractForce(args[1:])
 			mgr, err := csm.NewTmuxManager()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "tmux stop failed: %v\n", err)
@@ -203,19 +194,21 @@ func main() {
 				os.Exit(1)
 			}
 			target := "all"
-			if len(args) > 1 {
-				server, serr := strconv.Atoi(args[1])
+			if len(stopArgs) > 0 {
+				server, serr := strconv.Atoi(stopArgs[0])
 				if serr != nil || server <= 0 {
-					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
+					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", stopArgs[0])
 					os.Exit(1)
 				}
 				if server > mgr.NumServers {
 					fmt.Fprintf(os.Stderr, "server-%d does not exist (only %d server(s) installed)\n", server, mgr.NumServers)
 					os.Exit(1)
 				}
+				gateOrExit(mgr, fmt.Sprintf("stop server-%d", server), []int{server}, stopForce)
 				err = mgr.Stop(server)
 				target = fmt.Sprintf("server-%d", server)
 			} else {
+				gateOrExit(mgr, "stop", nil, stopForce)
 				err = mgr.StopAll()
 			}
 			csm.LogAction("cli", "stop "+target, "", err)
@@ -230,7 +223,8 @@ func main() {
 			var restartBinary bool
 			restartFS.BoolVar(&restartAlternate, "alternate", false, "use alternate launcher (game/csm.sh) instead of Valve's cs2.sh")
 			restartFS.BoolVar(&restartBinary, "binary", false, "run the cs2 binary directly (not recommended; troubleshooting only)")
-			_ = restartFS.Parse(args[1:])
+			restartForce, restartRaw := extractForce(args[1:])
+			_ = restartFS.Parse(restartRaw)
 			restartArgs := restartFS.Args()
 
 			if err := csm.ApplyLaunchModeFlags(restartAlternate, restartBinary); err != nil {
@@ -258,9 +252,11 @@ func main() {
 					fmt.Fprintf(os.Stderr, "server-%d does not exist (only %d server(s) installed)\n", server, mgr.NumServers)
 					os.Exit(1)
 				}
+				gateOrExit(mgr, fmt.Sprintf("restart server-%d", server), []int{server}, restartForce)
 				err = mgr.Restart(server)
 				target = fmt.Sprintf("server-%d", server)
 			} else {
+				gateOrExit(mgr, "restart", nil, restartForce)
 				err = mgr.RestartAll()
 			}
 			csm.LogAction("cli", "restart "+target, "", err)
@@ -744,6 +740,10 @@ func main() {
 			}
 			return
 		case "update-game":
+			gameForce, _ := extractForce(args[1:])
+			if mgr, merr := csm.NewTmuxManager(); merr == nil {
+				gateOrExit(mgr, "update-game", nil, gameForce)
+			}
 			out, err := csm.UpdateGame()
 			csm.LogAction("cli", "update-game", out, err)
 			if out != "" {
@@ -755,14 +755,18 @@ func main() {
 			}
 			return
 		case "update-server":
-			if len(args) < 2 {
-				fmt.Fprintln(os.Stderr, "usage: csm update-server <server>")
+			serverForce, serverArgs := extractForce(args[1:])
+			if len(serverArgs) < 1 {
+				fmt.Fprintln(os.Stderr, "usage: csm update-server [--force] <server>")
 				os.Exit(1)
 			}
-			sn, serr := strconv.Atoi(args[1])
+			sn, serr := strconv.Atoi(serverArgs[0])
 			if serr != nil || sn <= 0 {
-				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
+				fmt.Fprintf(os.Stderr, "invalid server number %q\n", serverArgs[0])
 				os.Exit(1)
+			}
+			if mgr, merr := csm.NewTmuxManager(); merr == nil {
+				gateOrExit(mgr, fmt.Sprintf("update-server server-%d", sn), []int{sn}, serverForce)
 			}
 			out, err := csm.UpdateServerWithContext(context.Background(), sn)
 			csm.LogAction("cli", fmt.Sprintf("update-server-%d", sn), out, err)
@@ -775,6 +779,10 @@ func main() {
 			}
 			return
 		case "update-plugins":
+			pluginsForce, _ := extractForce(args[1:])
+			if mgr, merr := csm.NewTmuxManager(); merr == nil {
+				gateOrExit(mgr, "update-plugins", nil, pluginsForce)
+			}
 			// For CLI convenience, perform both the download and deploy steps.
 			if out, err := csm.UpdatePlugins(); out != "" || err != nil {
 				csm.LogAction("cli", "update-plugins-download", out, err)
@@ -948,7 +956,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Printf("%sCommands (no sudo required):%s\n", cyan, reset)
 	fmt.Println("  public-ip              Print public IP address")
-	fmt.Println("  status                 Show tmux server status")
+	fmt.Println("  status                 Fleet table: process, map, phase, score, players, Ready Up (--watch, --json)")
 	fmt.Println("  start|stop|restart     Control servers via tmux")
 	fmt.Println("  logs                   Tail server logs (scrolling)")
 	fmt.Println("  logs-file              Show the raw log file path for a server")
@@ -963,6 +971,11 @@ func printUsage() {
 	fmt.Println("  csm start [--alternate|--binary] [server]")
 	fmt.Println("  csm restart [--alternate|--binary] [server]")
 	fmt.Println("  csm debug [--alternate|--binary] <server>")
+	fmt.Println()
+	fmt.Println("Live matches:")
+	fmt.Println("  stop, restart, update-game, update-server and update-plugins refuse to touch a")
+	fmt.Println("  server whose Ready Up reports update_safe=false (a match is live). Add --force")
+	fmt.Println("  to go ahead anyway; forced runs are logged. Servers without Ready Up are not held.")
 	fmt.Println()
 	fmt.Printf("%sCommands (require sudo for typical setups):%s\n", yellow, reset)
 	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
