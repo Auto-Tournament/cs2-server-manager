@@ -494,18 +494,62 @@ func selectATCS2Asset(assets []metamodReleaseAsset) (string, string) {
 	return "", ""
 }
 
-func (up *PluginUpdater) downloadATCS2(w io.Writer) error {
-	fmt.Fprintln(w, "[Auto Tournament CS2] Fetching the latest Auto Tournament CS2 plugin release...")
+// atcs2VersionEnv pins the Auto Tournament CS2 plugin release to install,
+// mirroring metamodVersionEnv. Set it to a release tag from
+// Auto-Tournament/cs2-plugin (e.g. "2.0.0" or "v2.0.0"); the "v" prefix is
+// added automatically when missing. This works for pre-releases, which
+// /releases/latest never returns. Unset or empty keeps the old "latest"
+// behaviour.
+const atcs2VersionEnv = "CSM_ATCS2_VERSION"
 
-	type release struct {
-		TagName string                `json:"tag_name"`
-		HTMLURL string                `json:"html_url"`
-		Assets  []metamodReleaseAsset `json:"assets"`
+// atcs2TargetVersion returns the release tag to install (with a leading "v"
+// added if missing), or "" when the newest release should be selected.
+func atcs2TargetVersion() string {
+	v := strings.TrimSpace(os.Getenv(atcs2VersionEnv))
+	if v == "" {
+		return ""
 	}
+	if !strings.HasPrefix(v, "v") {
+		v = "v" + v
+	}
+	return v
+}
 
-	var rel release
-	if err := up.fetchJSON("https://api.github.com/repos/Auto-Tournament/cs2-plugin/releases/latest", &rel); err != nil {
-		return fmt.Errorf("failed to fetch Auto Tournament CS2 releases from Auto-Tournament/cs2-plugin: %w", err)
+type atcs2Release struct {
+	TagName string                `json:"tag_name"`
+	HTMLURL string                `json:"html_url"`
+	Assets  []metamodReleaseAsset `json:"assets"`
+}
+
+// atcs2ReleasesURL is the Auto-Tournament/cs2-plugin releases API base. A
+// package-level var, rather than a local const, so tests can point it at a
+// stub server.
+var atcs2ReleasesURL = "https://api.github.com/repos/Auto-Tournament/cs2-plugin/releases"
+
+// atcs2ReleaseURL returns the GitHub releases API URL to fetch for the given
+// pinned target ("" meaning "no pin"): base+"/latest" when unpinned, or
+// base+"/tags/<target>" (URL-escaped) when pinned.
+func atcs2ReleaseURL(base, target string) string {
+	if target == "" {
+		return base + "/latest"
+	}
+	return base + "/tags/" + url.PathEscape(target)
+}
+
+func (up *PluginUpdater) downloadATCS2(w io.Writer) error {
+	var rel atcs2Release
+	target := atcs2TargetVersion()
+	if target != "" {
+		fmt.Fprintf(w, "[Auto Tournament CS2] %s=%s; fetching pinned release %s...\n", atcs2VersionEnv, os.Getenv(atcs2VersionEnv), target)
+		if err := up.fetchJSON(atcs2ReleaseURL(atcs2ReleasesURL, target), &rel); err != nil {
+			return fmt.Errorf("failed to fetch Auto Tournament CS2 release %s from Auto-Tournament/cs2-plugin: %w", target, err)
+		}
+		fmt.Fprintf(w, "[Auto Tournament CS2] Using pinned Auto Tournament CS2 %s (override with %s)\n", rel.TagName, atcs2VersionEnv)
+	} else {
+		fmt.Fprintln(w, "[Auto Tournament CS2] Fetching the latest Auto Tournament CS2 plugin release...")
+		if err := up.fetchJSON(atcs2ReleaseURL(atcs2ReleasesURL, target), &rel); err != nil {
+			return fmt.Errorf("failed to fetch Auto Tournament CS2 releases from Auto-Tournament/cs2-plugin: %w", err)
+		}
 	}
 
 	assetName, downloadURL := selectATCS2Asset(rel.Assets)

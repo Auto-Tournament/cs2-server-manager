@@ -1,6 +1,10 @@
 package csm
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -185,5 +189,118 @@ func TestMetamodTargetVersion(t *testing.T) {
 				t.Fatalf("metamodTargetVersion() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestATCS2TargetVersion(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want string
+	}{
+		{name: "unset uses latest", env: "", want: ""},
+		{name: "whitespace uses latest", env: "   ", want: ""},
+		{name: "bare version gets v prefix", env: "2.0.0", want: "v2.0.0"},
+		{name: "v-prefixed version is kept as-is", env: "v2.0.0", want: "v2.0.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(atcs2VersionEnv, tt.env)
+			if got := atcs2TargetVersion(); got != tt.want {
+				t.Fatalf("atcs2TargetVersion() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestATCS2ReleaseURL(t *testing.T) {
+	const base = "https://api.github.com/repos/Auto-Tournament/cs2-plugin/releases"
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "unset fetches latest", target: "", want: base + "/latest"},
+		{name: "bare version fetches tags/v2.0.0", target: "v2.0.0", want: base + "/tags/v2.0.0"},
+		{name: "v-prefixed version fetches tags/v2.0.0", target: "v2.0.0", want: base + "/tags/v2.0.0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := atcs2ReleaseURL(base, tt.target); got != tt.want {
+				t.Fatalf("atcs2ReleaseURL(%q) = %q, want %q", tt.target, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestDownloadATCS2MissingTag verifies that pinning to a tag GitHub does not
+// have produces a clear error and leaves the updater's state untouched
+// (nothing is downloaded or extracted).
+func TestDownloadATCS2MissingTag(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/tags/v9.9.9") {
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": "Not Found"})
+			return
+		}
+		t.Fatalf("unexpected request: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+
+	origURL := atcs2ReleasesURL
+	atcs2ReleasesURL = srv.URL
+	defer func() { atcs2ReleasesURL = origURL }()
+
+	t.Setenv(atcs2VersionEnv, "9.9.9")
+
+	tempDir := t.TempDir()
+	up := &PluginUpdater{
+		RootDir:      tempDir,
+		GameDir:      tempDir,
+		OverridesDir: tempDir,
+		TempDir:      tempDir,
+	}
+
+	var buf strings.Builder
+	err := up.downloadATCS2(&buf)
+	if err == nil {
+		t.Fatal("downloadATCS2() with a missing pinned tag returned nil error, want an error")
+	}
+	if !strings.Contains(err.Error(), "v9.9.9") {
+		t.Fatalf("downloadATCS2() error = %q, want it to mention the pinned tag v9.9.9", err.Error())
+	}
+}
+
+func TestDownloadATCS2LatestWhenUnpinned(t *testing.T) {
+	requested := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = r.URL.Path
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Not Found"})
+	}))
+	defer srv.Close()
+
+	origURL := atcs2ReleasesURL
+	atcs2ReleasesURL = srv.URL
+	defer func() { atcs2ReleasesURL = origURL }()
+
+	t.Setenv(atcs2VersionEnv, "")
+
+	tempDir := t.TempDir()
+	up := &PluginUpdater{
+		RootDir:      tempDir,
+		GameDir:      tempDir,
+		OverridesDir: tempDir,
+		TempDir:      tempDir,
+	}
+
+	var buf strings.Builder
+	_ = up.downloadATCS2(&buf)
+
+	if !strings.HasSuffix(requested, "/latest") {
+		t.Fatalf("downloadATCS2() with no pin requested %q, want it to end with /latest", requested)
 	}
 }
