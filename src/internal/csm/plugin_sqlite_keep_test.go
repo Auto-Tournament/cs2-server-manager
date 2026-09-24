@@ -9,17 +9,17 @@ import (
 	"testing"
 )
 
-// newServerWithDB lays out server-1 with the 1.x plugin, its SQLite database
-// and the given journal files.
+// newServerWithDB lays out server-1 with the (renamed) plugin, its SQLite
+// database and the given journal files.
 func newServerWithDB(t *testing.T, journals ...string) (serverDir, pluginDir string) {
 	t.Helper()
 	t.Setenv("CSM_LOG_DIR", t.TempDir())
 	serverDir = filepath.Join(t.TempDir(), "server-1")
-	pluginDir = pluginDirIn(filepath.Join(serverDir, "game", "csgo"))
-	writeKeepFile(t, filepath.Join(pluginDir, "MatchZy.dll"), "old dll")
-	writeKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile), "match stats")
+	pluginDir = atcs2PluginDir(filepath.Join(serverDir, "game", "csgo"))
+	writeKeepFile(t, filepath.Join(pluginDir, ATCS2DLLName), "old dll")
+	writeKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile), "match stats")
 	for _, sfx := range journals {
-		writeKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile+sfx), "journal "+sfx)
+		writeKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile+sfx), "journal "+sfx)
 	}
 	return serverDir, pluginDir
 }
@@ -51,34 +51,40 @@ func replaceLikeDeploy(serverDir string) func() error {
 		if err := os.RemoveAll(addons); err != nil {
 			return err
 		}
-		dir := pluginDirIn(filepath.Join(serverDir, "game", "csgo"))
+		dir := atcs2PluginDir(filepath.Join(serverDir, "game", "csgo"))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(dir, "MatchZy.dll"), []byte("new dll"), 0o644)
+		return os.WriteFile(filepath.Join(dir, ATCS2DLLName), []byte("new dll"), 0o644)
 	}
 }
+
+// These exercise withATCS2SQLitePreserved (atcs2_migrate.go) purely on the
+// current (renamed) plugin layout, with no legacy MatchZy folder involved;
+// TestWithATCS2SQLitePreservedCarriesOverTheOldDatabase and
+// TestWithATCS2SQLitePreservedKeepsTheNewDatabaseAcrossUpdates in
+// atcs2_migrate_test.go cover the legacy carry-over behaviour specifically.
 
 func TestPluginSQLiteSurvivesAddonsReplace(t *testing.T) {
 	serverDir, pluginDir := newServerWithDB(t, "-wal", "-shm")
 	var out bytes.Buffer
 
-	if err := withPluginSQLitePreserved(&out, serverDir, replaceLikeDeploy(serverDir)); err != nil {
+	if err := withATCS2SQLitePreserved(&out, serverDir, replaceLikeDeploy(serverDir)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if got := readKeepFile(t, filepath.Join(pluginDir, "MatchZy.dll")); got != "new dll" {
+	if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2DLLName)); got != "new dll" {
 		t.Fatalf("addons were not replaced: dll = %q", got)
 	}
-	if got := readKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile)); got != "match stats" {
+	if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile)); got != "match stats" {
 		t.Fatalf("database = %q, want the original", got)
 	}
 	for _, sfx := range []string{"-wal", "-shm"} {
-		if got := readKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile+sfx)); got != "journal "+sfx {
+		if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile+sfx)); got != "journal "+sfx {
 			t.Fatalf("%s = %q", sfx, got)
 		}
 	}
-	if _, err := os.Stat(pluginSQLiteStashDir(serverDir)); !os.IsNotExist(err) {
+	if _, err := os.Stat(atcs2SQLiteStashDir(serverDir)); !os.IsNotExist(err) {
 		t.Fatalf("stash should be removed when empty, stat err = %v", err)
 	}
 	if strings.Contains(out.String(), "WARN") {
@@ -89,11 +95,11 @@ func TestPluginSQLiteSurvivesAddonsReplace(t *testing.T) {
 func TestPluginSQLiteSurvivesRepeatedUpdates(t *testing.T) {
 	serverDir, pluginDir := newServerWithDB(t)
 	for i := 0; i < 3; i++ {
-		if err := withPluginSQLitePreserved(&bytes.Buffer{}, serverDir, replaceLikeDeploy(serverDir)); err != nil {
+		if err := withATCS2SQLitePreserved(&bytes.Buffer{}, serverDir, replaceLikeDeploy(serverDir)); err != nil {
 			t.Fatalf("update %d: %v", i, err)
 		}
 	}
-	if got := readKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile)); got != "match stats" {
+	if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile)); got != "match stats" {
 		t.Fatalf("database = %q after three updates", got)
 	}
 }
@@ -102,14 +108,14 @@ func TestPluginSQLiteRestoredWhenReplaceFails(t *testing.T) {
 	serverDir, pluginDir := newServerWithDB(t)
 	boom := errors.New("rsync failed")
 
-	err := withPluginSQLitePreserved(&bytes.Buffer{}, serverDir, func() error {
+	err := withATCS2SQLitePreserved(&bytes.Buffer{}, serverDir, func() error {
 		_ = os.RemoveAll(filepath.Join(serverDir, "game", "csgo", "addons"))
 		return boom
 	})
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want the replace error", err)
 	}
-	if got := readKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile)); got != "match stats" {
+	if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile)); got != "match stats" {
 		t.Fatalf("database = %q, want it put back", got)
 	}
 }
@@ -118,13 +124,13 @@ func TestPluginSQLiteNoDatabaseIsANoOp(t *testing.T) {
 	t.Setenv("CSM_LOG_DIR", t.TempDir())
 	serverDir := filepath.Join(t.TempDir(), "server-1")
 	ran := false
-	if err := withPluginSQLitePreserved(&bytes.Buffer{}, serverDir, func() error { ran = true; return nil }); err != nil {
+	if err := withATCS2SQLitePreserved(&bytes.Buffer{}, serverDir, func() error { ran = true; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if !ran {
 		t.Fatal("replaceAddons was not run")
 	}
-	if _, err := os.Stat(pluginSQLiteStashDir(serverDir)); !os.IsNotExist(err) {
+	if _, err := os.Stat(atcs2SQLiteStashDir(serverDir)); !os.IsNotExist(err) {
 		t.Fatalf("no stash expected, stat err = %v", err)
 	}
 }
@@ -136,19 +142,20 @@ func TestPluginSQLiteNeverOverwritesExistingDatabase(t *testing.T) {
 	serverDir, pluginDir := newServerWithDB(t)
 	var out bytes.Buffer
 
-	err := withPluginSQLitePreserved(&out, serverDir, func() error {
+	err := withATCS2SQLitePreserved(&out, serverDir, func() error {
 		if err := replaceLikeDeploy(serverDir)(); err != nil {
 			return err
 		}
-		return os.WriteFile(filepath.Join(pluginDir, pluginSQLiteFile), []byte("newer"), 0o644)
+		return os.WriteFile(filepath.Join(pluginDir, ATCS2SQLiteFile), []byte("newer"), 0o644)
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := readKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile)); got != "newer" {
+	if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile)); got != "newer" {
 		t.Fatalf("existing database overwritten: %q", got)
 	}
-	if got := readKeepFile(t, filepath.Join(pluginSQLiteStashDir(serverDir), pluginSQLiteFile)); got != "match stats" {
+	stashed := filepath.Join(atcs2SQLiteStashDir(serverDir), ATCS2PluginDirName, ATCS2SQLiteFile)
+	if got := readKeepFile(t, stashed); got != "match stats" {
 		t.Fatalf("stashed database = %q", got)
 	}
 	if !strings.Contains(out.String(), "[WARN]") || !strings.Contains(out.String(), ".csm-plugin-db-stash") {
@@ -161,31 +168,32 @@ func TestPluginSQLiteNeverOverwritesExistingDatabase(t *testing.T) {
 func TestPluginSQLiteInterruptedRunIsRecovered(t *testing.T) {
 	t.Setenv("CSM_LOG_DIR", t.TempDir())
 	serverDir := filepath.Join(t.TempDir(), "server-1")
-	pluginDir := pluginDirIn(filepath.Join(serverDir, "game", "csgo"))
-	writeKeepFile(t, filepath.Join(pluginSQLiteStashDir(serverDir), pluginSQLiteFile), "from interrupted run")
+	pluginDir := atcs2PluginDir(filepath.Join(serverDir, "game", "csgo"))
+	newStash := filepath.Join(atcs2SQLiteStashDir(serverDir), ATCS2PluginDirName)
+	writeKeepFile(t, filepath.Join(newStash, ATCS2SQLiteFile), "from interrupted run")
 
-	if err := withPluginSQLitePreserved(&bytes.Buffer{}, serverDir, replaceLikeDeploy(serverDir)); err != nil {
+	if err := withATCS2SQLitePreserved(&bytes.Buffer{}, serverDir, replaceLikeDeploy(serverDir)); err != nil {
 		t.Fatal(err)
 	}
-	if got := readKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile)); got != "from interrupted run" {
+	if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile)); got != "from interrupted run" {
 		t.Fatalf("database = %q", got)
 	}
 
 	// The stash still holds an older copy while the plugin folder has the
 	// current database: the current one is put back, the older one is kept.
-	writeKeepFile(t, filepath.Join(pluginSQLiteStashDir(serverDir), pluginSQLiteFile), "older copy")
+	writeKeepFile(t, filepath.Join(newStash, ATCS2SQLiteFile), "older copy")
 	var out bytes.Buffer
-	if err := withPluginSQLitePreserved(&out, serverDir, replaceLikeDeploy(serverDir)); err != nil {
+	if err := withATCS2SQLitePreserved(&out, serverDir, replaceLikeDeploy(serverDir)); err != nil {
 		t.Fatal(err)
 	}
-	if got := readKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile)); got != "from interrupted run" {
+	if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile)); got != "from interrupted run" {
 		t.Fatalf("database = %q, want the current one", got)
 	}
-	entries, _ := os.ReadDir(pluginSQLiteStashDir(serverDir))
-	if len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), pluginSQLiteFile+".") {
+	entries, _ := os.ReadDir(newStash)
+	if len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), ATCS2SQLiteFile+".") {
 		t.Fatalf("stash should keep only the older copy under a timestamped name, got %v", entries)
 	}
-	if got := readKeepFile(t, filepath.Join(pluginSQLiteStashDir(serverDir), entries[0].Name())); got != "older copy" {
+	if got := readKeepFile(t, filepath.Join(newStash, entries[0].Name())); got != "older copy" {
 		t.Fatalf("older copy = %q", got)
 	}
 	if !strings.Contains(out.String(), "[WARN]") {
@@ -197,20 +205,20 @@ func TestPluginSQLiteInterruptedRunIsRecovered(t *testing.T) {
 func TestPluginSQLiteMoveFailureSkipsReplace(t *testing.T) {
 	serverDir, pluginDir := newServerWithDB(t)
 	// A file where the stash directory should be makes the move fail.
-	writeKeepFile(t, pluginSQLiteStashDir(serverDir), "not a directory")
+	writeKeepFile(t, atcs2SQLiteStashDir(serverDir), "not a directory")
 
 	ran := false
-	err := withPluginSQLitePreserved(&bytes.Buffer{}, serverDir, func() error { ran = true; return nil })
+	err := withATCS2SQLitePreserved(&bytes.Buffer{}, serverDir, func() error { ran = true; return nil })
 	if err == nil {
 		t.Fatal("expected an error")
 	}
 	if ran {
 		t.Fatal("addons were replaced although the database could not be moved aside")
 	}
-	if got := readKeepFile(t, filepath.Join(pluginDir, pluginSQLiteFile)); got != "match stats" {
+	if got := readKeepFile(t, filepath.Join(pluginDir, ATCS2SQLiteFile)); got != "match stats" {
 		t.Fatalf("database = %q", got)
 	}
-	if got := readKeepFile(t, pluginSQLiteStashDir(serverDir)); got != "not a directory" {
+	if got := readKeepFile(t, atcs2SQLiteStashDir(serverDir)); got != "not a directory" {
 		t.Fatal("the unrelated file was touched")
 	}
 }
