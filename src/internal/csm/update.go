@@ -357,39 +357,52 @@ func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error
 		dstAddons := filepath.Join(dstGame, "addons")
 
 		// Fully replace the server's addons tree so no stale plugin files linger
-		// between updates.
-		if err := os.RemoveAll(dstAddons); err != nil && !os.IsNotExist(err) {
-			log("  [WARN] Failed to clean addons for server-%d at %s: %v", i, dstAddons, err)
+		// between updates. The plugin keeps its SQLite database inside its own
+		// plugin folder, so that file is moved aside first and put back after
+		// (withPluginSQLitePreserved).
+		addonsOK := true
+		replaceAddons := func() error {
+			if err := os.RemoveAll(dstAddons); err != nil && !os.IsNotExist(err) {
+				log("  [WARN] Failed to clean addons for server-%d at %s: %v", i, dstAddons, err)
+			}
+			if err := os.MkdirAll(dstAddons, 0o755); err != nil {
+				log("  [ERROR] Failed to recreate addons directory for server-%d at %s: %v", i, dstAddons, err)
+				addonsOK = false
+				return nil
+			}
+			if os.Geteuid() == 0 {
+				_ = ensureOwnedByUser(mgr.CS2User, dstAddons)
+			}
+
+			// Add timeout for rsync operations
+			rsyncCtx, rsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
+			defer rsyncCancel()
+			// Prefer the shared cs2-config addons as the canonical source (keeps
+			// server copies consistent with what bootstrap overlays).
+			src := sharedAddonsDir
+			if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
+				src = filepath.Join(gameDir, "csgo", "addons")
+			}
+			if err := runRsyncLoggedContext(rsyncCtx, w, mgr.CS2User, "-a", "--delete",
+				src+string(os.PathSeparator),
+				dstAddons+string(os.PathSeparator),
+			); err != nil {
+				if rsyncCtx.Err() == context.DeadlineExceeded {
+					log("  [ERROR] rsync addons for server-%d timed out after %v", i, TimeoutRsync)
+				} else {
+					log("  [ERROR] rsync addons for server-%d failed: %v", i, err)
+				}
+			} else {
+				log("  [OK] Updated addons on server-%d", i)
+			}
+			return nil
 		}
-		if err := os.MkdirAll(dstAddons, 0o755); err != nil {
-			log("  [ERROR] Failed to recreate addons directory for server-%d at %s: %v", i, dstAddons, err)
+		if err := withPluginSQLitePreserved(w, serverDir, replaceAddons); err != nil {
+			log("  [ERROR] server-%d: %v", i, err)
+		}
+		if !addonsOK {
 			continue
 		}
-		if os.Geteuid() == 0 {
-			_ = ensureOwnedByUser(mgr.CS2User, dstAddons)
-		}
-
-		// Add timeout for rsync operations
-		rsyncCtx, rsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
-		// Prefer the shared cs2-config addons as the canonical source (keeps
-		// server copies consistent with what bootstrap overlays).
-		src := sharedAddonsDir
-		if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
-			src = filepath.Join(gameDir, "csgo", "addons")
-		}
-		if err := runRsyncLoggedContext(rsyncCtx, w, mgr.CS2User, "-a", "--delete",
-			src+string(os.PathSeparator),
-			dstAddons+string(os.PathSeparator),
-		); err != nil {
-			if rsyncCtx.Err() == context.DeadlineExceeded {
-				log("  [ERROR] rsync addons for server-%d timed out after %v", i, TimeoutRsync)
-			} else {
-				log("  [ERROR] rsync addons for server-%d failed: %v", i, err)
-			}
-		} else {
-			log("  [OK] Updated addons on server-%d", i)
-		}
-		rsyncCancel()
 
 		// For configs, treat the shared cs2-config tree as the canonical source
 		// so that any MatchZy or other plugin configs maintained there are

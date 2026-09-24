@@ -1533,6 +1533,16 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 		currentPort = ""
 	}
 
+	// Recreating the container (for a port change below) must reuse the
+	// volume it has now, whatever MATCHZY_DB_VOLUME says, or the database
+	// would come back empty.
+	if containerExists {
+		if v := mysqlDataVolume(volumeName, containerDataVolume(containerName)); v != volumeName {
+			fmt.Fprintf(w, "  [i] %s keeps its data on volume %q; using that volume\n", containerName, v)
+			volumeName = v
+		}
+	}
+
 	if containerExists {
 		inspect := exec.Command("docker", "inspect", "-f", "{{range $p, $cfg := .NetworkSettings.Ports}}{{if eq $p \"3306/tcp\"}}{{(index $cfg 0).HostPort}}{{end}}{{end}}", containerName)
 		if out, err := inspect.CombinedOutput(); err == nil {
@@ -1986,6 +1996,17 @@ func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverN
 	return nil
 }
 
+// containerDataVolume returns the name of the volume a MySQL container keeps
+// /var/lib/mysql on, or "" when it cannot be read or is not a named volume.
+func containerDataVolume(container string) string {
+	out, err := exec.Command("docker", "inspect", "-f",
+		`{{range .Mounts}}{{if eq .Destination "/var/lib/mysql"}}{{.Name}}{{end}}{{end}}`, container).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // overlayConfigToServerGo applies configuration overlays to a server instance.
 func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serverNum int) error {
 	sharedCfgDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg")
@@ -2016,17 +2037,25 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 	// Also sync addons (Metamod + CounterStrikeSharp + plugins) from the shared
 	// cs2-config tree. The master install sync explicitly excludes csgo/addons/,
 	// so without this step servers will not have Metamod/CSS installed.
+	// The plugin's SQLite database lives inside addons/, which --delete would
+	// remove, so it is moved aside and put back (withPluginSQLitePreserved).
 	if fi, err := os.Stat(sharedAddonsDir); err == nil && fi.IsDir() {
 		fmt.Fprintf(w, "  [*] Syncing addons to server-%d...\n", serverNum)
-		if err := os.MkdirAll(serverAddonsDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create server addons directory: %w", err)
-		}
-		_ = ensureOwnedByUser(user, serverAddonsDir)
-		if err := runRsyncLoggedContext(ctx, w, user, "-a", "--delete",
-			sharedAddonsDir+string(os.PathSeparator),
-			serverAddonsDir+string(os.PathSeparator),
-		); err != nil {
-			return fmt.Errorf("rsync addons failed: %w", err)
+		serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum))
+		if err := withPluginSQLitePreserved(w, serverDir, func() error {
+			if err := os.MkdirAll(serverAddonsDir, 0o755); err != nil {
+				return fmt.Errorf("failed to create server addons directory: %w", err)
+			}
+			_ = ensureOwnedByUser(user, serverAddonsDir)
+			if err := runRsyncLoggedContext(ctx, w, user, "-a", "--delete",
+				sharedAddonsDir+string(os.PathSeparator),
+				serverAddonsDir+string(os.PathSeparator),
+			); err != nil {
+				return fmt.Errorf("rsync addons failed: %w", err)
+			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 
