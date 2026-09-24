@@ -36,6 +36,7 @@ const (
 	viewServerConfigPrompt
 	viewUnbanIPPrompt
 	viewUnbanAllIPsPrompt
+	viewFleet
 )
 
 type itemKind int
@@ -209,6 +210,9 @@ type model struct {
 
 	vp      viewport.Model
 	vpTitle string
+
+	// fleet is the live Servers dashboard while it is open (view_fleet.go).
+	fleet *fleetState
 
 	version         string
 	latestVersion   string
@@ -644,6 +648,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 	}
 
+	if nm, cmd, ok := m.updateFleetMsg(msg); ok {
+		return nm, tea.Batch(append(cmds, cmd)...)
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		// Track terminal height so scrollable views (like the install wizard
@@ -782,6 +790,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Batch(cmds...)
 			}
+		}
+
+		if m.view == viewFleet {
+			var cmd tea.Cmd
+			m, cmd = m.updateFleetKey(msg)
+			cmds = append(cmds, cmd)
+			return m, tea.Batch(cmds...)
 		}
 
 		if m.view == viewLogsPrompt {
@@ -1062,9 +1077,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Install wizard: configure your servers, then choose Start install."
 			case itemServersStatusViewport:
 				m.running = true
-				m.status = "Loading server status (checking for tmux sessions and installed servers)..."
+				m.status = "Loading servers (tmux sessions and Ready Up status)..."
 				m.lastOutput = ""
-				cmds = append(cmds, runTmuxStatusViewport(), m.spin.Tick)
+				cmds = append(cmds, startFleetCmd(), m.spin.Tick)
 			case itemMatchzyDBViewport:
 				m.running = true
 				m.status = "Verifying MatchZy database..."
@@ -1819,6 +1834,8 @@ func (m model) View() string {
 		return m.viewInstallWizard()
 	case viewViewport:
 		return m.viewViewport()
+	case viewFleet:
+		return m.viewFleet()
 	case viewActionResult:
 		return m.viewActionResult()
 	case viewPublicIP:
@@ -1943,7 +1960,7 @@ func (m model) View() string {
 		case itemInstallMonitorGo:
 			desc = "Install or redeploy the cron-based CS2 auto-update monitor."
 		case itemServersStatusViewport:
-			desc = "View running CS2 tmux sessions and server status in a scrollable view."
+			desc = "Live table of every server: process, map, phase, score, players, match and Ready Up status."
 		case itemLogsViewport:
 			desc = "Pick a server number and view its logs in a scrollable viewport."
 		case itemStartAllGo:

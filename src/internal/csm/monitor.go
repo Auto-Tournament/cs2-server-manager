@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
@@ -140,6 +141,17 @@ func RunAutoUpdateMonitor() error {
 		password := serverRCONPassword(mgr.CS2User, i)
 
 		if running {
+			// Ready Up knows better than RCON whether a match is live; an
+			// explicit update_safe=false always wins (FLEET.md §18.3).
+			ru := ProbeReadyUp(ctx, http.DefaultClient, FleetTarget{Server: i, Dir: mgr.serverDir(i), GamePort: gamePort, Running: true})
+			if safe, known := ru.UpdateSafe(); known && !safe {
+				if st.IdleSince != 0 {
+					st.IdleSince = 0
+					saveState()
+				}
+				log("Server-%d: not updating: Ready Up reports a match in progress on %s (update_safe=false).", i, describeBusyServer(ru))
+				continue
+			}
 			probe := probeServerIdle(addr, password)
 			var idleSince time.Time
 			if st.IdleSince > 0 {
