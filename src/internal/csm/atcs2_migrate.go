@@ -92,25 +92,8 @@ func carryOverLegacyCfg(cfgDir string) (moved, left []string, err error) {
 	return moved, left, err
 }
 
-// moveFileNoClobber moves src to dst, creating dst's parent. It fails rather
-// than replace an existing dst.
-func moveFileNoClobber(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	// A hard link is an atomic "create only if missing"; removing src
-	// afterwards completes the move.
-	if err := os.Link(src, dst); err == nil {
-		return os.Remove(src)
-	} else if errors.Is(err, fs.ErrExist) {
-		return err
-	}
-	// Different filesystem, or links not supported: copy, then remove.
-	if err := copyFileNoClobber(src, dst); err != nil {
-		return err
-	}
-	return os.Remove(src)
-}
+// moveFileNoClobber is defined in plugin_sqlite_keep.go and shared by both
+// the SQLite-preservation and the legacy cfg/plugin carry-over below.
 
 // carryOverLegacyCfgOnce runs carryOverLegacyCfg on cfgDir unless markerDir
 // already holds atcs2CfgCarryOverMarker, logs what it did to w, and then
@@ -253,12 +236,9 @@ func removeLegacyATCS2Plugin(w io.Writer, label, csgoDir string) error {
 	return nil
 }
 
-// Plugin SQLite files, and the suffixes of the journal files SQLite keeps
-// next to a database. A database and its journals are only valid together,
-// so they always move as a set.
+// legacyATCS2SQLiteFile is the 1.x plugin's database file name. sqliteFileSuffixes
+// (the database itself and its journal files) is defined in plugin_sqlite_keep.go.
 const legacyATCS2SQLiteFile = "matchzy.db"
-
-var sqliteFileSuffixes = []string{"", "-wal", "-shm", "-journal"}
 
 // atcs2SQLiteStashDir is where a server's plugin database waits while its
 // addons are replaced. It is in the server's directory, outside addons/, so
@@ -282,6 +262,38 @@ func withATCS2SQLitePreserved(w io.Writer, serverDir string, replaceAddons func(
 	stash := atcs2SQLiteStashDir(serverDir)
 	newStash := filepath.Join(stash, ATCS2PluginDirName)
 	oldStash := filepath.Join(stash, legacyATCS2PluginDirName)
+
+	// A database still in a stash from an interrupted earlier run is older
+	// than the one about to be stashed now (the plugin folder still has it,
+	// or the earlier run would have restored it already). Set the leftover
+	// aside under a timestamped name first, so the current database - not
+	// the stale leftover - ends up under the plain name and is what gets
+	// restored.
+	setAsideLeftover := func(fromDir, base, toDir string) error {
+		if _, err := os.Lstat(filepath.Join(fromDir, base)); err != nil {
+			return nil
+		}
+		if _, err := os.Lstat(filepath.Join(toDir, base)); err != nil {
+			return nil
+		}
+		ts := time.Now().Unix()
+		for _, sfx := range sqliteFileSuffixes {
+			old := filepath.Join(toDir, base+sfx)
+			if _, err := os.Lstat(old); err != nil {
+				continue
+			}
+			if err := moveFileNoClobber(old, fmt.Sprintf("%s.%d", old, ts)); err != nil {
+				return fmt.Errorf("could not set aside %s left over from an earlier run, so the addons were not replaced: %w", old, err)
+			}
+		}
+		return nil
+	}
+	if err := setAsideLeftover(atcs2PluginDir(csgoDir), ATCS2SQLiteFile, newStash); err != nil {
+		return err
+	}
+	if err := setAsideLeftover(legacyATCS2PluginDir(csgoDir), legacyATCS2SQLiteFile, oldStash); err != nil {
+		return err
+	}
 
 	stashSet := func(fromDir, base, toDir string) error {
 		for _, sfx := range sqliteFileSuffixes {
@@ -319,7 +331,10 @@ func withATCS2SQLitePreserved(w io.Writer, serverDir string, replaceAddons func(
 // folder. It never overwrites a file that is already there.
 func restoreATCS2SQLite(w io.Writer, serverDir string) error {
 	stash := atcs2SQLiteStashDir(serverDir)
-	if _, err := os.Stat(stash); err != nil {
+	if fi, err := os.Stat(stash); err != nil || !fi.IsDir() {
+		// Nothing to restore, or the stash path is unexpectedly not a
+		// directory (e.g. a move never got to create it): leave it alone
+		// rather than deleting whatever is there.
 		return nil
 	}
 	pluginDir := atcs2PluginDir(filepath.Join(serverDir, "game", "csgo"))
@@ -421,16 +436,7 @@ func dockerContainerNames() (map[string]bool, error) {
 	return names, nil
 }
 
-// containerDataVolume returns the name of the volume a MySQL container keeps
-// /var/lib/mysql on, or "" when it cannot be read or is not a named volume.
-func containerDataVolume(container string) string {
-	out, err := exec.Command("docker", "inspect", "-f",
-		`{{range .Mounts}}{{if eq .Destination "/var/lib/mysql"}}{{.Name}}{{end}}{{end}}`, container).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
+// containerDataVolume is defined in bootstrap.go and shared here.
 
 // migrateLegacyATCS2Container renames csm's plugin database container from
 // LegacyATCS2ContainerName to target.
