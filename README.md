@@ -145,6 +145,16 @@ CounterStrikeSharp and Auto Tournament CS2 install from their latest releases. M
 
 `sudo csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
 
+## Pinning the Auto Tournament CS2 plugin version
+
+By default `update-plugins` installs the latest Auto Tournament CS2 release from [Auto-Tournament/cs2-plugin](https://github.com/Auto-Tournament/cs2-plugin/releases). To pin a specific release instead — including a pre-release, which `/releases/latest` never returns — set `CSM_ATCS2_VERSION` to its tag, with or without the leading `v`:
+
+```bash
+sudo CSM_ATCS2_VERSION=v2.0.0 csm update-plugins
+```
+
+If the tag doesn't exist, csm reports the error and changes nothing.
+
 ## Disk usage: hardlinked VPKs
 
 A full copy of `master-install` is about 67 GB, and nearly all of it is `*.vpk` archives that CS2 only reads. csm hardlinks the VPKs from `/home/<cs2user>/master-install/game` into each `server-N/game`, so each extra server costs about 1.2 GB on disk instead of 67 GB. The install wizard estimates about 71 GB for `master-install` plus about 2 GB per server.
