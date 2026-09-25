@@ -1232,29 +1232,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					"  csm public-ip",
 					"      Print the server's public IP address.",
 					"",
-					"Tmux attach / debug (typically run with sudo):",
+					"Tmux attach / debug (as the CS2 user, or root):",
 					"",
-					"  sudo csm attach <server>",
+					"  csm attach <server>",
 					"      Attach your terminal to a server's tmux session.",
 					"      When attached:",
 					"        - Type commands directly into the CS2 console.",
 					"        - Press Ctrl+B, then D to detach without stopping the server.",
 					"",
-					"  sudo csm debug <server>",
+					"  csm debug <server>",
 					"      Run a server in the foreground for debugging.",
 					"",
 					"Other useful CLI commands:",
 					"",
-					"  sudo csm list-sessions",
+					"  csm list-sessions",
 					"      List all tmux sessions managed by CSM.",
 					"",
-					"  sudo csm update-game",
+					"  csm update-game",
 					"      Update CS2 game files after a Valve update.",
 					"",
-					"  sudo csm update-plugins",
+					"  csm update-plugins",
 					"      Download and deploy the latest plugin bundle.",
 					"",
-					"For a full list of commands and which require sudo, run:",
+					"User mode: after a one-time `sudo csm setup-host`, run csm as the",
+					"CS2 user without sudo. For a full list of commands and which need root, run:",
 					"",
 					"  csm -h",
 				}, "\n")
@@ -1990,7 +1991,7 @@ func (m model) View() string {
 		case itemForceUpdateNow:
 			desc = "Bypass the cache and check GitHub for a newer CSM version."
 		case itemExtractThumbnailsGo:
-			desc = "Run the VPK/thumbnails pipeline and write PNG + WEBP (full + 1280px) into map_thumbnails/."
+			desc = "Write map thumbnails (PNG + WEBP, full + 1280px) and maps.json (map list + Active Duty pool) into map_thumbnails/."
 		case itemViewRecentLogsGo:
 			desc = "Show a list of the 20 most recent command logs with quick error/success status for debugging."
 		case itemCleanupAllGo:

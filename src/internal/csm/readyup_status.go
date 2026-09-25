@@ -29,13 +29,15 @@ import (
 //
 // The port and a read-only token are in game/csgo/readyup/status.json, which
 // Ready Up writes on start. Without that file csm tries the default port, game
-// port + 50. A server that runs the Auto Tournament CS2 plugin instead of Ready
+// port + 7 (status_http_port=0). A server that runs the Auto Tournament CS2 plugin instead of Ready
 // Up has neither, and csm treats it exactly as before: no fleet data, no
 // gating.
 
 // ReadyUpPortOffset is the default distance between a server's game port and
-// its Ready Up status port (status_http_port, FLEET.md §17.3).
-const ReadyUpPortOffset = 50
+// its Ready Up status port (status_http_port=0, FLEET.md §17.3): 27022 for
+// 27015. csm spaces servers 10 ports apart with the GOTV port at game + 5, so
+// + 7 stays inside each server's own block.
+const ReadyUpPortOffset = 7
 
 // readyUpStatusTimeout bounds one /status request. The endpoint is on
 // loopback and answers from a prebuilt buffer, so anything slower than this is

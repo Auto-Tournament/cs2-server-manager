@@ -56,6 +56,26 @@ csm keeps its data (overrides, game files, logs) under `/opt/cs2-server-manager`
 
 See the [Quick Start](https://docs.sivert.io/docs/csm/quick-start) for the full first run.
 
+### Run csm without sudo (user mode)
+
+csm can run as its service user (`cs2servermanager` by default, or `CS2_USER`) instead of root. Set the host up once as root:
+
+```bash
+sudo csm setup-host
+```
+
+It installs the system dependencies, creates the user if needed, runs `loginctl enable-linger` for it, gives it the state directory (`/opt/cs2-server-manager`) and the csm files root runs left in `/tmp`, and moves the auto-update monitor from root's crontab into the user's crontab. It is safe to run again, and it never starts, stops, restarts or updates a server. From then on, run csm as that user, without sudo:
+
+```bash
+sudo -iu cs2servermanager   # or log in as that user
+csm status
+csm                         # TUI
+```
+
+Servers that are already running keep running: csm finds them in the same tmux server as before. A few things still need root and say so when you try them as the user: `sudo csm install-deps`, `sudo csm cleanup-all`, and creating the MatchZy MySQL Docker container (`sudo csm bootstrap`; as the user, bootstrap leaves an existing container alone). On a host that already runs servers, use `sudo csm setup-host --skip-deps`: `apt-get install` can upgrade tmux, and a newer tmux client can't talk to the tmux server the running servers live in. `--skip-linger` skips `loginctl`.
+
+`csm self-update` run as the user can't replace `/usr/local/bin/csm`, so it installs the new binary into `~/.local/bin/csm`, which login shells put first in `PATH`. Run `csm install-monitor-cron` afterwards so cron uses it too.
+
 ### If `steamcmd` can't be installed (Debian/Ubuntu)
 
 `E: Unable to locate package steamcmd` means your apt sources don't include the component that ships SteamCMD. `sudo csm install-deps` (or the same step in the TUI) tries to fix this itself: it enables the component in `/etc/apt/sources.list`, writes a timestamped backup (for example `/etc/apt/sources.list.csm.bak-YYYYMMDD-HHMMSS`), runs `apt-get update` and retries. If that doesn't work, or you'd rather do it by hand:
@@ -77,45 +97,49 @@ sudo apt-get install steamcmd
 
 ## Usage
 
+Run these as the CS2 user after `sudo csm setup-host` (see above), or with `sudo` as before.
+
 ```bash
-sudo csm    # interactive TUI for installs, updates, status and so on
-csm help    # CLI help, no sudo needed
+csm                        # interactive TUI for installs, updates, status and so on
+csm help                   # CLI help
 ```
 
 ```bash
 # Servers
-sudo csm status                 # fleet table: process, map, phase, score, players, Ready Up
-sudo csm status --watch         # the same table, updated live
-sudo csm start [server]         # start all servers, or one
-sudo csm stop [server]          # refuses while a Ready Up match is live; --force overrides
-sudo csm restart [server]
+csm status                 # fleet table: process, map, phase, score, players, Ready Up
+csm status --watch         # the same table, updated live
+csm start [server]         # start all servers, or one
+csm stop [server]          # refuses while a Ready Up match is live; --force overrides
+csm restart [server]
 
 # Updates
-sudo csm update-game            # update CS2 game files
-sudo csm update-plugins         # download and deploy plugins, restart servers
-sudo csm monitor                # run the auto-update monitor once
-sudo csm updates hold on        # no automatic restarts; "off" to resume, "auto" to let the platform decide
-sudo csm updates platform <url> <token>   # let Auto Tournament hold updates while a tournament runs
-sudo csm updates check          # ask the platform now whether updates are held
-sudo csm install-monitor-cron   # run the monitor from cron
-sudo csm remove-monitor-cron
+csm update-game            # update CS2 game files
+csm update-plugins         # download and deploy plugins, restart servers
+csm monitor                # run the auto-update monitor once
+csm updates hold on        # no automatic restarts; "off" to resume, "auto" to let the platform decide
+csm updates platform <url> <token> # let Auto Tournament hold updates while a tournament runs
+csm updates check          # ask the platform now whether updates are held
+csm install-monitor-cron   # run the monitor from cron (the crontab of the user running it)
+csm remove-monitor-cron
 
 # Setup and maintenance
-sudo csm install-deps           # install system dependencies
-sudo csm bootstrap              # install or redeploy servers without the TUI
-sudo csm doctor                 # diagnose common problems and offer fixes
-sudo csm reinstall <server>     # rebuild one server from master-install
-sudo csm update-config <server> # regenerate server configs without reinstalling
-sudo csm dedupe-vpk [server]    # hardlink server VPKs to master-install
-sudo csm unban <server> <ip>    # remove an IP banned for RCON attempts (0 = all servers)
-sudo csm unban-all <server>     # clear all RCON bans (0 = all servers)
+sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger)
+sudo csm install-deps      # install system dependencies
+csm bootstrap              # install or redeploy servers without the TUI
+csm doctor                 # diagnose common problems and offer fixes
+csm reinstall <server>     # rebuild one server from master-install
+csm update-config <server> # regenerate server configs without reinstalling
+csm dedupe-vpk [server]    # hardlink server VPKs to master-install
+csm unban <server> <ip>    # remove an IP banned for RCON attempts (0 = all servers)
+csm unban-all <server>     # clear all RCON bans (0 = all servers)
 csm list-bans <server>
+csm extract-map-data       # map thumbnails + maps.json into ./map_thumbnails
 
 # Logs and debugging
-sudo csm attach 1               # attach to server 1's console (tmux)
-sudo csm debug 1                # run server 1 in the foreground
-sudo csm logs 1 100             # last 100 log lines for server 1
-sudo csm logs-file 1            # path to server 1's log file
+csm attach 1               # attach to server 1's console (tmux)
+csm debug 1                # run server 1 in the foreground
+csm logs 1 100             # last 100 log lines for server 1
+csm logs-file 1            # path to server 1's log file
 
 # Removes all CS2 data and the CS2 user
 sudo csm cleanup-all
@@ -128,8 +152,8 @@ The monitor restarts a server for a CS2 update once it has been idle for the gra
 Point csm at the platform and it asks before every restart:
 
 ```bash
-sudo csm updates platform https://cs.example.io "$SERVER_TOKEN"
-sudo csm updates check
+csm updates platform https://cs.example.io "$SERVER_TOKEN"
+csm updates check
 ```
 
 The token is the platform's `SERVER_TOKEN` — the same fleet-wide token the plugin already uses for event webhooks and demo uploads, not a new secret. csm polls the platform, so the game server needs no inbound port. `CSM_PLATFORM_URL` and `CSM_PLATFORM_TOKEN` override the stored values for hosts that keep secrets out of files; the settings file is written owner-only either way.
@@ -142,7 +166,7 @@ Day-to-day operation, configuration and the update monitor are covered in [Manag
 
 ### Ready Up servers: live status and match protection
 
-Servers that run [Ready Up](https://github.com/Auto-Tournament/ready-up) publish their state on a small local HTTP endpoint (`/status` and a live `/stream`). csm reads the port and a read-only token from `server-N/game/csgo/readyup/status.json`, or tries the game port + 50 when that file is missing.
+Servers that run [Ready Up](https://github.com/Auto-Tournament/ready-up) publish their state on a small local HTTP endpoint (`/status` and a live `/stream`). csm reads the port and a read-only token from `server-N/game/csgo/readyup/status.json`, or tries the game port + 7 (Ready Up's default `status_http_port`) when that file is missing.
 
 `csm status` (and **Servers → Servers dashboard** in the TUI) shows one row per server:
 
@@ -159,17 +183,54 @@ The TUI dashboard and `csm status --watch` follow each server's `/stream` and up
 
 Servers without Ready Up (for example with the Auto Tournament CS2 plugin) show `no Ready Up` and behave exactly as before.
 
+## Map thumbnails and maps.json
+
+`csm extract-map-data` reads the map screenshots out of the master install's `pak01_dir.vpk` and writes them to `map_thumbnails/` in the current directory: a PNG, a full-size WEBP and a 1280px `_thumb.webp` per map. Next to them it writes `maps.json`, which the Auto Tournament platform can read to learn which maps exist and which are in the current Active Duty pool:
+
+```json
+{
+  "generatedAt": "2026-09-25T08:55:32Z",
+  "patchVersion": "1.41.1.4",
+  "buildId": "20123456",
+  "maps": [
+    {
+      "id": "de_dust2",
+      "name": "Dust II",
+      "mode": "defusal",
+      "images": { "full": "de_dust2.webp", "thumb": "de_dust2_thumb.webp" },
+      "variants": ["de_dust2_1_thumb.webp"]
+    }
+  ],
+  "activeDuty": ["de_ancient", "de_dust2", "de_inferno"]
+}
+```
+
+- `maps` holds every map VPK in `game/csgo/maps` (vanity scenes, `graphics_settings` and the like are skipped) plus every map with a screenshot. `mode` is `defusal`, `hostage`, `armsrace` or `other`; `images` is left out when the game ships no screenshot for that map.
+- `activeDuty` is the `mg_active` map group from `gamemodes.txt` inside `pak01_dir.vpk`.
+- `patchVersion` comes from `game/csgo/steam.inf` and `buildId` from `steamapps/appmanifest_730.acf`.
+- If nothing but `generatedAt` would change, `maps.json` is left as it is.
+
+The command prints each step as it goes, then one line per map (`[12/40] de_dust2 … updated`), and a summary at the end. It needs Python with the `vpk` and `Pillow` modules; run it once with sudo and csm sets them up in its own virtualenv.
+
+To send the result to this repository, point `--publish` at a git checkout of it:
+
+```bash
+csm extract-map-data --publish --repo ~/cs2-server-manager
+```
+
+csm copies `map_thumbnails/` into the checkout, commits it on a new `maps/update-<timestamp>` branch and checks with `git push --dry-run` that you can push. It does not push or open the PR itself; it prints the `git push` and `gh pr create` commands to run. The checkout must have no uncommitted changes. csm uses your existing git setup for the commit author and push access, and never stores tokens.
+
 ## Launch modes
 
 By default csm starts servers with Valve's `game/cs2.sh`, unchanged. It also installs `game/csm.sh`, which sets `LD_LIBRARY_PATH` to prefer the libraries bundled with CS2. That helps with `libserver.so` and `libv8` mismatches. You can also run the `cs2` binary directly, which is only meant for troubleshooting.
 
 ```bash
-sudo csm start --alternate      # use csm.sh
-sudo csm start --alternate 1    # just server 1
-sudo csm start --binary         # run the cs2 binary directly
+csm start --alternate      # use csm.sh
+csm start --alternate 1    # just server 1
+csm start --binary         # run the cs2 binary directly
 ```
 
-`--alternate` and `--binary` work on `start`, `restart` and `debug`, and only apply to that one command. To use a launcher everywhere csm starts servers (including `update-plugins`, `update-game` and the monitor), set `CSM_LAUNCH_MODE=alternate` or `CSM_LAUNCH_MODE=binary`, for example `sudo CSM_LAUNCH_MODE=alternate csm restart`. A flag overrides the variable. Every launcher gets the same `+matchzy_config_scope` argument (see below).
+`--alternate` and `--binary` work on `start`, `restart` and `debug`, and only apply to that one command. To use a launcher everywhere csm starts servers (including `update-plugins`, `update-game` and the monitor), set `CSM_LAUNCH_MODE=alternate` or `CSM_LAUNCH_MODE=binary`, for example `CSM_LAUNCH_MODE=alternate csm restart`. A flag overrides the variable. Every launcher gets the same `+matchzy_config_scope` argument (see below).
 
 ### Newer distros and Steam Runtime
 
@@ -177,9 +238,9 @@ On newer distributions such as Debian 13 and Ubuntu 25.04+, CounterStrikeSharp c
 
 ## Metamod version
 
-CounterStrikeSharp and MatchZy install from their latest releases. Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `sudo csm update-plugins` to get both at once.
+CounterStrikeSharp and MatchZy install from their latest releases. Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `csm update-plugins` to get both at once.
 
-`sudo csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
+`csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
 
 ## Disk usage: hardlinked VPKs
 
@@ -193,15 +254,15 @@ A full copy of `master-install` is about 67 GB, and nearly all of it is `*.vpk` 
 To convert existing servers (`update-game` also re-links servers as it syncs them):
 
 ```bash
-sudo csm dedupe-vpk --dry-run   # what would be linked, and the estimated savings
-sudo csm stop
-sudo csm dedupe-vpk             # link VPKs whose size and mtime match master; prints disk usage before and after
-sudo csm start
+csm dedupe-vpk --dry-run   # what would be linked, and the estimated savings
+csm stop
+csm dedupe-vpk             # link VPKs whose size and mtime match master; prints disk usage before and after
+csm start
 ```
 
-`sudo csm dedupe-vpk 2` handles only server-2. `--verify` byte-compares each file before linking, which is slow. Running it twice does nothing the second time, and VPKs that differ from master are reported and left alone. It refuses to run while target servers are running unless you pass `--allow-running`.
+`csm dedupe-vpk 2` handles only server-2. `--verify` byte-compares each file before linking, which is slow. Running it twice does nothing the second time, and VPKs that differ from master are reported and left alone. It refuses to run while target servers are running unless you pass `--allow-running`.
 
-To undo it: `sudo csm stop && sudo csm dedupe-vpk --undo && sudo csm start`. This needs about 70 GB free per server and checks first. Also set `CSM_VPK_HARDLINK=0` wherever csm runs (for example `sudo CSM_VPK_HARDLINK=0 csm update-game`, and the monitor cron), or the next sync links them again.
+To undo it: `csm stop && csm dedupe-vpk --undo && csm start`. This needs about 70 GB free per server and checks first. Also set `CSM_VPK_HARDLINK=0` wherever csm runs (for example `CSM_VPK_HARDLINK=0 csm update-game`, and the monitor cron), or the next sync links them again.
 
 ## Several servers and the MatchZy database
 
@@ -214,16 +275,16 @@ The fix has two parts:
 - [Auto Tournament CS2 1.4.28](https://github.com/Auto-Tournament/cs2-plugin/releases/tag/v1.4.28) and newer store those settings per server ([#17](https://github.com/Auto-Tournament/cs2-plugin/pull/17)). 1.4.26 added this but could not read `+matchzy_config_scope` ([#18](https://github.com/Auto-Tournament/cs2-plugin/pull/18), fixed in 1.4.27), and 1.4.27 could still load another server's `matchzy_server_id` ([#19](https://github.com/Auto-Tournament/cs2-plugin/pull/19), fixed in 1.4.28). It tells servers apart by bind address and port, but csm starts servers with `-ip 0.0.0.0`, so MatchZy would fall back to the machine name, which every server on the machine shares.
 - csm therefore passes `+matchzy_config_scope <hostname>-server-<N>` (for example `cs2-server-1`) when it starts each server. The name comes from the server's directory, so it survives restarts, updates, reinstalls and port changes, and the hostname keeps two machines sharing one database apart. If you rename the machine, or several machines share a hostname, set `CSM_MATCHZY_SCOPE_PREFIX` (for example `eu-1`) wherever csm starts servers.
 
-The install wizard's **MatchZy storage** option picks between shared MySQL (the default; needs the CS2 plugin 1.4.28+ with 2 or more servers) and SQLite per server, where each server keeps its own `matchzy.db`. SQLite works on any MatchZy build but stats aren't shared. For a non-interactive install use `sudo MATCHZY_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
+The install wizard's **MatchZy storage** option picks between shared MySQL (the default; needs the CS2 plugin 1.4.28+ with 2 or more servers) and SQLite per server, where each server keeps its own `matchzy.db`. SQLite works on any MatchZy build but stats aren't shared. For a non-interactive install use `MATCHZY_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
 
-`sudo csm doctor` checks this under "MatchZy per-server config (shared database)". It fails when 2 or more servers report the same `matchzy_server_id`, or when servers share MySQL and run MatchZy older than 1.4.28 or without `+matchzy_config_scope`, and it prints how to fix it.
+`csm doctor` checks this under "MatchZy per-server config (shared database)". It fails when 2 or more servers report the same `matchzy_server_id`, or when servers share MySQL and run MatchZy older than 1.4.28 or without `+matchzy_config_scope`, and it prints how to fix it.
 
 To migrate an existing install:
 
 1. Update csm.
-2. Run `sudo csm update-plugins`. It installs the latest CS2 plugin, redeploys and restarts every server, which also picks up the new start argument. If you're already on 1.4.28 or newer, `sudo csm restart` is enough. If you can't update MatchZy, set `"DatabaseType": "SQLite"` in `/home/<cs2user>/overrides/game/csgo/cfg/MatchZy/database.json` and `/home/<cs2user>/cs2-config/game/csgo/cfg/MatchZy/database.json`, then run `sudo csm update-plugins`.
+2. Run `csm update-plugins`. It installs the latest CS2 plugin, redeploys and restarts every server, which also picks up the new start argument. If you're already on 1.4.28 or newer, `csm restart` is enough. If you can't update MatchZy, set `"DatabaseType": "SQLite"` in `/home/<cs2user>/overrides/game/csgo/cfg/MatchZy/database.json` and `/home/<cs2user>/cs2-config/game/csgo/cfg/MatchZy/database.json`, then run `csm update-plugins`.
 3. Reconfigure each server once from your tournament manager (in MAT, re-save or re-bootstrap each server). Until a server saves its own values it still reads the old shared ones.
-4. Run `sudo csm doctor` to confirm.
+4. Run `csm doctor` to confirm.
 
 Match stats already in the shared database stay where they are.
 
@@ -237,7 +298,7 @@ Your logo here — [sponsor Auto Tournament](https://discord.gg/n7gHYau7aW) to b
 
 ## License
 
-PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial use; commercial use (paid hosting, selling it, paid-entry events, business use) needs a license. See [LICENSING.md](LICENSING.md). The [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) plugin stays MIT.
+PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial use; commercial use (paid hosting, selling it, paid-entry events, business use) needs a license — see [pricing](https://autotournament.gg/pricing) and [LICENSING.md](LICENSING.md). The [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) plugin stays MIT.
 
 ## Links
 

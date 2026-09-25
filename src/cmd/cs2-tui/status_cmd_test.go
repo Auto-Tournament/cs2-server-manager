@@ -31,9 +31,9 @@ func TestExtractForce(t *testing.T) {
 func TestPrintStatusJSON(t *testing.T) {
 	no := false
 	rows := []csm.FleetRow{
-		{Target: csm.FleetTarget{Server: 1, GamePort: 27015, Running: true}, StatusPort: 27065, State: csm.ReadyUpOK,
+		{Target: csm.FleetTarget{Server: 1, GamePort: 27015, Running: true}, StatusPort: 27022, State: csm.ReadyUpOK,
 			Status: &csm.ReadyUpStatus{UpdateSafe: &no, Summary: csm.ReadyUpSummary{Mode: "match", Phase: "live", Round: 3}}},
-		{Target: csm.FleetTarget{Server: 2, GamePort: 27025, Running: true}, StatusPort: 27075, State: csm.ReadyUpNone},
+		{Target: csm.FleetTarget{Server: 2, GamePort: 27025, Running: true}, StatusPort: 27032, State: csm.ReadyUpNone},
 	}
 	var buf bytes.Buffer
 	if err := printStatusJSON(&buf, rows); err != nil {
