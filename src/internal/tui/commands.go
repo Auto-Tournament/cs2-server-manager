@@ -42,9 +42,26 @@ func runCommand(item menuItem) tea.Cmd {
 	}
 }
 
+// gateTUI refuses a disruptive action while Ready Up reports a live match on
+// any server. The TUI has no --force; the refusal says how to force it from a
+// shell.
+func gateTUI(action, forceCmd string) error {
+	mgr, err := csm.NewTmuxManager()
+	if err != nil {
+		return nil // the action itself reports this
+	}
+	if err := mgr.GateServers(context.Background(), action, nil, false, nil); err != nil {
+		return fmt.Errorf("%w\n\nTo go ahead anyway, run from a shell: %s", err, forceCmd)
+	}
+	return nil
+}
+
 // runUpdateGameGo runs the Go-based game updater and returns its logs.
 func runUpdateGameGo() tea.Cmd {
 	return func() tea.Msg {
+		if err := gateTUI("update-game", "csm update-game --force"); err != nil {
+			return commandFinishedMsg{item: menuItem{title: "Update CS2 after Valve update", kind: itemUpdateGameGo}, err: err}
+		}
 		// Wire a cancellable context so the user can press C to abort a long
 		// update-game run without quitting the TUI. The CancelInstall helper
 		// is also used by the multi-step install wizard.
@@ -69,6 +86,9 @@ func runUpdateGameGo() tea.Cmd {
 // runDeployPluginsGo runs the Go-based plugin deployment across all servers.
 func runDeployPluginsGo() tea.Cmd {
 	return func() tea.Msg {
+		if err := gateTUI("update-plugins", "csm update-plugins --force"); err != nil {
+			return commandFinishedMsg{item: menuItem{title: "Update plugins on all servers", kind: itemDeployPluginsGo}, err: err}
+		}
 		// Wire a cancellable context so the user can press C to abort a long
 		// plugin update/deploy run without quitting the TUI.
 		ctx, cancel := context.WithCancel(context.Background())
@@ -167,6 +187,9 @@ func runStopAllServers() tea.Cmd {
 				err:    err,
 			}
 		}
+		if gerr := gateTUI("stop", "csm stop --force"); gerr != nil {
+			return commandFinishedMsg{item: menuItem{title: "Stop all servers", kind: itemStopAllGo}, err: gerr}
+		}
 		err = mgr.StopAll()
 		out := ""
 		if err == nil {
@@ -190,6 +213,9 @@ func runRestartAllServers() tea.Cmd {
 				output: "",
 				err:    err,
 			}
+		}
+		if gerr := gateTUI("restart", "csm restart --force"); gerr != nil {
+			return commandFinishedMsg{item: menuItem{title: "Restart all servers", kind: itemRestartAllGo}, err: gerr}
 		}
 		err = mgr.RestartAll()
 		out := ""
