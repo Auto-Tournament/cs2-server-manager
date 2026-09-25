@@ -179,7 +179,7 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 			continue
 		}
 		if err := libRepair.ensure(ctx, &buf, fmt.Sprintf("server-%d", i), filepath.Join(mgr.serverDir(i), "game")); err != nil {
-			log("  [!] server-%d game files are incomplete and it will not boot: %v (try: sudo csm fix-libv8 %d)", i, err, i)
+			log("  [!] server-%d game files are incomplete and it will not boot: %v (try: csm fix-libv8 %d)", i, err, i)
 		}
 
 		// Ensure Metamod remains in sync with the pre-update setting.
@@ -767,7 +767,7 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 		return buf.String(), err
 	}
 	if err := newServerLibRepair(cs2User, masterDir).ensure(ctx, &buf, fmt.Sprintf("server-%d", server), filepath.Join(mgr.serverDir(server), "game")); err != nil {
-		log("  [!] server-%d game files are incomplete and it will not boot: %v (try: sudo csm fix-libv8 %d)", server, err, server)
+		log("  [!] server-%d game files are incomplete and it will not boot: %v (try: csm fix-libv8 %d)", server, err, server)
 	}
 
 	// Ensure Metamod remains in sync with the pre-update setting.
@@ -821,16 +821,16 @@ func updateMasterInstallWithContext(ctx context.Context, w *bytes.Buffer, logFil
 		validateStr = "off"
 	}
 	log("Updating master install at %s via SteamCMD (validate: %s)...", masterDir, validateStr)
-	args := []string{
-		"sudo", "-u", cs2User, "steamcmd",
+	steamArgs := []string{
 		"+force_install_dir", masterDir,
 		"+login", "anonymous",
 		"+app_update", "730",
 	}
 	if SteamcmdShouldValidate() {
-		args = append(args, "validate")
+		steamArgs = append(steamArgs, "validate")
 	}
-	args = append(args, "+quit")
+	steamArgs = append(steamArgs, "+quit")
+	args := steamcmdAsUser(cs2User, false, steamArgs...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 
 	var steamOut io.Writer = w

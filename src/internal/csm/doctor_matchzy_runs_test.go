@@ -150,7 +150,7 @@ func TestMatchzyScopeUsesCurrentRunOnly(t *testing.T) {
 		if got.Status != DoctorWarn {
 			t.Fatalf("status = %s, want WARN\n%s", got.Status, got.Detail)
 		}
-		for _, s := range []string{"server-1, server-2, server-3: server is still starting", "run sudo csm doctor again in a minute"} {
+		for _, s := range []string{"server-1, server-2, server-3: server is still starting", "run csm doctor again in a minute"} {
 			if !strings.Contains(strings.ToLower(got.Detail), strings.ToLower(s)) {
 				t.Fatalf("detail missing %q:\n%s", s, got.Detail)
 			}

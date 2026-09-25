@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -693,7 +692,7 @@ func UpdateServerConfig(serverNum int) (string, error) {
 	log("  [✓] Config updated for server-%d", serverNum)
 	log("")
 	log("  Restart the server for changes to take effect:")
-	log("    sudo csm restart %d", serverNum)
+	log("    csm restart %d", serverNum)
 
 	return buf.String(), nil
 }
@@ -869,7 +868,7 @@ func clearBannedIPs(user string, serverNum int) error {
 func reloadBannedIPs(user string, serverNum int) {
 	session := fmt.Sprintf("cs2-%d", serverNum)
 	// Try to send the exec command to reload banned IPs
-	_ = exec.Command("su", "-", user, "-c", fmt.Sprintf("tmux send-keys -t %s 'exec banned_ip.cfg' C-m", session)).Run()
+	_ = userShellCommand(user, fmt.Sprintf("tmux send-keys -t %s 'exec banned_ip.cfg' C-m", session)).Run()
 }
 
 // ListBannedIPs returns a list of banned IP addresses for a server.

@@ -172,8 +172,10 @@ func (m *TmuxManager) sessionName(server int) string {
 	return fmt.Sprintf("cs2-%d", server)
 }
 
+// runAsCS2User runs a shell command line as the CS2 user: through `su -`
+// from root, or directly when csm already runs as that user (user mode).
 func (m *TmuxManager) runAsCS2User(cmdline string) *exec.Cmd {
-	return exec.Command("su", "-", m.CS2User, "-c", cmdline)
+	return userShellCommand(m.CS2User, cmdline)
 }
 
 // IsRunning reports whether the tmux session for the given server exists.
