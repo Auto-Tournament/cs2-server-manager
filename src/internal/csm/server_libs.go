@@ -118,11 +118,11 @@ func (r *serverLibRepair) ensure(ctx context.Context, w io.Writer, label, server
 // validateMasterInstall runs SteamCMD app_update 730 validate on the master
 // install, which re-downloads missing or damaged files.
 func validateMasterInstall(ctx context.Context, w io.Writer, cs2User, masterDir string) error {
-	return runCmdLoggedContext(ctx, w,
-		"sudo", "-u", cs2User, "-H", "steamcmd",
+	argv := steamcmdAsUser(cs2User, true,
 		"+force_install_dir", masterDir,
 		"+login", "anonymous",
 		"+app_update", "730", "validate",
 		"+quit",
 	)
+	return runCmdLoggedContext(ctx, w, argv[0], argv[1:]...)
 }

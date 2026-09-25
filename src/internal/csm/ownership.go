@@ -23,6 +23,11 @@ func ensureOwnedByUser(user, path string) error {
 		// If it doesn't exist, there's nothing to fix.
 		return nil
 	}
+	// Only root can change ownership. In user mode (csm running as the CS2
+	// user) whatever csm creates already belongs to that user.
+	if !canChown() {
+		return nil
+	}
 	return exec.Command("chown", fmt.Sprintf("%s:%s", user, user), path).Run()
 }
 
