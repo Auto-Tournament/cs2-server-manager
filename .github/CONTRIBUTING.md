@@ -11,7 +11,9 @@ go test ./...
 GOOS=linux GOARCH=amd64 go build -o csm ./src/cmd/cs2-tui
 ```
 
-csm only runs on Linux, and most commands need `sudo` and a real CS2 install. Test changes on a Linux machine or VM you don't mind breaking.
+csm only runs on Linux, and most commands need a real CS2 install. They run either as root (`sudo csm ...`) or, after a one-time `sudo csm setup-host`, as the CS2 user without sudo ("user mode"). Test changes both ways when they touch tmux, SteamCMD, file ownership or cron, on a Linux machine or VM you don't mind breaking.
+
+Only `setup-host`, `install-deps`, `cleanup-all`, creating the CS2 user and the Docker MySQL container need root. For anything else, don't add a root check: use `requireRootOrCS2User` / `CanManageServers`, run commands as the CS2 user through `userShellCommand` and `steamcmdAsUser`, and guard `chown` with `canChown()` (see `src/internal/csm/usermode.go`).
 
 ## Contributor License Agreement
 
@@ -29,7 +31,7 @@ licence and commercial licences.
 
 ## Reporting bugs
 
-[Open an issue](https://github.com/sivert-io/cs2-server-manager/issues/new/choose) with what you did, what you expected, what happened, your distro and version, and the relevant part of `/opt/cs2-server-manager/logs/csm.log`. Output from `sudo csm doctor` helps too.
+[Open an issue](https://github.com/sivert-io/cs2-server-manager/issues/new/choose) with what you did, what you expected, what happened, your distro and version, and the relevant part of `/opt/cs2-server-manager/logs/csm.log`. Output from `csm doctor` (as the CS2 user, or with sudo) helps too.
 
 If you need other people to help test something (several players, different distros), use the **Community Request** issue template.
 

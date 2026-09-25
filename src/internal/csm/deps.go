@@ -36,7 +36,7 @@ func InstallDependenciesWithContext(ctx context.Context) (string, error) {
 
 func installDeps(ctx context.Context, w io.Writer) error {
 	if os.Geteuid() != 0 {
-		return fmt.Errorf("dependency installation must be run as root (use sudo)")
+		return RootRequiredError("installing system dependencies (apt-get)")
 	}
 
 	// If CSM_DEPS_LOG is set, mirror dependency installation output into that

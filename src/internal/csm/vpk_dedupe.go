@@ -91,7 +91,7 @@ func runDedupeVPKs(ctx context.Context, w io.Writer, buf *bytes.Buffer, masterDi
 		}
 		if len(running) > 0 {
 			fmt.Fprintf(w, "[!] Running: %s\n", strings.Join(running, ", "))
-			fmt.Fprintln(w, "    Stop them first (sudo csm stop), or pass --allow-running.")
+			fmt.Fprintln(w, "    Stop them first (csm stop), or pass --allow-running.")
 			return buf.String(), fmt.Errorf("servers are running: %s", strings.Join(running, ", "))
 		}
 	}
@@ -175,7 +175,7 @@ func runDedupeVPKs(ctx context.Context, w io.Writer, buf *bytes.Buffer, masterDi
 		}
 	}
 	if total.Differs > 0 {
-		fmt.Fprintf(w, "[i] %d VPK(s) differ from master and were left as copies; `sudo csm update-game` (or reinstall) re-links them.\n", total.Differs)
+		fmt.Fprintf(w, "[i] %d VPK(s) differ from master and were left as copies; `csm update-game` (or reinstall) re-links them.\n", total.Differs)
 	}
 	if total.LinkFailures > 0 {
 		fmt.Fprintf(w, "[!] %d hardlink attempt(s) failed; those servers keep full copies.\n", total.LinkFailures)

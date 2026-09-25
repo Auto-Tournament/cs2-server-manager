@@ -441,7 +441,7 @@ func evaluateMatchzyScope(user string, facts []matchzyServerFacts) DoctorCheck {
 		}
 	}
 	if len(starting) > 0 {
-		warnings = append(warnings, fmt.Sprintf("%s: server is still starting (MatchZy has not logged its version since the last start, so the deployed release was checked instead). Run sudo csm doctor again in a minute.", serverList(starting)))
+		warnings = append(warnings, fmt.Sprintf("%s: server is still starting (MatchZy has not logged its version since the last start, so the deployed release was checked instead). Run csm doctor again in a minute.", serverList(starting)))
 	}
 
 	targets := make([]string, 0, len(byTarget))
@@ -494,18 +494,18 @@ func evaluateMatchzyScope(user string, facts []matchzyServerFacts) DoctorCheck {
 	var steps []string
 	if len(noScoping) > 0 || len(unknownScoping) > 0 {
 		steps = append(steps,
-			fmt.Sprintf("Shared MySQL needs %s. Update MatchZy and restart every server: sudo csm update-plugins", MatchzyScopingRequirement()),
-			fmt.Sprintf("If you can't update MatchZy, switch to SQLite per server instead: set \"DatabaseType\": \"SQLite\" in /home/%[1]s/overrides/game/csgo/cfg/MatchZy/database.json and /home/%[1]s/cs2-config/game/csgo/cfg/MatchZy/database.json, then run: sudo csm update-plugins", user),
+			fmt.Sprintf("Shared MySQL needs %s. Update MatchZy and restart every server: csm update-plugins", MatchzyScopingRequirement()),
+			fmt.Sprintf("If you can't update MatchZy, switch to SQLite per server instead: set \"DatabaseType\": \"SQLite\" in /home/%[1]s/overrides/game/csgo/cfg/MatchZy/database.json and /home/%[1]s/cs2-config/game/csgo/cfg/MatchZy/database.json, then run: csm update-plugins", user),
 		)
 	}
 	if len(noScopeArg) > 0 && len(noScoping) == 0 && len(unknownScoping) == 0 {
-		steps = append(steps, fmt.Sprintf("Restart the servers so they start with %s: sudo csm restart", MatchzyConfigScopeArg))
+		steps = append(steps, fmt.Sprintf("Restart the servers so they start with %s: csm restart", MatchzyConfigScopeArg))
 	}
 	if dupIDs {
 		steps = append(steps, "Then reconfigure every server from your tournament manager (for MAT, re-save or re-bootstrap each server) so each one writes its own matchzy_server_id and bootstrap URL.")
 	}
 	if len(steps) > 0 {
-		steps = append(steps, "Run sudo csm doctor again to confirm.")
+		steps = append(steps, "Run csm doctor again to confirm.")
 	}
 
 	switch {

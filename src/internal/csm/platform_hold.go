@@ -36,7 +36,7 @@ import (
 // something csm cannot read, csm does not know whether a tournament is running
 // — and the cost of the two answers is not symmetric. Holding wrongly delays an
 // update until the next cron cycle, five minutes later, or until the host runs
-// `sudo csm update-server N` by hand. Updating wrongly restarts a live match.
+// `csm update-server N` by hand. Updating wrongly restarts a live match.
 // So "I cannot tell" is treated as "hold", and the monitor log says which it
 // was.
 

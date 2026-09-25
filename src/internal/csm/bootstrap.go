@@ -28,6 +28,12 @@ func fixServerOwnership(user string) error {
 		return nil
 	}
 
+	// Only root can change ownership. In user mode csm runs as the CS2 user,
+	// so everything it creates already belongs to that user.
+	if !canChown() {
+		return nil
+	}
+
 	// Run chown recursively on the entire home directory
 	cmd := exec.Command("chown", "-R", fmt.Sprintf("%s:%s", user, user), homeDir)
 	if err := cmd.Run(); err != nil {
@@ -114,12 +120,14 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		}
 	}
 
-	if os.Geteuid() != 0 {
-		return "", fmt.Errorf("bootstrap must be run as root (use sudo)")
-	}
-
 	if cfg.CS2User == "" {
 		cfg.CS2User = DefaultCS2User
+	}
+	// Root, or the CS2 user itself after `sudo csm setup-host` (user mode).
+	// As the CS2 user, the user must already exist and the Docker step is
+	// skipped (see ensureDockerGo).
+	if err := requireRootOrCS2User("bootstrap", cfg.CS2User); err != nil {
+		return "", err
 	}
 	if cfg.NumServers <= 0 {
 		cfg.NumServers = DefaultNumServers
@@ -334,7 +342,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 
 	if len(brokenServers) > 0 {
 		log("[!] WARNING: %s cannot boot: required game files (cs2, libserver.so, libv8.so) are missing.", strings.Join(brokenServers, ", "))
-		log("[!] Fix: sudo csm fix-libv8 0   (SteamCMD validate + re-copy), then check disk space and the SteamCMD output above.")
+		log("[!] Fix: csm fix-libv8 0   (SteamCMD validate + re-copy), then check disk space and the SteamCMD output above.")
 		log("")
 	}
 
@@ -1706,6 +1714,13 @@ func (t *teeWriter) Write(p []byte) (int, error) {
 }
 
 func ensureDockerGo(w *bytes.Buffer) error {
+	// Creating and managing the MySQL container (and starting the Docker
+	// service) needs root. In user mode an existing container keeps running;
+	// run `sudo csm bootstrap` to (re)provision it.
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(w, "  [i] Not running as root: leaving the MatchZy MySQL container as it is. Run `sudo csm bootstrap` to (re)provision it.")
+		return RootRequiredError("provisioning the MatchZy MySQL container")
+	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		fmt.Fprintln(w, "  [!] Docker is required for the MatchZy database. Please install Docker Engine.")
 		return fmt.Errorf("docker is required")
@@ -1752,16 +1767,16 @@ func isPortInUse(port int) bool {
 
 func stopTmuxServerGo(w *bytes.Buffer, user string, serverNum int) error {
 	session := fmt.Sprintf("cs2-%d", serverNum)
-	cmd := exec.Command("su", "-", user, "-c", "tmux has-session -t "+session)
+	cmd := userShellCommand(user, "tmux has-session -t "+session)
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(w, "  [i] Server %d not running in tmux, skipping stop\n", serverNum)
 		return nil
 	}
 
 	fmt.Fprintf(w, "  [*] Stopping tmux session for server-%d\n", serverNum)
-	_ = exec.Command("su", "-", user, "-c", "tmux send-keys -t "+session+" 'quit' C-m").Run()
+	_ = userShellCommand(user, "tmux send-keys -t "+session+" 'quit' C-m").Run()
 	time.Sleep(2 * time.Second)
-	_ = exec.Command("su", "-", user, "-c", "tmux kill-session -t "+session).Run()
+	_ = userShellCommand(user, "tmux kill-session -t "+session).Run()
 	return nil
 }
 
@@ -1783,6 +1798,9 @@ func createCS2User(w *bytes.Buffer, user string) error {
 		return nil
 	}
 
+	if os.Geteuid() != 0 {
+		return RootRequiredError(fmt.Sprintf("creating the CS2 user %s", user))
+	}
 	fmt.Fprintf(w, "  [*] Creating user %s...\n", user)
 	if err := runCmdLogged(w, "useradd", "-r", "-m", "-s", "/bin/bash", user); err != nil {
 		return fmt.Errorf("failed to create user %s: %w", user, err)
@@ -1847,16 +1865,16 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 	}
 
 	// Use -H so HOME is set to the target user's home (SteamCMD writes to ~/.steam).
-	args := []string{
-		"sudo", "-u", cfg.CS2User, "-H", "steamcmd",
+	steamArgs := []string{
 		"+force_install_dir", masterDir,
 		"+login", "anonymous",
 		"+app_update", "730",
 	}
 	if SteamcmdShouldValidate() {
-		args = append(args, "validate")
+		steamArgs = append(steamArgs, "validate")
 	}
-	args = append(args, "+quit")
+	steamArgs = append(steamArgs, "+quit")
+	args := steamcmdAsUser(cfg.CS2User, true, steamArgs...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 
 	// Capture both stdout and stderr
