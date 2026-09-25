@@ -255,7 +255,7 @@ Your logo here — [sponsor Auto Tournament](https://discord.gg/n7gHYau7aW) to b
 
 ## License
 
-PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial use; commercial use (paid hosting, selling it, paid-entry events, business use) needs a license. See [LICENSING.md](LICENSING.md). The [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) plugin stays MIT.
+PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial use; commercial use (paid hosting, selling it, paid-entry events, business use) needs a license — see [pricing](https://autotournament.gg/pricing) and [LICENSING.md](LICENSING.md). The [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) plugin stays MIT.
 
 ## Links
 
