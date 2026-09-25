@@ -109,6 +109,7 @@ sudo csm dedupe-vpk [server]    # hardlink server VPKs to master-install
 sudo csm unban <server> <ip>    # remove an IP banned for RCON attempts (0 = all servers)
 sudo csm unban-all <server>     # clear all RCON bans (0 = all servers)
 csm list-bans <server>
+sudo csm extract-map-data       # map thumbnails + maps.json into ./map_thumbnails
 
 # Logs and debugging
 sudo csm attach 1               # attach to server 1's console (tmux)
@@ -138,6 +139,43 @@ Updates are then held while a tournament is in progress or any match is loaded o
 `csm updates hold on` and `off` are overrides that win over the platform; `csm updates hold auto` goes back to asking it. `csm update-game` and `csm update-server` always run, hold or not.
 
 Day-to-day operation, configuration and the update monitor are covered in [Managing Servers](https://docs.sivert.io/docs/csm/user/managing-servers), [Configuration & Overrides](https://docs.sivert.io/docs/csm/user/configuration) and [Auto Updates](https://docs.sivert.io/docs/csm/user/auto-updates).
+
+## Map thumbnails and maps.json
+
+`csm extract-map-data` reads the map screenshots out of the master install's `pak01_dir.vpk` and writes them to `map_thumbnails/` in the current directory: a PNG, a full-size WEBP and a 1280px `_thumb.webp` per map. Next to them it writes `maps.json`, which the Auto Tournament platform can read to learn which maps exist and which are in the current Active Duty pool:
+
+```json
+{
+  "generatedAt": "2026-09-25T08:55:32Z",
+  "patchVersion": "1.41.1.4",
+  "buildId": "20123456",
+  "maps": [
+    {
+      "id": "de_dust2",
+      "name": "Dust II",
+      "mode": "defusal",
+      "images": { "full": "de_dust2.webp", "thumb": "de_dust2_thumb.webp" },
+      "variants": ["de_dust2_1_thumb.webp"]
+    }
+  ],
+  "activeDuty": ["de_ancient", "de_dust2", "de_inferno"]
+}
+```
+
+- `maps` holds every map VPK in `game/csgo/maps` (vanity scenes, `graphics_settings` and the like are skipped) plus every map with a screenshot. `mode` is `defusal`, `hostage`, `armsrace` or `other`; `images` is left out when the game ships no screenshot for that map.
+- `activeDuty` is the `mg_active` map group from `gamemodes.txt` inside `pak01_dir.vpk`.
+- `patchVersion` comes from `game/csgo/steam.inf` and `buildId` from `steamapps/appmanifest_730.acf`.
+- If nothing but `generatedAt` would change, `maps.json` is left as it is.
+
+The command prints each step as it goes, then one line per map (`[12/40] de_dust2 … updated`), and a summary at the end. It needs Python with the `vpk` and `Pillow` modules; run it once with sudo and csm sets them up in its own virtualenv.
+
+To send the result to this repository, point `--publish` at a git checkout of it:
+
+```bash
+sudo csm extract-map-data --publish --repo ~/cs2-server-manager
+```
+
+csm copies `map_thumbnails/` into the checkout, commits it on a new `maps/update-<timestamp>` branch and checks with `git push --dry-run` that you can push. It does not push or open the PR itself; it prints the `git push` and `gh pr create` commands to run. The checkout must have no uncommitted changes. csm uses your existing git setup for the commit author and push access, and never stores tokens.
 
 ## Launch modes
 

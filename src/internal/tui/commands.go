@@ -493,11 +493,10 @@ func runInstallDepsGo() tea.Cmd {
 	}
 }
 
-// runExtractThumbnailsGo runs the Go-based map thumbnail extraction pipeline.
-// It mirrors the old VPK + thumbnail scripts and writes PNGs into
-// map_thumbnails/ under the current working directory. While running, it
-// streams progress into a temp log that the TUI tails so users can see live
-// steps (found files, conversions, etc.).
+// runExtractThumbnailsGo runs the map data pipeline: it writes the map
+// thumbnails and maps.json into map_thumbnails/ under the current working
+// directory. While running, it streams progress into a temp log that the TUI
+// tails so users see each step and one line per converted map.
 func runExtractThumbnailsGo() tea.Cmd {
 	return func() tea.Msg {
 		// Stream thumbnail extraction progress by mirroring logs into a temp
