@@ -48,6 +48,24 @@ func main() {
 		case "help":
 			printUsage()
 			return
+		case "setup-host":
+			hfs := flag.NewFlagSet("setup-host", flag.ExitOnError)
+			skipDeps := hfs.Bool("skip-deps", false, "don't apt-get install dependencies (use on a host that already runs servers)")
+			skipLinger := hfs.Bool("skip-linger", false, "don't run loginctl enable-linger")
+			_ = hfs.Parse(args[1:])
+			var buf strings.Builder
+			err := csm.SetupHost(context.Background(), &buf, csm.SetupHostOptions{
+				CS2User:    getenvDefault("CS2_USER", csm.DefaultCS2User),
+				SkipDeps:   *skipDeps,
+				SkipLinger: *skipLinger,
+			})
+			csm.LogAction("cli", "setup-host", buf.String(), err)
+			fmt.Print(buf.String())
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "setup-host failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "install-deps":
 			out, err := csm.InstallDependencies()
 			csm.LogAction("cli", "install-deps", out, err)
@@ -181,7 +199,7 @@ func main() {
 				os.Exit(1)
 			}
 			if mgr.NumServers == 0 {
-				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (csm, as the CS2 user or root).")
 				os.Exit(1)
 			}
 			target := "all"
@@ -213,7 +231,7 @@ func main() {
 				os.Exit(1)
 			}
 			if mgr.NumServers == 0 {
-				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (csm, as the CS2 user or root).")
 				os.Exit(1)
 			}
 			target := "all"
@@ -258,7 +276,7 @@ func main() {
 				os.Exit(1)
 			}
 			if mgr.NumServers == 0 {
-				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (csm, as the CS2 user or root).")
 				os.Exit(1)
 			}
 			target := "all"
@@ -297,7 +315,7 @@ func main() {
 				os.Exit(1)
 			}
 			if mgr.NumServers == 0 {
-				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (csm, as the CS2 user or root).")
 				os.Exit(1)
 			}
 			server, serr := strconv.Atoi(args[1])
@@ -334,7 +352,7 @@ func main() {
 				os.Exit(1)
 			}
 			if mgr.NumServers == 0 {
-				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (sudo csm).")
+				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (csm, as the CS2 user or root).")
 				os.Exit(1)
 			}
 			server, serr := strconv.Atoi(args[1])
@@ -366,8 +384,8 @@ func main() {
 				fmt.Fprintln(os.Stderr, "Use this when an IP was incorrectly banned for RCON hacking attempts.")
 				fmt.Fprintln(os.Stderr, "Use server number 0 to unban from all servers.")
 				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "Example: sudo csm unban 1 172.19.0.3")
-				fmt.Fprintln(os.Stderr, "         sudo csm unban 0 172.19.0.3  (unban from all servers)")
+				fmt.Fprintln(os.Stderr, "Example: csm unban 1 172.19.0.3")
+				fmt.Fprintln(os.Stderr, "         csm unban 0 172.19.0.3  (unban from all servers)")
 				os.Exit(1)
 			}
 			server, serr := strconv.Atoi(args[1])
@@ -395,8 +413,8 @@ func main() {
 				fmt.Fprintln(os.Stderr, "Use this to clear all IPs that were banned for RCON hacking attempts.")
 				fmt.Fprintln(os.Stderr, "Use server number 0 to clear bans from all servers.")
 				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "Example: sudo csm unban-all 1")
-				fmt.Fprintln(os.Stderr, "         sudo csm unban-all 0  (clear all bans from all servers)")
+				fmt.Fprintln(os.Stderr, "Example: csm unban-all 1")
+				fmt.Fprintln(os.Stderr, "         csm unban-all 0  (clear all bans from all servers)")
 				os.Exit(1)
 			}
 			server, serr := strconv.Atoi(args[1])
@@ -491,11 +509,14 @@ func main() {
 			fmt.Println(path)
 			return
 		case "doctor":
-			// Doctor is intended to run with sudo since fixes require root.
-			if os.Geteuid() != 0 {
-				fmt.Fprintln(os.Stderr, "csm doctor must be run with sudo so it can apply fixes.")
+			// Doctor runs as root or as the CS2 user (user mode). A few fixes
+			// (e.g. the /usr/bin/steamcmd wrapper) still need root.
+			if !csm.CanManageServers() {
+				fmt.Fprintln(os.Stderr, "csm doctor must be run as root or as the CS2 user so it can apply fixes.")
 				fmt.Fprintln(os.Stderr, "")
-				fmt.Fprintln(os.Stderr, "Run:")
+				fmt.Fprintln(os.Stderr, "Run it as the CS2 user (after a one-time `sudo csm setup-host`):")
+				fmt.Fprintf(os.Stderr, "  sudo -iu %s csm doctor\n", getenvDefault("CS2_USER", csm.DefaultCS2User))
+				fmt.Fprintln(os.Stderr, "or as root:")
 				fmt.Fprintln(os.Stderr, "  sudo csm doctor")
 				os.Exit(1)
 			}
@@ -866,27 +887,34 @@ func main() {
 		}
 	}
 
-	// No subcommand matched: run the TUI. For safety and to simplify behaviour,
-	// the interactive TUI requires sudo so that all install/update/cleanup
-	// flows can run without surprising permission errors.
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "CSM TUI must be run with sudo so it can manage users, tmux, game files and cron jobs.")
+	// No subcommand matched: run the TUI. It manages tmux, game files and
+	// cron jobs, so it runs as the CS2 user (user mode, after a one-time
+	// `sudo csm setup-host`) or as root. Anyone else would hit permission
+	// errors halfway through a flow.
+	if !csm.CanManageServers() {
+		cs2User := getenvDefault("CS2_USER", csm.DefaultCS2User)
+		fmt.Fprintf(os.Stderr, "CSM TUI must be run as the CS2 user (%s) or as root so it can manage tmux, game files and cron jobs.\n", cs2User)
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Please restart CSM with:")
+		fmt.Fprintln(os.Stderr, "One-time host setup (installs dependencies, creates the user, hands it csm's files):")
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "  sudo csm")
+		fmt.Fprintln(os.Stderr, "  sudo csm setup-host")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Then run csm as that user, no sudo:")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintf(os.Stderr, "  sudo -iu %s\n", cs2User)
+		fmt.Fprintln(os.Stderr, "  csm")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "You can still run non-TUI commands without sudo where appropriate, e.g.:")
 		fmt.Fprintln(os.Stderr, "  csm status")
 		fmt.Fprintln(os.Stderr, "  csm logs <server>")
 		fmt.Fprintln(os.Stderr, "  csm attach <server>")
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "For a full list of commands and which require sudo, run:")
+		fmt.Fprintln(os.Stderr, "For a full list of commands and which need root, run:")
 		fmt.Fprintln(os.Stderr, "  csm -h")
 		os.Exit(1)
 	}
 
-	// No subcommand matched and we are root: run the TUI. If we're in daemon
+	// No subcommand matched and we are root or the CS2 user: run the TUI. If we're in daemon
 	// mode or stdout is not a TTY, disable the renderer. Otherwise, use
 	// full-screen TUI.
 	//
@@ -960,7 +988,10 @@ func printUsage() {
 	fmt.Println("  -h, --help   show this help message")
 	fmt.Println("  --copy-mode  master→server replication mode (auto|reflink|rsync|legacy)")
 	fmt.Println()
-	fmt.Printf("%sCommands (no sudo required):%s\n", cyan, reset)
+	fmt.Printf("%sUser mode:%s after a one-time `sudo csm setup-host`, run csm as the CS2 user\n", cyan, reset)
+	fmt.Printf("(%s by default) without sudo. Running everything as root still works.\n", csm.DefaultCS2User)
+	fmt.Println()
+	fmt.Printf("%sCommands (CS2 user or root):%s\n", cyan, reset)
 	fmt.Println("  public-ip              Print public IP address")
 	fmt.Println("  status                 Show tmux server status")
 	fmt.Println("  start|stop|restart     Control servers via tmux")
@@ -979,10 +1010,9 @@ func printUsage() {
 	fmt.Println("  csm restart [--alternate|--binary] [server]")
 	fmt.Println("  csm debug [--alternate|--binary] <server>")
 	fmt.Println()
-	fmt.Printf("%sCommands (require sudo for typical setups):%s\n", yellow, reset)
-	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
+	fmt.Printf("%sMore commands (CS2 user or root):%s\n", cyan, reset)
+	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive; the Docker MySQL step needs root)")
 	fmt.Println("  doctor                 Diagnose and offer fixes for common issues")
-	fmt.Println("  cleanup-all            Remove all servers and related resources")
 	fmt.Println("  reinstall <server>     Rebuild a single server from master (fixes corrupted files)")
 	fmt.Println("  update-config <server> Regenerate server configs without reinstalling")
 	fmt.Println("  unban <server> <ip>    Remove IP from banned RCON requests (use 0 for all servers)")
@@ -997,9 +1027,14 @@ func printUsage() {
 	fmt.Println("  updates grace <min>    Minutes a server must be idle before it is auto-updated")
 	fmt.Println("  updates platform       Point csm at an Auto Tournament instance (<url> <token>, or off)")
 	fmt.Println("  updates check          Ask the platform now whether updates are held")
-	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob")
+	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob (in the crontab of the user running it)")
 	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
+	fmt.Println()
+	fmt.Printf("%sCommands that need root (sudo):%s\n", yellow, reset)
+	fmt.Println("  setup-host             One-time host setup for user mode: deps, CS2 user, linger, file ownership,")
+	fmt.Println("                         monitor cron in the user's crontab (--skip-deps, --skip-linger). Never touches servers")
 	fmt.Println("  install-deps           Install system dependencies")
+	fmt.Println("  cleanup-all            Remove all servers and related resources")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")
 }
@@ -1132,7 +1167,7 @@ func runUpdatesCommand(args []string) (string, error) {
 }
 
 func printUpdatesUsage(w *os.File) {
-	fmt.Fprintln(w, "usage: sudo csm updates hold on|off|auto | status | grace <minutes> | platform <url> <token> | check")
+	fmt.Fprintln(w, "usage: csm updates hold on|off|auto | status | grace <minutes> | platform <url> <token> | check")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  hold auto     ask Auto Tournament (the default); it holds while a tournament runs")
 	fmt.Fprintln(w, "  hold on       the monitor never restarts servers; it only logs that an update is available")
@@ -1150,7 +1185,7 @@ func printUpdatesUsage(w *os.File) {
 }
 
 func printDedupeVPKUsage(w *os.File) {
-	fmt.Fprintln(w, "usage: sudo csm dedupe-vpk [--dry-run] [--verify] [--undo] [--allow-running] [server]")
+	fmt.Fprintln(w, "usage: csm dedupe-vpk [--dry-run] [--verify] [--undo] [--allow-running] [server]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Replaces each server's *.vpk files with hardlinks to the identical files in")
 	fmt.Fprintln(w, "master-install (same size and mtime). Everything else stays a per-server copy.")

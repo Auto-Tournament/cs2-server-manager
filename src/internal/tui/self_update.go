@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -94,7 +95,31 @@ func SelfUpdateCLI(w io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(w, "Updated %s to csm %s.\n", exePath, latest)
+	if cur, err := os.Executable(); err == nil && cur != exePath {
+		fmt.Fprintf(w, "%s is not writable for this user, so the new binary went to %s instead.\n", filepath.Dir(cur), exePath)
+		fmt.Fprintf(w, "Login shells put %s first in PATH (~/.profile) once it exists; open a new login shell,\n", filepath.Dir(exePath))
+		fmt.Fprintln(w, "then run `csm install-monitor-cron` so the monitor cron job uses it too.")
+	}
 	return nil
+}
+
+// selfUpdateTarget picks where self-update writes the new binary: over the
+// running one when its directory is writable. Otherwise, for a non-root user
+// (user mode, where csm usually sits in root-owned /usr/local/bin), it is
+// ~/.local/bin/csm, which Debian/Ubuntu login shells put first in PATH.
+func selfUpdateTarget(exePath string, dirWritable bool, euid int, home string) (string, error) {
+	if dirWritable {
+		return exePath, nil
+	}
+	dir := filepath.Dir(exePath)
+	if euid == 0 || strings.TrimSpace(home) == "" {
+		return "", fmt.Errorf("cannot write to %s to perform a self-update (download the new binary from GitHub Releases)", dir)
+	}
+	target := filepath.Join(home, ".local", "bin", "csm")
+	if filepath.Clean(target) == filepath.Clean(exePath) {
+		return "", fmt.Errorf("cannot write to %s to perform a self-update (download the new binary from GitHub Releases)", dir)
+	}
+	return target, nil
 }
 
 // downloadAndReplace downloads the release asset for this platform and
@@ -111,19 +136,27 @@ func downloadAndReplace(targetVersion string, onProgress func(percent int)) (str
 		return "", err
 	}
 
-	// Write to a temporary file in the same directory, then atomically replace.
-	dir := filepath.Dir(exePath)
-	tmpPath := filepath.Join(dir, ".csm.tmp")
-
-	// Pre-flight permission check: if we can't create a temp file next to the
-	// binary (e.g. global install in /usr/local/bin), surface a friendly
-	// message so users know they should rerun with sudo or update manually.
-	if f, err := os.CreateTemp(dir, ".csm-perm-check-*"); err != nil {
-		return "", fmt.Errorf("cannot write to %s to perform a self-update (run it with sudo, or download the new binary from GitHub Releases)", dir)
-	} else {
+	// Pre-flight permission check: can we create a temp file next to the
+	// binary? A global install in /usr/local/bin is not writable for the CS2
+	// user (user mode); then install into ~/.local/bin instead.
+	dirWritable := false
+	if f, err := os.CreateTemp(filepath.Dir(exePath), ".csm-perm-check-*"); err == nil {
 		f.Close()
 		_ = os.Remove(f.Name())
+		dirWritable = true
 	}
+	home, _ := os.UserHomeDir()
+	exePath, err = selfUpdateTarget(exePath, dirWritable, os.Geteuid(), home)
+	if err != nil {
+		return "", err
+	}
+
+	// Write to a temporary file in the same directory, then atomically replace.
+	dir := filepath.Dir(exePath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("cannot create %s for the self-update: %w", dir, err)
+	}
+	tmpPath := filepath.Join(dir, ".csm.tmp")
 
 	url := fmt.Sprintf("https://github.com/Auto-Tournament/cs2-server-manager/releases/download/%s/%s", targetVersion, asset)
 

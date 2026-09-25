@@ -20,7 +20,8 @@ type CleanupConfig struct {
 // scripts/cleanup_cs2.sh and returns a human-readable log.
 func CleanupAll(cfg CleanupConfig) (string, error) {
 	if os.Geteuid() != 0 {
-		return "", fmt.Errorf("cleanup must be run as root (use sudo)")
+		// Deleting the CS2 user (userdel) and the Docker container needs root.
+		return "", RootRequiredError("cleanup-all")
 	}
 
 	if cfg.CS2User == "" {
@@ -67,7 +68,7 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 	}
 
 	// Best-effort direct kill of any remaining cs2-* sessions.
-	cmdList := exec.Command("su", "-", cfg.CS2User, "-c", "tmux list-sessions 2>/dev/null | grep cs2- | cut -d: -f1")
+	cmdList := userShellCommand(cfg.CS2User, "tmux list-sessions 2>/dev/null | grep cs2- | cut -d: -f1")
 	out, _ := cmdList.CombinedOutput()
 	for _, line := range strings.Split(string(out), "\n") {
 		session := strings.TrimSpace(line)
@@ -75,8 +76,8 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 			continue
 		}
 		log("  [*] Stopping tmux session: %s", session)
-		_ = exec.Command("su", "-", cfg.CS2User, "-c", "tmux send-keys -t "+session+" 'quit' C-m 2>/dev/null").Run()
-		_ = exec.Command("su", "-", cfg.CS2User, "-c", "tmux kill-session -t "+session+" 2>/dev/null").Run()
+		_ = userShellCommand(cfg.CS2User, "tmux send-keys -t "+session+" 'quit' C-m 2>/dev/null").Run()
+		_ = userShellCommand(cfg.CS2User, "tmux kill-session -t "+session+" 2>/dev/null").Run()
 	}
 
 	// Docker cleanup for MatchZy.
