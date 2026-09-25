@@ -1973,7 +1973,7 @@ func (m model) View() string {
 		case itemForceUpdateNow:
 			desc = "Bypass the cache and check GitHub for a newer CSM version."
 		case itemExtractThumbnailsGo:
-			desc = "Run the VPK/thumbnails pipeline and write PNG + WEBP (full + 1280px) into map_thumbnails/."
+			desc = "Write map thumbnails (PNG + WEBP, full + 1280px) and maps.json (map list + Active Duty pool) into map_thumbnails/."
 		case itemViewRecentLogsGo:
 			desc = "Show a list of the 20 most recent command logs with quick error/success status for debugging."
 		case itemCleanupAllGo:
