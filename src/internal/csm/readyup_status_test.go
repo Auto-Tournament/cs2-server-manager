@@ -173,8 +173,8 @@ func TestDiscoverReadyUp(t *testing.T) {
 	dir := t.TempDir()
 
 	d, err := DiscoverReadyUp(dir, 27015)
-	if err != nil || d.FromFile || d.Port != 27065 || d.BaseURL() != "http://127.0.0.1:27065" {
-		t.Fatalf("no file: got %+v, %v; want default port 27065", d, err)
+	if err != nil || d.FromFile || d.Port != 27022 || d.BaseURL() != "http://127.0.0.1:27022" {
+		t.Fatalf("no file: got %+v, %v; want default port 27022", d, err)
 	}
 
 	writeDiscovery(t, dir, map[string]any{"port": 28000, "bind": "127.0.0.1", "token": "rst_abc", "pid": 42, "game_port": 27015, "started_at": 1790340000})
@@ -198,14 +198,14 @@ func TestDiscoverReadyUp(t *testing.T) {
 
 func TestReadyUpBaseURL(t *testing.T) {
 	for _, tt := range []struct{ bind, want string }{
-		{"", "http://127.0.0.1:27065"},
-		{"0.0.0.0", "http://127.0.0.1:27065"},
-		{"::", "http://127.0.0.1:27065"},
-		{"127.0.0.1", "http://127.0.0.1:27065"},
-		{"10.0.0.5", "http://10.0.0.5:27065"},
-		{"::1", "http://[::1]:27065"},
+		{"", "http://127.0.0.1:27022"},
+		{"0.0.0.0", "http://127.0.0.1:27022"},
+		{"::", "http://127.0.0.1:27022"},
+		{"127.0.0.1", "http://127.0.0.1:27022"},
+		{"10.0.0.5", "http://10.0.0.5:27022"},
+		{"::1", "http://[::1]:27022"},
 	} {
-		if got := (ReadyUpDiscovery{Port: 27065, Bind: tt.bind}).BaseURL(); got != tt.want {
+		if got := (ReadyUpDiscovery{Port: 27022, Bind: tt.bind}).BaseURL(); got != tt.want {
 			t.Errorf("bind %q: %s, want %s", tt.bind, got, tt.want)
 		}
 	}
@@ -239,7 +239,7 @@ func TestProbeReadyUpViaDiscoveryFile(t *testing.T) {
 }
 
 func TestProbeReadyUpDefaultPort(t *testing.T) {
-	// No status.json: csm tries game port + 50.
+	// No status.json: csm tries game port + 7.
 	f := newFakeReadyUp(t, idleStatus())
 	row := ProbeReadyUp(context.Background(), http.DefaultClient, FleetTarget{Server: 2, Dir: t.TempDir(), GamePort: f.port() - ReadyUpPortOffset, Running: true})
 	if row.State != ReadyUpOK {
@@ -257,7 +257,7 @@ func TestProbeReadyUpDefaultPort(t *testing.T) {
 }
 
 func TestProbeReadyUpWithoutReadyUp(t *testing.T) {
-	// A server running the AT CS2 plugin: no status.json, nothing on +50.
+	// A server running the AT CS2 plugin: no status.json, nothing on +7.
 	gamePort := freePort(t) - ReadyUpPortOffset
 	row := ProbeReadyUp(context.Background(), http.DefaultClient, FleetTarget{Server: 3, Dir: t.TempDir(), GamePort: gamePort, Running: true})
 	if row.State != ReadyUpNone {
@@ -267,7 +267,7 @@ func TestProbeReadyUpWithoutReadyUp(t *testing.T) {
 		t.Fatal("no Ready Up must not give an update_safe verdict")
 	}
 
-	// Something else on +50 that is not Ready Up (404): still "no Ready Up".
+	// Something else on +7 that is not Ready Up (404): still "no Ready Up".
 	other := httptest.NewServer(http.NotFoundHandler())
 	defer other.Close()
 	_, p, _ := net.SplitHostPort(other.Listener.Addr().String())

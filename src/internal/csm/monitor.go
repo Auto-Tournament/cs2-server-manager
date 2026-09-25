@@ -45,14 +45,14 @@ func RunAutoUpdateMonitor() error {
 	log("=== CS2 Auto-Update Monitor (Go) ===")
 	log("Time: %s", time.Now().Format(time.RFC3339))
 
-	// The monitor is intended to be run as root (typically via root's cron)
-	// because it ultimately shells out to SteamCMD and rsync in the same way
-	// as the interactive wizard / CLI update-game flow. When invoked without
-	// root privileges, return a clear error instead of propagating a bare
-	// "exit status 1".
-	if os.Geteuid() != 0 {
-		log("RunAutoUpdateMonitor must be run as root (use sudo or the install-monitor-cron helper).")
-		return writeMonitorLog(buf.String(), fmt.Errorf("monitor must be run as root (use sudo)"))
+	// The monitor shells out to SteamCMD, rsync and tmux like the CLI
+	// update-game flow, so it runs as root (legacy: root's cron) or as the
+	// CS2 user (user mode: that user's cron). Anyone else gets a clear error
+	// instead of a bare "exit status 1".
+	if !CanManageServers() {
+		err := requireRootOrCS2User("monitor", configuredCS2User())
+		log("%v", err)
+		return writeMonitorLog(buf.String(), err)
 	}
 
 	unlock, err := lockAutoUpdate()
@@ -124,7 +124,7 @@ func RunAutoUpdateMonitor() error {
 
 		if hold.On {
 			log("Server-%d: not restarting: updates are on hold (%s: %s). "+
-				"Run `sudo csm update-server %d` to update it now, or see `csm updates status`.",
+				"Run `csm update-server %d` to update it now, or see `csm updates status`.",
 				i, hold.Source, hold.Reason, i)
 			continue
 		}
@@ -200,8 +200,13 @@ func RunAutoUpdateMonitor() error {
 	return writeMonitorLog(buf.String(), nil)
 }
 
-// InstallAutoUpdateCron installs a root cron entry that periodically runs
+// InstallAutoUpdateCron installs a cron entry that periodically runs
 // `csm monitor`. The optional interval string can override the default */5.
+//
+// Run as the CS2 user (user mode), the entry goes into that user's crontab.
+// Run as root, it goes into root's crontab, unless the host has been switched
+// to user mode with `csm setup-host`: then it goes into the CS2 user's crontab
+// and any root entry is removed, so the monitor never runs from both.
 func InstallAutoUpdateCron(interval string) (string, error) {
 	return InstallAutoUpdateCronWithContext(context.Background(), interval)
 }
@@ -210,8 +215,8 @@ func InstallAutoUpdateCron(interval string) (string, error) {
 // context. While installing a cron job is typically fast, this allows TUI
 // callers to cancel before or during the underlying shell command if needed.
 func InstallAutoUpdateCronWithContext(ctx context.Context, interval string) (string, error) {
-	if os.Geteuid() != 0 {
-		return "", fmt.Errorf("install-monitor-cron must be run as root (use sudo)")
+	if !CanManageServers() {
+		return "", requireRootOrCS2User("install-monitor-cron", configuredCS2User())
 	}
 	if interval == "" {
 		interval = "*/5"
@@ -239,17 +244,41 @@ func InstallAutoUpdateCronWithContext(ctx context.Context, interval string) (str
 
 	entry := fmt.Sprintf("%s * * * * %s monitor >/dev/null 2>&1", interval, binPath)
 
-	// Merge with existing crontab, removing any previous cs2_auto_update_monitor lines.
-	cmd := exec.CommandContext(ctx, "bash", "-lc",
-		fmt.Sprintf("(crontab -l 2>/dev/null | grep -v 'csm monitor' || true; echo '%s') | crontab -", entry))
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return string(out), fmt.Errorf("failed to install cron entry: %w", err)
+	// Which crontab: the current user's, or (root on a user-mode host) the
+	// CS2 user's.
+	target, owner := "", currentUsername()
+	if os.Geteuid() == 0 {
+		if u := userModeCS2User(); u != "" {
+			target, owner = u, u
+		}
 	}
 
-	return fmt.Sprintf("Installed auto-update cronjob: %s\n", entry), nil
+	// Merge with the existing crontab, replacing any previous monitor entry.
+	tab, err := readCrontab(ctx, target)
+	if err != nil {
+		return "", fmt.Errorf("failed to install cron entry: %w", err)
+	}
+	if err := writeCrontab(ctx, target, withMonitorCronLine(tab, entry)); err != nil {
+		return "", fmt.Errorf("failed to install cron entry: %w", err)
+	}
+	msg := fmt.Sprintf("Installed auto-update cronjob in %s's crontab: %s\n", owner, entry)
+
+	if target != "" {
+		// User-mode host: make sure root's crontab doesn't also run it.
+		if rootTab, err := readCrontab(ctx, ""); err == nil {
+			if kept, removed := stripMonitorCronLines(rootTab); len(removed) > 0 {
+				if err := writeCrontab(ctx, "", kept); err != nil {
+					return msg, fmt.Errorf("installed for %s but failed to remove root's monitor entry: %w", target, err)
+				}
+				msg += "Removed the old monitor entry from root's crontab.\n"
+			}
+		}
+	}
+	return msg, nil
 }
 
-// RemoveAutoUpdateCron removes the auto-update monitor cron job from root's crontab.
+// RemoveAutoUpdateCron removes the auto-update monitor cron job from the
+// current user's crontab (and, as root, from the CS2 user's crontab too).
 func RemoveAutoUpdateCron() (string, error) {
 	return RemoveAutoUpdateCronWithContext(context.Background())
 }
@@ -257,15 +286,32 @@ func RemoveAutoUpdateCron() (string, error) {
 // RemoveAutoUpdateCronWithContext is like RemoveAutoUpdateCron but accepts a
 // context for cancellation support.
 func RemoveAutoUpdateCronWithContext(ctx context.Context) (string, error) {
-	if os.Geteuid() != 0 {
-		return "", fmt.Errorf("remove-monitor-cron must be run as root (use sudo)")
+	if !CanManageServers() {
+		return "", requireRootOrCS2User("remove-monitor-cron", configuredCS2User())
 	}
 
-	// Remove any lines containing 'csm monitor' from root's crontab.
-	cmd := exec.CommandContext(ctx, "bash", "-lc",
-		"(crontab -l 2>/dev/null | grep -v 'csm monitor' || true) | crontab -")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return string(out), fmt.Errorf("failed to remove cron entry: %w", err)
+	// Remove any lines containing 'csm monitor' from the current crontab.
+	targets := []string{""}
+	if os.Geteuid() == 0 {
+		// Also the CS2 user's crontab, where user mode installs it.
+		if u := configuredCS2User(); u != "" {
+			if _, err := uidForUser(u); err == nil {
+				targets = append(targets, u)
+			}
+		}
+	}
+	for _, target := range targets {
+		tab, err := readCrontab(ctx, target)
+		if err != nil {
+			return "", fmt.Errorf("failed to remove cron entry: %w", err)
+		}
+		kept, removed := stripMonitorCronLines(tab)
+		if len(removed) == 0 {
+			continue
+		}
+		if err := writeCrontab(ctx, target, kept); err != nil {
+			return "", fmt.Errorf("failed to remove cron entry: %w", err)
+		}
 	}
 
 	// Also clean up the monitor's per-server state (idle tracking, handled
@@ -278,6 +324,9 @@ func RemoveAutoUpdateCronWithContext(ctx context.Context) (string, error) {
 		}
 	}
 
+	if os.Geteuid() != 0 {
+		return "Removed auto-update monitor cronjob from your crontab (an entry in root's crontab, if any, needs `sudo csm remove-monitor-cron`)\n", nil
+	}
 	return "Removed auto-update monitor cronjob\n", nil
 }
 

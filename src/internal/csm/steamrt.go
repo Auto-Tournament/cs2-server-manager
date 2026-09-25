@@ -50,15 +50,19 @@ func ensureSteamRuntimeInstalled(ctx context.Context, w io.Writer, cs2User strin
 		return fmt.Errorf("failed to create steam runtime dir %s: %w", dest, err)
 	}
 	// Ensure ownership so steamcmd running as the CS2 user can write there.
-	_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), dest).Run()
+	// (Only root can chown; in user mode csm created it as that user.)
+	if canChown() {
+		_ = exec.Command("chown", "-R", fmt.Sprintf("%s:%s", cs2User, cs2User), dest).Run()
+	}
 
 	fmt.Fprintf(w, "  [*] Installing Steam Runtime (SteamRT3) into %s...\n", dest)
-	cmd := exec.CommandContext(ctx, "sudo", "-u", cs2User, "-H", "steamcmd",
+	argv := steamcmdAsUser(cs2User, true,
 		"+force_install_dir", dest,
 		"+login", "anonymous",
 		"+app_update", steamRuntimeAppID, "validate",
 		"+quit",
 	)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {

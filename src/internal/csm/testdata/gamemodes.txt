@@ -1,0 +1,66 @@
+// Trimmed-down copy of the layout of CS2's gamemodes.txt (pak01_dir.vpk).
+"GameModes.txt"
+{
+	"gameTypes"
+	{
+		"classic"
+		{
+			"gameModes"
+			{
+				"competitive"
+				{
+					"nameID"		"#SFUI_GameModeCompetitive"
+					"maxplayers"	"10"
+					"exec"
+					{
+						"exec"	"gamemode_competitive.cfg"
+					}
+					"mapgroupsMP"
+					{
+						// mg_active as a plain string: not the map group itself
+						"mg_active"		""
+						"mg_hostage"	""
+					}
+				}
+			}
+		}
+	}
+
+	"mapgroups"
+	{
+		"mg_hostage"
+		{
+			"name"		"mg_hostage"
+			"maps"
+			{
+				"cs_office"		""
+				"cs_italy"		""
+			}
+		}
+		"mg_active"
+		{
+			"imagename"			"mapgroup-active"
+			"nameID"			"#SFUI_Mapgroup_active"
+			"name"				"mg_active"
+			"icon_image_path"	"map_icons/mapgroup_icon_active"
+			"maps"
+			{
+				"de_ancient"	""
+				"de_anubis"		""
+				"de_dust2"		""	[$WIN32]
+				"de_inferno"	""
+				"de_mirage"		""
+				"de_nuke"		""
+				"de_overpass"	""
+			}
+		}
+		"mg_de_dust2"
+		{
+			"name"	"mg_de_dust2"
+			"maps"
+			{
+				"de_dust2"	""
+			}
+		}
+	}
+}

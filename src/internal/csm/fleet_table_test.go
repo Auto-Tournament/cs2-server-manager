@@ -30,13 +30,13 @@ func fleetFixture(t *testing.T) []FleetRow {
 	offline := statusOf(t, offlineDoc)
 
 	return []FleetRow{
-		{Target: FleetTarget{Server: 1, GamePort: 27015, Running: true}, StatusPort: 27065, State: ReadyUpOK, Status: live},
-		{Target: FleetTarget{Server: 2, GamePort: 27025, Running: true}, StatusPort: 27075, State: ReadyUpOK, Status: idle},
-		{Target: FleetTarget{Server: 3, GamePort: 27035, Running: true}, StatusPort: 27085, State: ReadyUpNone},
-		{Target: FleetTarget{Server: 4, GamePort: 27045, Running: true}, StatusPort: 27095, State: ReadyUpOK, Status: offline},
-		{Target: FleetTarget{Server: 5, GamePort: 27055, Running: true}, StatusPort: 27105, State: ReadyUpNoResponse, Err: "context deadline exceeded"},
-		{Target: FleetTarget{Server: 6, GamePort: 27065, Running: false}, StatusPort: 27115, State: ReadyUpStopped},
-		{Target: FleetTarget{Server: 7, GamePort: 27075, Running: false, Updating: true}, StatusPort: 27125, State: ReadyUpStopped},
+		{Target: FleetTarget{Server: 1, GamePort: 27015, Running: true}, StatusPort: 27022, State: ReadyUpOK, Status: live},
+		{Target: FleetTarget{Server: 2, GamePort: 27025, Running: true}, StatusPort: 27032, State: ReadyUpOK, Status: idle},
+		{Target: FleetTarget{Server: 3, GamePort: 27035, Running: true}, StatusPort: 27042, State: ReadyUpNone},
+		{Target: FleetTarget{Server: 4, GamePort: 27045, Running: true}, StatusPort: 27052, State: ReadyUpOK, Status: offline},
+		{Target: FleetTarget{Server: 5, GamePort: 27055, Running: true}, StatusPort: 27062, State: ReadyUpNoResponse, Err: "context deadline exceeded"},
+		{Target: FleetTarget{Server: 6, GamePort: 27065, Running: false}, StatusPort: 27072, State: ReadyUpStopped},
+		{Target: FleetTarget{Server: 7, GamePort: 27075, Running: false, Updating: true}, StatusPort: 27082, State: ReadyUpStopped},
 	}
 }
 
@@ -55,7 +55,7 @@ func TestRenderFleetTable(t *testing.T) {
 7  27075  updating  -              -            -          -        -                               -                          -         -      -
 
   server-4: Ready Up selftest failed (10/12 passed): sig:CCSGameRules, sig:RoundEnd
-  server-5: Ready Up is not answering on port 27105 (context deadline exceeded)
+  server-5: Ready Up is not answering on port 27062 (context deadline exceeded)
 `
 	if got != want {
 		t.Fatalf("table mismatch.\n--- got ---\n%s\n--- want ---\n%s", got, want)
