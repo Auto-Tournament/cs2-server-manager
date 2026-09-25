@@ -39,7 +39,7 @@ func TestEvaluateMatchzyScope(t *testing.T) {
 			},
 			want:      DoctorFail,
 			detailHas: []string{`server-1, server-2, server-3 all report matchzy_server_id "s_3"`, "older than 1.4.28 (no per-server config scoping)"},
-			fixHas:    []string{"Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.28 or newer", "sudo csm update-plugins", `"DatabaseType": "SQLite"`, "reconfigure every server", "sudo csm doctor"},
+			fixHas:    []string{"Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.28 or newer", "csm update-plugins", `"DatabaseType": "SQLite"`, "reconfigure every server", "csm doctor"},
 		},
 		{
 			name: "fixed: shared MySQL, scoping plugin, scope args, distinct ids",
@@ -59,7 +59,7 @@ func TestEvaluateMatchzyScope(t *testing.T) {
 			},
 			want:       DoctorFail,
 			detailHas:  []string{"running without +matchzy_config_scope"},
-			fixHas:     []string{"sudo csm restart"},
+			fixHas:     []string{"csm restart"},
 			fixMissing: []string{"update-plugins", "reconfigure"},
 		},
 		{
@@ -97,7 +97,7 @@ func TestEvaluateMatchzyScope(t *testing.T) {
 			},
 			want:      DoctorWarn,
 			detailHas: []string{"MatchZy.dll was not found for server-2"},
-			fixHas:    []string{"sudo csm update-plugins"},
+			fixHas:    []string{"csm update-plugins"},
 		},
 		{
 			name: "separate MySQL databases do not share config",

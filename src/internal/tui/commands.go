@@ -95,15 +95,14 @@ func runInstallMonitorGo() tea.Cmd {
 	return func() tea.Msg {
 		title := "Install or redeploy auto-update monitor (cron)"
 
-		// This action must be run as root because it modifies root's crontab
-		// and writes to /var/log. Rather than trying to handle sudo prompts
-		// inside the TUI, we guide the user to rerun CSM with sudo.
-		if os.Geteuid() != 0 {
-			out := "The auto-update monitor must be installed as root.\n\n" +
-				"Please restart CSM with sudo and run this action again:\n\n" +
-				"  sudo csm\n\n" +
-				"Or run the CLI command directly from your shell:\n\n" +
-				"  sudo csm install-monitor-cron\n"
+		// The monitor cron entry goes into the crontab of the user csm runs
+		// as: the CS2 user (user mode) or root. Rather than trying to handle
+		// sudo prompts inside the TUI, guide anyone else to the right user.
+		if !csm.CanManageServers() {
+			out := "The auto-update monitor must be installed as the CS2 user or as root.\n\n" +
+				"After a one-time `sudo csm setup-host`, run CSM as the CS2 user and run this action again:\n\n" +
+				"  sudo -iu " + csm.DefaultCS2User + "\n" +
+				"  csm install-monitor-cron\n"
 
 			return commandFinishedMsg{
 				item: menuItem{
@@ -447,11 +446,10 @@ func runInstallDepsGo() tea.Cmd {
 		title := "Install system dependencies"
 
 		if os.Geteuid() != 0 {
-			out := "System dependency installation must be run as root.\n\n" +
-				"Please restart CSM with sudo and run this action again:\n\n" +
-				"  sudo csm\n\n" +
-				"Or run the CLI command directly from your shell:\n\n" +
-				"  sudo csm install-deps\n"
+			out := "System dependency installation (apt-get) needs root.\n\n" +
+				"Run it from a shell with sudo, then come back:\n\n" +
+				"  sudo csm install-deps\n\n" +
+				"(`sudo csm setup-host` installs them too, as part of the one-time host setup.)\n"
 
 			return commandFinishedMsg{
 				item: menuItem{
@@ -570,7 +568,7 @@ func runEditConfigFile(title, configPath string) tea.Cmd {
 				} else {
 					// Create in overrides if it doesn't exist
 					fullPath = overridePath
-					// Create directory as root (we're running with sudo)
+					// Create the directory (as root or as the CS2 user)
 					if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
 						return commandFinishedMsg{
 							item:   menuItem{title: title},
@@ -628,7 +626,7 @@ chown -R "%s:%s" "%s" 2>/dev/null || true
 echo ""
 echo "Config file saved. Ownership fixed."
 echo "Config synced to all servers."
-echo "Run 'sudo csm' to restart the TUI."
+echo "Run 'csm' to restart the TUI."
 `, fullPath, fullPath, mgr.CS2User, mgr.CS2User, fullPath, mgr.CS2User, mgr.CS2User, csm.OverridesDir(mgr.CS2User), syncCmds)
 
 		// Write temp script

@@ -400,7 +400,9 @@ func (w *installWizard) validateAll() error {
 	}
 	current := os.Getenv("USER")
 	sudoUser := os.Getenv("SUDO_USER")
-	if name == "root" || name == current || name == sudoUser {
+	// In user mode csm runs as the CS2 user itself, so that name is fine.
+	userMode := os.Geteuid() != 0 && name == current && csm.RunningAsCS2User()
+	if !userMode && (name == "root" || name == current || name == sudoUser) {
 		if current == "" {
 			current = "your login"
 		}
