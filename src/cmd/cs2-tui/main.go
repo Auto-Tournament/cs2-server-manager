@@ -110,14 +110,28 @@ func main() {
 			}
 			return
 		case "extract-map-data":
-			out, err := csm.ExtractMapThumbnails()
-			csm.LogAction("cli", "extract-map-data", out, err)
-			if out != "" {
-				fmt.Print(out)
+			mfs := flag.NewFlagSet("extract-map-data", flag.ExitOnError)
+			publish := mfs.Bool("publish", false, "commit map_thumbnails/ into a cs2-server-manager checkout on a new branch")
+			repoDir := mfs.String("repo", "", "path to the cs2-server-manager git checkout used by --publish")
+			_ = mfs.Parse(args[1:])
+			if *publish && strings.TrimSpace(*repoDir) == "" {
+				fmt.Fprintln(os.Stderr, "--publish needs --repo <dir> (a git checkout of cs2-server-manager)")
+				os.Exit(2)
 			}
+			// Progress streams to stdout as it happens; out is only kept
+			// for the action log.
+			out, res, err := csm.ExtractMapData(context.Background(), csm.MapDataOptions{Progress: os.Stdout})
+			csm.LogAction("cli", "extract-map-data", out, err)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "map extraction failed: %v\n", err)
 				os.Exit(1)
+			}
+			if *publish {
+				fmt.Println()
+				if err := csm.PublishMapThumbnails(context.Background(), res.ThumbsDir, *repoDir, res.PatchVersion, os.Stdout); err != nil {
+					fmt.Fprintf(os.Stderr, "publish failed: %v\n", err)
+					os.Exit(1)
+				}
 			}
 			return
 		case "public-ip":
@@ -956,7 +970,8 @@ func printUsage() {
 	fmt.Println("  attach                 Attach to a server tmux session")
 	fmt.Println("  list-sessions          List tmux sessions")
 	fmt.Println("  debug                  Run a server in foreground debug mode")
-	fmt.Println("  extract-map-data       Extract map thumbnails from VPKs (PNG + WEBP, plus 1280px WEBP thumbnails)")
+	fmt.Println("  extract-map-data       Extract map thumbnails (PNG + WEBP) and maps.json (map list + Active Duty) into map_thumbnails/")
+	fmt.Println("                         --publish --repo <dir>: commit them on a new branch in a cs2-server-manager checkout")
 	fmt.Println("  list-bans <server>     List banned IP addresses for a server")
 	fmt.Println()
 	fmt.Println("Start options:")
