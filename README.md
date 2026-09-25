@@ -106,9 +106,10 @@ csm help                   # CLI help
 
 ```bash
 # Servers
-csm status                 # tmux status overview
+csm status                 # fleet table: process, map, phase, score, players, Ready Up
+csm status --watch         # the same table, updated live
 csm start [server]         # start all servers, or one
-csm stop [server]
+csm stop [server]          # refuses while a Ready Up match is live; --force overrides
 csm restart [server]
 
 # Updates
@@ -159,9 +160,28 @@ The token is the platform's `SERVER_TOKEN` — the same fleet-wide token the plu
 
 Updates are then held while a tournament is in progress or any match is loaded or live. **If the platform cannot be reached, updates stay held** — csm will not restart a server while it cannot tell whether a tournament is running. Every skipped update says which of these it was in `auto_update_monitor.log`.
 
-`csm updates hold on` and `off` are overrides that win over the platform; `csm updates hold auto` goes back to asking it. `csm update-game` and `csm update-server` always run, hold or not.
+`csm updates hold on` and `off` are overrides that win over the platform; `csm updates hold auto` goes back to asking it. `csm update-game` and `csm update-server` run whatever the hold says; the only thing that stops them is a live match on a Ready Up server (next section).
 
 Day-to-day operation, configuration and the update monitor are covered in [Managing Servers](https://docs.sivert.io/docs/csm/user/managing-servers), [Configuration & Overrides](https://docs.sivert.io/docs/csm/user/configuration) and [Auto Updates](https://docs.sivert.io/docs/csm/user/auto-updates).
+
+### Ready Up servers: live status and match protection
+
+Servers that run [Ready Up](https://github.com/Auto-Tournament/ready-up) publish their state on a small local HTTP endpoint (`/status` and a live `/stream`). csm reads the port and a read-only token from `server-N/game/csgo/readyup/status.json`, or tries the game port + 7 (Ready Up's default `status_http_port`) when that file is missing.
+
+`csm status` (and **Servers → Servers dashboard** in the TUI) shows one row per server:
+
+```
+#  PORT   PROC     MAP            PHASE        SCORE      PLAYERS  MATCH           PLATFORM    READY UP  CS2    SAFE
+1  27015  running  de_mirage 2/3  live R14     8-5 (1-0)  10/10    412 NAVI vs G2  online      0.9.0     14090  NO
+2  27025  running  de_dust2       idle         -          2        -               standalone  0.9.0     14090  yes
+3  27035  running  -              no Ready Up  -          -        -               -           -         -      -
+```
+
+The TUI dashboard and `csm status --watch` follow each server's `/stream` and update as rounds are played; a Ready Up without `/stream` is polled instead. `csm status --json` prints the same data for scripts.
+
+`SAFE` is Ready Up's `update_safe`: `NO` from the moment a match loads until the series is over and its demo is uploaded. While it says `NO`, `stop`, `restart`, `update-game`, `update-server` and `update-plugins` refuse to run and name the match that is in the way. The auto-update monitor skips that server too. Add `--force` to go ahead anyway; forced runs are written to `csm.log`. The TUI never forces; it tells you the command to run.
+
+Servers without Ready Up (for example with the Auto Tournament CS2 plugin) show `no Ready Up` and behave exactly as before.
 
 ## Map thumbnails and maps.json
 

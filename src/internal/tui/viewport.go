@@ -611,25 +611,6 @@ func (m model) updateServerConfigPromptKey(key tea.KeyMsg) (model, tea.Cmd) {
 	return m, cmd
 }
 
-func runTmuxStatusViewport() tea.Cmd {
-	return func() tea.Msg {
-		manager, err := csm.NewTmuxManager()
-		if err != nil {
-			return viewportFinishedMsg{
-				title:   "Servers dashboard",
-				content: fmt.Sprintf("Failed to load tmux status: %v\n\nIf you haven't installed servers yet, run the install wizard first from the Setup tab.", err),
-				err:     err,
-			}
-		}
-		out, err := manager.Status()
-		return viewportFinishedMsg{
-			title:   "Servers dashboard",
-			content: out,
-			err:     err,
-		}
-	}
-}
-
 func runTmuxLogsViewport(server string, lines int) tea.Cmd {
 	return func() tea.Msg {
 		manager, err := csm.NewTmuxManager()
