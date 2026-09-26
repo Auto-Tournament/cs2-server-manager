@@ -103,8 +103,9 @@ func isVPKName(name string) bool {
 }
 
 // listVPKs returns the slash-separated relative paths of all regular *.vpk
-// files under root. csgo/addons is skipped: it is managed by the plugin
-// deploy, never comes from master-install, and is not touched here.
+// files under root. csgo/addons and csgo/readyup (pluginOwnedGameDirs) are
+// skipped: they are managed by the plugin deploy, never come from
+// master-install, and are not touched here.
 func listVPKs(root string) ([]string, error) {
 	var out []string
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -123,8 +124,10 @@ func listVPKs(root string) ([]string, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			if rel == "csgo/addons" {
-				return filepath.SkipDir
+			for _, owned := range pluginOwnedGameDirs {
+				if rel == owned {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}
