@@ -478,7 +478,7 @@ func ciSetup(ctx context.Context, w io.Writer, env ciEnv, cmd CICommand) error {
 	if err := checkCIDirUsable(dir); err != nil {
 		return err
 	}
-	if !ciInstallPresent(dir) {
+	if !ciInstallComplete(dir) {
 		if err := requireFreeDiskGB(dir, ciInstallMinFreeGB); err != nil {
 			return fmt.Errorf("not enough disk for the CI install: %w", err)
 		}
@@ -513,7 +513,7 @@ func ciSetup(ctx context.Context, w io.Writer, env ciEnv, cmd CICommand) error {
 	if err := os.WriteFile(filepath.Join(dir, ciMarkerFile), []byte(marker), 0o644); err != nil {
 		return fmt.Errorf("writing marker in %s: %w", dir, err)
 	}
-	if !ciInstallPresent(dir) {
+	if !ciInstallComplete(dir) {
 		// A local copy of the master install is far faster than a fresh
 		// download; SteamCMD below then only fetches what differs.
 		masterDir := filepath.Join("/home", env.cs2User, "master-install")
@@ -572,6 +572,32 @@ func checkCIDirUsable(dir string) error {
 	return fmt.Errorf("%s exists, is not empty and was not created by csm ci; pick another --dir", dir)
 }
 
+// ciInstallComplete reports whether Steam marks the CS2 install in dir as
+// fully installed (StateFlags bit 4). An interrupted download leaves an
+// appmanifest without it; such a dir is seeded from the master again.
+func ciInstallComplete(dir string) bool {
+	data, err := os.ReadFile(filepath.Join(dir, "steamapps", "appmanifest_730.acf"))
+	if err != nil {
+		return false
+	}
+	return acfFullyInstalled(string(data))
+}
+
+func acfFullyInstalled(acf string) bool {
+	nodes, err := parseKeyValues(acf)
+	if err != nil {
+		return false
+	}
+	n := findKV(nodes, func(n *kvNode) bool {
+		return !n.IsBlock && strings.EqualFold(n.Key, "StateFlags")
+	})
+	if n == nil {
+		return false
+	}
+	flags, err := strconv.Atoi(strings.TrimSpace(n.Value))
+	return err == nil && flags&4 != 0
+}
+
 func ciInstallPresent(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "steamapps", "appmanifest_730.acf"))
 	return err == nil
@@ -583,8 +609,15 @@ func ciInstallPresent(dir string) bool {
 // to change the master's files. It returns an error, and the caller falls
 // back to a download, when there is no usable master install.
 func ciSeedFromMaster(ctx context.Context, w io.Writer, masterDir, dir string) error {
-	if !ciInstallPresent(masterDir) {
-		return fmt.Errorf("no master install at %s", masterDir)
+	if !ciInstallComplete(masterDir) {
+		return fmt.Errorf("no fully installed master install at %s", masterDir)
+	}
+	// An interrupted download leaves its staging data here; SteamCMD would
+	// resume it instead of checking the copied files.
+	for _, sub := range []string{"downloading", "temp"} {
+		if err := os.RemoveAll(filepath.Join(dir, "steamapps", sub)); err != nil {
+			return fmt.Errorf("clearing %s: %w", filepath.Join(dir, "steamapps", sub), err)
+		}
 	}
 	fmt.Fprintf(w, "  Copying the master install %s (%s) to %s...\n", masterDir, ciBuildString(masterDir), dir)
 	c := exec.CommandContext(ctx, "cp", "-a", "--reflink=auto", masterDir+"/.", dir+"/")
