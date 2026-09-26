@@ -44,6 +44,14 @@ func UpdateGameWithContext(ctx context.Context) (string, error) {
 	})
 }
 
+// liveOutput, when set, receives update-game's log as it happens (the CLI
+// passes stdout), so SteamCMD and rsync progress show live instead of all at
+// the end.
+var liveOutput *os.File
+
+// SetLiveOutput streams update-game's log to f while it runs. nil turns it off.
+func SetLiveOutput(f *os.File) { liveOutput = f }
+
 func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	var buf bytes.Buffer
 	var logFile *os.File
@@ -62,6 +70,10 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 				}
 			}()
 		}
+	}
+
+	if logFile == nil && liveOutput != nil {
+		logFile = liveOutput // not closed: it belongs to the caller
 	}
 
 	log := func(format string, args ...any) {
