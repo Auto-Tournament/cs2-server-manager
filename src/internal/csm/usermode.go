@@ -174,6 +174,37 @@ func steamcmdArgv(euid int, currentUser, target string, setHome bool, args ...st
 	return append(argv, args...)
 }
 
+// steamcmdPreflightNeed says what running SteamCMD as target requires.
+type steamcmdPreflightNeed int
+
+const (
+	// steamcmdNoSudo: csm is target (user mode) or root; nothing to check.
+	steamcmdNoSudo steamcmdPreflightNeed = iota
+	// steamcmdNeedsSudo: csm is some other user and needs `sudo -u target`.
+	steamcmdNeedsSudo
+)
+
+func steamcmdPreflightFor(euid int, currentUser, target string) steamcmdPreflightNeed {
+	if euid == 0 || decideRunAs(euid, currentUser, target) == runAsDirect {
+		return steamcmdNoSudo
+	}
+	return steamcmdNeedsSudo
+}
+
+// steamcmdRunAsPreflight fails early when SteamCMD could not be run as
+// target: csm is neither root nor target, and sudo does not work without a
+// password prompt. Callers run it before stopping anything.
+func steamcmdRunAsPreflight(target string) error {
+	if steamcmdPreflightFor(os.Geteuid(), currentUsername(), target) == steamcmdNoSudo {
+		return nil
+	}
+	if err := exec.Command("sudo", "-n", "-u", target, "true").Run(); err != nil {
+		return fmt.Errorf("SteamCMD must run as %s, and csm runs as %s without working sudo. "+
+			"Run csm as %s (sudo -iu %s), or with sudo", target, currentUsername(), target, target)
+	}
+	return nil
+}
+
 // steamcmdAsUser is steamcmdArgv for the running process.
 func steamcmdAsUser(target string, setHome bool, args ...string) []string {
 	return steamcmdArgv(os.Geteuid(), currentUsername(), target, setHome, args...)
