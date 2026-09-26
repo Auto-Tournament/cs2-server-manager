@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseCIArgs(t *testing.T) {
@@ -283,5 +284,15 @@ func TestACFFullyInstalled(t *testing.T) {
 		if got := acfFullyInstalled(acf); got != want {
 			t.Errorf("acfFullyInstalled(%q) = %v, want %v", acf, got, want)
 		}
+	}
+}
+
+func TestCopyProgressLine(t *testing.T) {
+	got := copyProgressLine(30e9, 60e9, 60*time.Second)
+	if !strings.Contains(got, "50.0%") || !strings.Contains(got, "30.0 / 60.0 GB") || !strings.Contains(got, "500 MB/s") || !strings.Contains(got, "~1m0s left") {
+		t.Fatalf("unexpected line %q", got)
+	}
+	if got := copyProgressLine(0, 60e9, time.Second); strings.Contains(got, "left") {
+		t.Fatalf("no estimate expected before anything is copied: %q", got)
 	}
 }

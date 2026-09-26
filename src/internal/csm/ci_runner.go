@@ -623,7 +623,12 @@ func ciSeedFromMaster(ctx context.Context, w io.Writer, masterDir, dir string) e
 	c := exec.CommandContext(ctx, "cp", "-a", "--reflink=auto", masterDir+"/.", dir+"/")
 	c.Stdout = w
 	c.Stderr = w
-	if err := c.Run(); err != nil {
+	total := treeBytes(masterDir)
+	done := make(chan struct{})
+	go reportCopyProgress(w, dir, total, 5*time.Second, done)
+	err := c.Run()
+	close(done)
+	if err != nil {
 		return fmt.Errorf("copying %s failed: %w", masterDir, err)
 	}
 	fmt.Fprintln(w, "  [✓] Copied; SteamCMD now only updates what differs")
@@ -883,4 +888,52 @@ func ciRemove(ctx context.Context, w io.Writer, env ciEnv, cmd CICommand) error 
 	}
 	fmt.Fprintf(w, "  [✓] Deleted the CI install %s\n", dir)
 	return nil
+}
+
+// treeBytes is the total size of the regular files under root.
+func treeBytes(root string) int64 {
+	var n int64
+	_ = filepath.WalkDir(root, func(_ string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !d.Type().IsRegular() {
+			return nil
+		}
+		if fi, ierr := d.Info(); ierr == nil {
+			n += fi.Size()
+		}
+		return nil
+	})
+	return n
+}
+
+// reportCopyProgress prints how much of total has arrived in dir every
+// interval, with an estimate of the time left, until done is closed.
+func reportCopyProgress(w io.Writer, dir string, total int64, interval time.Duration, done <-chan struct{}) {
+	if total <= 0 {
+		return
+	}
+	start := time.Now()
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-t.C:
+			fmt.Fprintf(w, "  %s\n", copyProgressLine(treeBytes(dir), total, time.Since(start)))
+		}
+	}
+}
+
+func copyProgressLine(copied, total int64, elapsed time.Duration) string {
+	if copied > total {
+		copied = total
+	}
+	pct := float64(copied) * 100 / float64(total)
+	line := fmt.Sprintf("%5.1f%%  %.1f / %.1f GB", pct, float64(copied)/1e9, float64(total)/1e9)
+	if copied > 0 && elapsed > 0 {
+		rate := float64(copied) / elapsed.Seconds()
+		left := time.Duration(float64(total-copied)/rate) * time.Second
+		line += fmt.Sprintf("  %.0f MB/s  ~%s left", rate/1e6, left.Round(time.Second))
+	}
+	return line
 }
