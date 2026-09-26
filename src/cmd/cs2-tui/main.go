@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -63,6 +64,25 @@ func main() {
 			fmt.Print(buf.String())
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "setup-host failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "ci":
+			cmd, err := csm.ParseCIArgs(args[1:])
+			if errors.Is(err, flag.ErrHelp) {
+				fmt.Print(csm.CIUsage)
+				return
+			}
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "csm ci: %v\n\n%s", err, csm.CIUsage)
+				os.Exit(2)
+			}
+			// Output streams to the terminal (with the token redacted); the
+			// action log only records the result.
+			err = csm.RunCI(context.Background(), os.Stdout, cmd)
+			csm.LogAction("cli", "ci "+cmd.Action, "", err)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "csm ci %s failed: %v\n", cmd.Action, err)
 				os.Exit(1)
 			}
 			return
@@ -1042,6 +1062,9 @@ func printUsage() {
 	fmt.Println("  updates check          Ask the platform now whether updates are held")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob (in the crontab of the user running it)")
 	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
+	fmt.Println("  ci setup|status|update|remove  CI test host for Ready Up's live-server check: a separate CS2")
+	fmt.Println("                         install (not a numbered server) + a GitHub Actions runner (label")
+	fmt.Println("                         readyup-live) as a systemd --user service. CS2 user only. `csm ci -h`")
 	fmt.Println()
 	fmt.Printf("%sCommands that need root (sudo):%s\n", yellow, reset)
 	fmt.Println("  setup-host             One-time host setup for user mode: deps, CS2 user, linger, file ownership,")
