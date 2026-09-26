@@ -183,6 +183,34 @@ The TUI dashboard and `csm status --watch` follow each server's `/stream` and up
 
 Servers without Ready Up (for example with the Auto Tournament CS2 plugin) show `no Ready Up` and behave exactly as before.
 
+### Ready Up CI test host (`csm ci`)
+
+`csm ci` turns a csm host into the test host for [Ready Up](https://github.com/Auto-Tournament/ready-up)'s real-server compatibility check: a separate CS2 install plus a GitHub Actions self-hosted runner labelled `readyup-live`. Run it as the CS2 user after the one-time `sudo csm setup-host` (it refuses root, so the runner never runs as root):
+
+```bash
+sudo -iu cs2servermanager
+csm ci setup --token <registration token>   # [--repo Auto-Tournament/ready-up] [--dir ~/ru-ci] [--port 27095]
+csm ci status
+csm ci update                               # SteamCMD update of the CI install only
+csm ci remove --token <removal token>       # [--purge] also deletes the runner files and the CI install
+```
+
+The registration token comes from the repository's **Settings → Actions → Runners → New self-hosted runner** and lasts an hour; the removal token comes from the runner's page there. csm only hands a token to the runner's `config.sh`: it is never written to disk, and it is redacted from csm's output and log.
+
+`setup`:
+
+1. checks that lingering is on for the user (`setup-host` enables it; otherwise `sudo loginctl enable-linger cs2servermanager`), since `systemd --user` services stop at logout without it;
+2. downloads the latest `linux-x64` runner from [actions/runner](https://github.com/actions/runner/releases), checks the SHA256 published with the release, unpacks it into `~/actions-runner-readyup` and registers it as `<hostname>-readyup-live` with the label `readyup-live`;
+3. writes `CS2_CI_DIR=<dir>` and `CS2_CI_PORT=<port>` into the runner's `.env`, so every job sees them;
+4. installs CS2 into `--dir` with SteamCMD (`app_update 730 validate`, anonymous);
+5. writes the user unit `~/.config/systemd/user/actions.runner.readyup.service` (it runs `run.sh`) and enables and starts it with `systemctl --user`.
+
+It is safe to run again: an unpacked or registered runner is kept, the install is updated, and the service is restarted to pick up a new `--dir` or `--port`. If `config.sh` reports missing .NET dependencies, run `sudo ~cs2servermanager/actions-runner-readyup/bin/installdependencies.sh` once.
+
+The CI install is **not one of the numbered servers**. It does not live in a `server-N` directory, so it is not in the server list or `csm status`, and `csm monitor`, auto-update, `update-game` and start/stop/restart never touch it. `csm ci` never starts, stops, restarts or updates a numbered server. The Ready Up workflow starts and stops the CI server itself. Give it a port that the numbered servers don't use (27095 by default). `--dir` must not be a server directory, the master install or the home directory, and `--purge` only deletes a directory that `csm ci setup` created.
+
+Security: this is a self-hosted runner for a public repository, so the Ready Up workflow that uses it only runs on `schedule`, `workflow_dispatch` and `workflow_run`, never on `pull_request`: code from forks never reaches this host. The runner runs as the unprivileged CS2 user, not root, and the CI server is started with `+sv_lan 1`, so it doesn't advertise itself or accept Steam clients from the internet.
+
 ## Map thumbnails and maps.json
 
 `csm extract-map-data` reads the map screenshots out of the master install's `pak01_dir.vpk` and writes them to `map_thumbnails/` in the current directory: a PNG, a full-size WEBP and a 1280px `_thumb.webp` per map. Next to them it writes `maps.json`, which the Auto Tournament platform can read to learn which maps exist and which are in the current Active Duty pool:
