@@ -799,9 +799,16 @@ func main() {
 			if mgr, merr := csm.NewTmuxManager(); merr == nil {
 				gateOrExit(mgr, "update-game", nil, gameForce)
 			}
+			// Stream the log (SteamCMD and rsync progress) as it happens; it
+			// is not printed again at the end.
+			live := strings.TrimSpace(os.Getenv("CSM_UPDATE_GAME_LOG")) == ""
+			if live {
+				csm.SetLiveOutput(os.Stdout)
+			}
 			out, err := csm.UpdateGame()
+			csm.SetLiveOutput(nil)
 			csm.LogAction("cli", "update-game", out, err)
-			if out != "" {
+			if !live && out != "" {
 				fmt.Print(out)
 			}
 			if err != nil {
