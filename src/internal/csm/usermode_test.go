@@ -101,3 +101,21 @@ func TestSetupHostNextSteps(t *testing.T) {
 		}
 	}
 }
+
+func TestSteamcmdPreflightFor(t *testing.T) {
+	cases := []struct {
+		euid       int
+		user, want string
+		expectSudo bool
+	}{
+		{1000, "cs2servermanager", "cs2servermanager", false}, // user mode
+		{0, "root", "cs2servermanager", false},                // root
+		{1001, "alice", "cs2servermanager", true},             // other user
+	}
+	for _, c := range cases {
+		got := steamcmdPreflightFor(c.euid, c.user, c.want) == steamcmdNeedsSudo
+		if got != c.expectSudo {
+			t.Errorf("steamcmdPreflightFor(%d, %q, %q) needs sudo = %v, want %v", c.euid, c.user, c.want, got, c.expectSudo)
+		}
+	}
+}
