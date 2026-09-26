@@ -16,11 +16,32 @@ import (
 // --delete, so stale VPKs are pruned separately (see pruneStaleVPKs).
 var rsyncExcludeVPK = []string{"--exclude", "*.vpk"}
 
-func rsyncArgsLegacyCopy(srcRoot, dstRoot string, progress2, excludeVPK bool, keep ...string) []string {
-	args := []string{
-		"-a", "--delete",
-		"--exclude", "csgo/addons/",
+// pluginOwnedGameDirs are directories under a server's game/ that never come
+// from master-install, so a master -> server sync must neither copy nor
+// delete them:
+//
+//   - csgo/addons: Metamod, CounterStrikeSharp and MatchZy, replaced by the
+//     plugin deploy (update-plugins, the bootstrap overlay).
+//   - csgo/readyup: Ready Up. Besides its binaries it holds readyup.cfg and
+//     each plugin's data (plugins/essentials/admins.json, plugins/match/
+//     state.json, plugins/fleet/credentials.json, skins loadouts, the license
+//     choice). Without the exclude, rsync --delete removed all of it from
+//     every server on each update-game, because master-install has no
+//     readyup/.
+var pluginOwnedGameDirs = []string{"csgo/addons", "csgo/readyup"}
+
+// rsyncExcludePluginDirs returns the --exclude rules for pluginOwnedGameDirs.
+func rsyncExcludePluginDirs() []string {
+	out := make([]string, 0, 2*len(pluginOwnedGameDirs))
+	for _, d := range pluginOwnedGameDirs {
+		out = append(out, "--exclude", d+"/")
 	}
+	return out
+}
+
+func rsyncArgsLegacyCopy(srcRoot, dstRoot string, progress2, excludeVPK bool, keep ...string) []string {
+	args := []string{"-a", "--delete"}
+	args = append(args, rsyncExcludePluginDirs()...)
 	if excludeVPK {
 		args = append(args, rsyncExcludeVPK...)
 	}
@@ -38,8 +59,8 @@ func rsyncArgsTunedCopy(srcRoot, dstRoot string, progress2 bool, chownUser strin
 		"--whole-file",
 		"--omit-dir-times",
 		"--delete",
-		"--exclude", "csgo/addons/",
 	}
+	args = append(args, rsyncExcludePluginDirs()...)
 	if excludeVPK {
 		args = append(args, rsyncExcludeVPK...)
 	}
@@ -99,9 +120,12 @@ func copyMasterGameToServerGame(ctx context.Context, w io.Writer, cs2User, maste
 		// leaving stale files (rsync --delete handles that; cp does not).
 		if destLooksEmpty(serverGameDir) {
 			if ok, why, err := tryReflinkClone(ctx, w, filepath.Join(masterDir, "game"), serverGameDir); ok {
-				// Mirror legacy behaviour: master copy must not define addons; those
-				// come from the overlay step.
-				_ = os.RemoveAll(filepath.Join(serverGameDir, "csgo", "addons"))
+				// Mirror legacy behaviour: master copy must not define addons
+				// (or Ready Up); those come from the plugin deploy. The
+				// destination was empty, so this removes only master's copy.
+				for _, d := range pluginOwnedGameDirs {
+					_ = os.RemoveAll(filepath.Join(serverGameDir, filepath.FromSlash(d)))
+				}
 				if strings.TrimSpace(why) != "" {
 					fmt.Fprintf(w, "  [i] Reflink copy succeeded (%s)\n", why)
 					RecordCopyReflinkSuccess(why)
