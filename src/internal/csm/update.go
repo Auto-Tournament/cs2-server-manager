@@ -138,6 +138,17 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
+	// SteamCMD runs as the CS2 user. When csm is that user it runs directly;
+	// otherwise it goes through `sudo -u`, which must work before any server
+	// is stopped.
+	if err := steamcmdRunAsPreflight(cs2User); err != nil {
+		log("[!] %v", err)
+		log("No servers were stopped.")
+		logOut := buf.String()
+		AppendLog("update-game.log", logOut)
+		return logOut, err
+	}
+
 	log("Stopping all servers...")
 	if err := mgr.StopAll(); err != nil {
 		log("Error stopping servers: %v", err)
@@ -150,7 +161,17 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	}
 
 	if err := updateMasterInstallWithContext(ctx, &buf, logFile, cs2User, masterDir); err != nil {
-		return buf.String(), err
+		// The servers' game files are untouched: bring them back on the
+		// current build rather than leaving them down.
+		log("Master update failed; restarting the servers on their current game files...")
+		if startErr := mgr.StartAll(); startErr != nil {
+			log("  [!] Restarting servers failed: %v (run: csm start)", startErr)
+		} else {
+			log("[OK] Servers restarted (not updated).")
+		}
+		logOut := buf.String()
+		AppendLog("update-game.log", logOut)
+		return logOut, err
 	}
 
 	if err := checkCtx(); err != nil {
