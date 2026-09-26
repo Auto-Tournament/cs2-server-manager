@@ -248,7 +248,7 @@ func TestCISeedFromMaster(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(master, "game", "csgo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "\"AppState\"\n{\n\t\"buildid\"\t\t\"123\"\n}\n"
+	manifest := "\"AppState\"\n{\n\t\"StateFlags\"\t\t\"4\"\n\t\"buildid\"\t\t\"123\"\n}\n"
 	if err := os.WriteFile(filepath.Join(master, "steamapps", "appmanifest_730.acf"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -268,5 +268,20 @@ func TestCISeedFromMaster(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(master, "game", "csgo", "pak01_000.vpk"))
 	if string(got) != "vpk" {
 		t.Fatalf("master file changed to %q", got)
+	}
+}
+
+func TestACFFullyInstalled(t *testing.T) {
+	cases := map[string]bool{
+		"\"AppState\"\n{\n\t\"StateFlags\"\t\t\"4\"\n}\n":    true,
+		"\"AppState\"\n{\n\t\"StateFlags\"\t\t\"6\"\n}\n":    true,  // installed, update required
+		"\"AppState\"\n{\n\t\"StateFlags\"\t\t\"1026\"\n}\n": false, // interrupted download
+		"\"AppState\"\n{\n\t\"buildid\"\t\t\"1\"\n}\n":       false,
+		"garbage": false,
+	}
+	for acf, want := range cases {
+		if got := acfFullyInstalled(acf); got != want {
+			t.Errorf("acfFullyInstalled(%q) = %v, want %v", acf, got, want)
+		}
 	}
 }
