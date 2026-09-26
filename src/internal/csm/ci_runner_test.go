@@ -1,8 +1,12 @@
 package csm
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -226,5 +230,43 @@ func TestCIPrivilegeError(t *testing.T) {
 	}
 	if err := ciPrivilegeError(1000, "alice", "cs2servermanager"); err == nil {
 		t.Fatal("other user should be refused")
+	}
+}
+
+func TestCISeedFromMaster(t *testing.T) {
+	master := t.TempDir()
+	dir := t.TempDir()
+	var out bytes.Buffer
+
+	if err := ciSeedFromMaster(context.Background(), &out, master, dir); err == nil {
+		t.Fatal("seeding from a master without appmanifest_730.acf should fail")
+	}
+
+	if err := os.MkdirAll(filepath.Join(master, "steamapps"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(master, "game", "csgo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "\"AppState\"\n{\n\t\"buildid\"\t\t\"123\"\n}\n"
+	if err := os.WriteFile(filepath.Join(master, "steamapps", "appmanifest_730.acf"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(master, "game", "csgo", "pak01_000.vpk"), []byte("vpk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ciSeedFromMaster(context.Background(), &out, master, dir); err != nil {
+		t.Fatalf("seed: %v\n%s", err, out.String())
+	}
+	if !ciInstallPresent(dir) {
+		t.Fatal("CI dir has no appmanifest after seeding")
+	}
+	// A copy, not a hardlink: changing the CI file must not change the master.
+	if err := os.WriteFile(filepath.Join(dir, "game", "csgo", "pak01_000.vpk"), []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(master, "game", "csgo", "pak01_000.vpk"))
+	if string(got) != "vpk" {
+		t.Fatalf("master file changed to %q", got)
 	}
 }

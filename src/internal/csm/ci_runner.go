@@ -505,13 +505,21 @@ func ciSetup(ctx context.Context, w io.Writer, env ciEnv, cmd CICommand) error {
 	}
 	fmt.Fprintf(w, "  [✓] CS2_CI_DIR=%s CS2_CI_PORT=%d\n\n", dir, cmd.Port)
 
-	fmt.Fprintf(w, "[4/5] CS2 install in %s (SteamCMD, anonymous)\n", dir)
+	fmt.Fprintf(w, "[4/5] CS2 install in %s (copy of the master install when there is one, then SteamCMD, anonymous)\n", dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("creating %s: %w", dir, err)
 	}
 	marker := "Created by `csm ci setup` for Ready Up's CI. Not a numbered server; csm monitor/auto-update/start/stop never touch it.\n"
 	if err := os.WriteFile(filepath.Join(dir, ciMarkerFile), []byte(marker), 0o644); err != nil {
 		return fmt.Errorf("writing marker in %s: %w", dir, err)
+	}
+	if !ciInstallPresent(dir) {
+		// A local copy of the master install is far faster than a fresh
+		// download; SteamCMD below then only fetches what differs.
+		masterDir := filepath.Join("/home", env.cs2User, "master-install")
+		if err := ciSeedFromMaster(ctx, w, masterDir, dir); err != nil {
+			fmt.Fprintf(w, "  [!] %v; downloading instead\n", err)
+		}
 	}
 	if err := ciSteamUpdate(ctx, w, env.cs2User, dir); err != nil {
 		return err
@@ -567,6 +575,26 @@ func checkCIDirUsable(dir string) error {
 func ciInstallPresent(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "steamapps", "appmanifest_730.acf"))
 	return err == nil
+}
+
+// ciSeedFromMaster copies csm's master CS2 install into an empty CI dir.
+// It is a real copy (reflinked where the filesystem supports it), never
+// hardlinks: SteamCMD updates the CI install on its own and must not be able
+// to change the master's files. It returns an error, and the caller falls
+// back to a download, when there is no usable master install.
+func ciSeedFromMaster(ctx context.Context, w io.Writer, masterDir, dir string) error {
+	if !ciInstallPresent(masterDir) {
+		return fmt.Errorf("no master install at %s", masterDir)
+	}
+	fmt.Fprintf(w, "  Copying the master install %s (%s) to %s...\n", masterDir, ciBuildString(masterDir), dir)
+	c := exec.CommandContext(ctx, "cp", "-a", "--reflink=auto", masterDir+"/.", dir+"/")
+	c.Stdout = w
+	c.Stderr = w
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("copying %s failed: %w", masterDir, err)
+	}
+	fmt.Fprintln(w, "  [✓] Copied; SteamCMD now only updates what differs")
+	return nil
 }
 
 // ciSteamUpdate installs or updates CS2 in dir with SteamCMD (anonymous).
