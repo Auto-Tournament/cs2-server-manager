@@ -193,7 +193,7 @@ func TestEventWindowAndServersOnlyWarn(t *testing.T) {
 		t.Fatalf("got %+v", r)
 	}
 	if !strings.Contains(r.Warnings[1].Message, "20 servers set up; license covers 15.") ||
-		!strings.Contains(r.Warnings[1].Message, "ignore this if the extra ones are test servers") {
+		!strings.Contains(r.Warnings[1].Message, "Every server running CS2 Server Manager or Ready Up counts") {
 		t.Fatalf("server warning wording: %q", r.Warnings[1].Message)
 	}
 	if r := Verify(token, Options{PublicKeys: k.keys(), LineDate: "2026-09-01", Now: day("2026-10-01"), ServerCount: -1}); strings.Join(codes(r), ",") != CodePeriodNotStarted {
