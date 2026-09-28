@@ -91,6 +91,20 @@ func RunAutoUpdateMonitor() error {
 	grace := settings.IdleGrace()
 	log("Detected %d CS2 servers for user %s (hold: %s, idle grace: %s)", mgr.NumServers, mgr.CS2User, hold.Describe(), grace)
 
+	// The license key the platform hands over rides the same poll
+	// (license_platform.go). Only ever a warning; never stops the cycle.
+	if err == nil {
+		if lic, licErr := platformLicenseForCycle(ctx, settings, hold); licErr != nil {
+			log("License: warning: could not ask the platform for its license key (%v); will try again at the next poll.", licErr)
+		} else {
+			var licLog bytes.Buffer
+			SyncPlatformLicense(&licLog, lic)
+			if licLog.Len() > 0 {
+				log("%s", strings.TrimRight(licLog.String(), "\n"))
+			}
+		}
+	}
+
 	state := loadAutoUpdateState()
 	saveState := func() {
 		if err := state.save(); err != nil {

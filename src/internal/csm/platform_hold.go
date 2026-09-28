@@ -23,8 +23,16 @@ import (
 // The platform knows. csm asks it:
 //
 //	GET <base>/api/servers/update-hold
-//	X-MatchZy-Token: <server token>
-//	-> {"success":true,"hold":true,"reason":"tournament \"X\" is in progress ..."}
+//	X-Auto-Tournament-Token: <server token>   (also sent as X-MatchZy-Token for older platforms)
+//	-> {"success":true,"hold":true,"reason":"tournament \"X\" is in progress ...",
+//	    "license":{"key":"ATL1....","revision":"sha256:0123456789abcdef"}}
+//
+// The same answer carries the platform's license key (`license`, see
+// license_platform.go): `key` is the key an admin saved in Settings → License
+// (null when none is), and `revision` changes exactly when it is saved,
+// replaced or cleared ("none" without a key). `license` is missing on
+// platforms older than the hand-off and null when the platform could not read
+// its key; both mean "no answer, change nothing".
 //
 // csm polls instead of the platform pushing, because a game host is behind
 // whatever firewall the provider gives it and usually behind NAT: a push would
@@ -44,7 +52,8 @@ import (
 type PlatformSettings struct {
 	// BaseURL is the platform's public base URL, e.g. https://cs.example.io.
 	BaseURL string `json:"base_url,omitempty"`
-	// Token is the platform's SERVER_TOKEN, sent as X-MatchZy-Token. It is the
+	// Token is the platform's SERVER_TOKEN, sent as X-Auto-Tournament-Token
+	// (and as X-MatchZy-Token for platforms from before the rename). It is the
 	// same fleet-wide token the plugin uses, not a per-host secret.
 	Token string `json:"token,omitempty"`
 }
@@ -122,6 +131,17 @@ type PlatformHoldAnswer struct {
 	Reason  string `json:"reason"`
 	// TournamentStatus is informational ("in_progress", "setup", ...).
 	TournamentStatus string `json:"tournamentStatus"`
+	// License is the platform's license key hand-off; nil when the platform
+	// sent none (older platform, or it could not read its key).
+	License *PlatformLicense `json:"license"`
+}
+
+// PlatformLicense is the `license` object in the platform's answer.
+type PlatformLicense struct {
+	// Key is the saved key, or nil when the admin cleared it.
+	Key *string `json:"key"`
+	// Revision changes whenever the key is saved, replaced or cleared.
+	Revision string `json:"revision"`
 }
 
 // maxHoldBody bounds what is read from the platform, so a wrong URL that
@@ -147,6 +167,9 @@ func FetchPlatformHold(ctx context.Context, p PlatformSettings) (PlatformHoldAns
 	if err != nil {
 		return answer, err
 	}
+	// The platform reads X-Auto-Tournament-Token; platforms from before the
+	// rename read X-MatchZy-Token. Same token, so send both.
+	req.Header.Set("X-Auto-Tournament-Token", p.Token)
 	req.Header.Set("X-MatchZy-Token", p.Token)
 	req.Header.Set("Accept", "application/json")
 
@@ -201,6 +224,9 @@ type UpdateHold struct {
 	Source HoldSource
 	// Reason is one clause, written to be read in auto_update_monitor.log.
 	Reason string
+	// License is what the platform said about the license key, when it was
+	// asked and answered (Source == HoldSourcePlatform); nil otherwise.
+	License *PlatformLicense
 }
 
 // Describe renders the hold for a log line or `csm updates status`.
@@ -248,5 +274,5 @@ func ResolveUpdateHold(ctx context.Context, s AutoUpdateSettings) UpdateHold {
 	if reason == "" {
 		reason = "the platform gave no reason"
 	}
-	return UpdateHold{On: answer.Hold, Source: HoldSourcePlatform, Reason: reason}
+	return UpdateHold{On: answer.Hold, Source: HoldSourcePlatform, Reason: reason, License: answer.License}
 }

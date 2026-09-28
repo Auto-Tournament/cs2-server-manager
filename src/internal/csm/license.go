@@ -41,6 +41,14 @@ const (
 type LicenseSettings struct {
 	Key   string `json:"key,omitempty"`
 	SetAt string `json:"set_at,omitempty"`
+	// Source is LicenseSourcePlatform when the key came from the Auto
+	// Tournament platform (license_platform.go), and empty when an operator
+	// ran `csm license set`.
+	Source string `json:"source,omitempty"`
+	// PlatformRevision is the platform's license revision csm last applied to
+	// every server. Empty until then, and after a partial failure, so the
+	// next poll tries again.
+	PlatformRevision string `json:"platform_revision,omitempty"`
 }
 
 func licenseSettingsPath() string {
@@ -83,6 +91,8 @@ type LicenseSummary struct {
 	ServerCount int
 	// ID is the license id, also for a key that did not verify (when readable).
 	ID string
+	// FromPlatform: the key was handed over by the Auto Tournament platform.
+	FromPlatform bool
 }
 
 // CheckLicense verifies a key for this build and this host's server count
@@ -119,7 +129,9 @@ func CurrentLicense() (LicenseSummary, error) {
 	if err != nil {
 		return LicenseSummary{ServerCount: -1}, err
 	}
-	return CheckLicense(s.Key, LicenseServerCount(), time.Now()), nil
+	sum := CheckLicense(s.Key, LicenseServerCount(), time.Now())
+	sum.FromPlatform = sum.Set && s.Source == LicenseSourcePlatform
+	return sum, nil
 }
 
 func productName(p string) string {
@@ -198,6 +210,9 @@ func (s LicenseSummary) Report() string {
 	if s.ID != "" {
 		b.WriteString("License id: " + s.ID + "\n")
 	}
+	if s.FromPlatform {
+		b.WriteString("Source:     the Auto Tournament platform (Settings → License)\n")
+	}
 	if link := s.VerifyLink(); link != "" {
 		b.WriteString("Check it:   " + link + "\n")
 	}
@@ -220,19 +235,18 @@ func SetLicenseKey(w io.Writer, key string) (LicenseSummary, error) {
 	if err := saveLicenseSettings(LicenseSettings{Key: key, SetAt: time.Now().UTC().Format(time.RFC3339)}, user); err != nil {
 		return LicenseSummary{}, fmt.Errorf("could not store the key in %s: %w", licenseSettingsPath(), err)
 	}
-	applyLicenseToAllServers(w, user, key)
+	applyLicenseToAllServers(w, key)
 	return CheckLicense(key, LicenseServerCount(), time.Now()), nil
 }
 
 // ClearLicenseKey removes the stored key and takes it out of every server's
 // config.
 func ClearLicenseKey(w io.Writer) error {
-	user := licenseCS2User()
 	path := licenseSettingsPath()
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("could not remove %s: %w", path, err)
 	}
-	applyLicenseToAllServers(w, user, "")
+	applyLicenseToAllServers(w, "")
 	return nil
 }
 
@@ -245,13 +259,13 @@ func licenseCS2User() string {
 
 // applyLicenseToAllServers writes (or removes) the key on every server-N.
 // Failures are warnings: the stored key stays, and the next config
-// regeneration (update-config, bootstrap, reinstall) tries again.
-func applyLicenseToAllServers(w io.Writer, user, key string) {
+// regeneration (update-config, bootstrap, reinstall) tries again. It returns
+// how many servers were updated and how many failed.
+func applyLicenseToAllServers(w io.Writer, key string) (done, failed int) {
 	mgr, err := NewTmuxManager()
 	if err != nil || mgr.NumServers <= 0 {
-		return
+		return 0, 0
 	}
-	done := 0
 	for i := 1; i <= mgr.NumServers; i++ {
 		cfgDir := filepath.Join("/home", mgr.CS2User, fmt.Sprintf("server-%d", i), "game", "csgo", "cfg")
 		if _, err := os.Stat(cfgDir); err != nil {
@@ -259,6 +273,7 @@ func applyLicenseToAllServers(w io.Writer, user, key string) {
 		}
 		if err := writeServerLicense(cfgDir, key, mgr.CS2User); err != nil {
 			fmt.Fprintf(w, "  warning: server-%d: could not update its Ready Up license key: %v\n", i, err)
+			failed++
 			continue
 		}
 		done++
@@ -268,6 +283,7 @@ func applyLicenseToAllServers(w io.Writer, user, key string) {
 	} else {
 		fmt.Fprintf(w, "Handed the key to Ready Up on %d server(s) (%s, read at the next map load or restart).\n", done, ReadyUpLicenseCvar)
 	}
+	return done, failed
 }
 
 // applyStoredLicenseToServer is called wherever csm (re)writes a server's
