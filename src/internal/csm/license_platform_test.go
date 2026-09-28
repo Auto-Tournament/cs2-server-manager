@@ -9,7 +9,8 @@ import (
 	"testing"
 )
 
-const otherLicenseKey = "ATL1.eyJ2IjoxLCJpZCI6IkwtcGxhdCJ9.b3RoZXJzaWduYXR1cmU"
+// Readable license id (L-plat) and a signature of the right length (64 bytes).
+const otherLicenseKey = "ATL1.eyJ2IjoxLCJpZCI6IkwtcGxhdCJ9.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 
 // fakeApplier records what would be written to every server.
 type fakeApplier struct {
@@ -198,7 +199,7 @@ func TestLicenseFingerprintNeverPrintsTheKey(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 	got := licenseFingerprint(testLicenseKey)
-	if strings.Contains(got, "ATL1") || len(got) > 12 {
+	if strings.Contains(got, "ATL1") || got != "key …"+testLicenseKey[len(testLicenseKey)-6:] {
 		t.Fatalf("got %q", got)
 	}
 }
