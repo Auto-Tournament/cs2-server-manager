@@ -359,7 +359,7 @@ func Verify(token string, opts Options) Result {
 	}
 	if opts.ServerCount >= 0 && opts.ServerCount > p.MaxServers {
 		warnings = append(warnings, Message{CodeTooManyServers, fmt.Sprintf(
-			"%d servers set up; license covers %d. Test and CI servers don't count — ignore this if the extra ones are test servers.",
+			"%d servers set up; license covers %d. Every server running CS2 Server Manager or Ready Up counts, spares and test servers included.",
 			opts.ServerCount, p.MaxServers)})
 	}
 	// csm is covered by both a Servers and a Platform license, so there is

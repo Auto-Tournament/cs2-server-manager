@@ -2,12 +2,12 @@
 
 CS2 Server Manager is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). The source is public and free to use, change and share for non-commercial purposes. It is not "open source" in the OSI sense.
 
-The rule is simple: **if you earn money from it, you pay full price.** If nobody earns money from it, it's free.
+The rule is simple: **if you earn money from it, you need a license.** If nobody earns money from your events, it's free.
 
 ## Free, no permission needed
 
 - Personal use, hobby projects, learning and research, under the license's personal-use terms.
-- Tournaments and LAN events where nobody earns money from it: all entry fees and sponsor money go back into the event, and no organizer, volunteer or helper is paid or takes profit.
+- Tournaments and LAN events where nobody earns money from your events: all entry fees and sponsor money go back into the event, and no organizer, volunteer or helper is paid or takes profit.
 - Use by the organizations the license lists: charities, schools and universities, public research, public safety or health and environmental protection organizations, and government bodies. They are free even when they charge entry.
 - Changing the code, forking it and sharing your changes, as long as you keep the LICENSE and the `Required Notice` line, and your use stays non-commercial.
 
