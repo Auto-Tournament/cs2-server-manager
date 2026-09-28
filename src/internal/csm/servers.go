@@ -75,12 +75,26 @@ func AddServerInstance() (string, error) {
 // such as rsync are terminated and the partial log plus ctx.Err() are
 // returned.
 func AddServerInstanceWithContext(ctx context.Context) (string, error) {
+	_, out, err := addServerInstance(ctx, nil)
+	return out, err
+}
+
+// AddServerInstanceForAgent is AddServerInstanceWithContext for the host
+// agent: beforeStart runs once the new server's files and configs are in
+// place and before it is started (the agent writes cfg/ReadyUp/fleet.cfg
+// there). An error from it rolls the new server back. It returns the new
+// server's number.
+func AddServerInstanceForAgent(ctx context.Context, beforeStart func(serverDir string) error) (int, string, error) {
+	return addServerInstance(ctx, beforeStart)
+}
+
+func addServerInstance(ctx context.Context, beforeStart func(serverDir string) error) (int, string, error) {
 	mgr, err := NewTmuxManager()
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
 	if mgr.NumServers <= 0 {
-		return "", fmt.Errorf("no existing servers found; run the install wizard first")
+		return 0, "", fmt.Errorf("no existing servers found; run the install wizard first")
 	}
 
 	user := mgr.CS2User
@@ -114,38 +128,46 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 	if err := copyMasterToServerGo(ctx, &buf, user, newIdx, false); err != nil {
 		log("  [!] Copy master to server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
-		return buf.String(), err
+		return 0, buf.String(), err
 	}
 
 	if err := overlayConfigToServerGo(ctx, &buf, user, newIdx); err != nil {
 		log("  [!] Overlay config to server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
-		return buf.String(), err
+		return 0, buf.String(), err
 	}
 
 	// Ensure alternate launcher exists after master->server sync.
 	if err := ensureCSMLauncherSh(ctx, &buf, user, filepath.Join("/home", user, fmt.Sprintf("server-%d", newIdx), "game")); err != nil {
 		log("  [!] Ensure csm.sh for server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
-		return buf.String(), err
+		return 0, buf.String(), err
 	}
 
 	if err := configureMetamodGo(&buf, user, newIdx, enableMetamod); err != nil {
 		log("  [!] Configure Metamod for server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
-		return buf.String(), err
+		return 0, buf.String(), err
 	}
 
 	if err := customizeServerCfgGo(&buf, user, newIdx, rcon, hostnamePrefix, gamePortNew, tvPortNew, maxPlayers); err != nil {
 		log("  [!] Customize server.cfg for server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
-		return buf.String(), err
+		return 0, buf.String(), err
 	}
 
 	// Store GSLT token if one was detected
 	if gslt != "" {
 		if err := storeGSLTGo(&buf, user, gslt); err != nil {
 			log("  [!] Failed to store GSLT for server-%d: %v", newIdx, err)
+		}
+	}
+
+	if beforeStart != nil {
+		if err := beforeStart(filepath.Join("/home", user, fmt.Sprintf("server-%d", newIdx))); err != nil {
+			log("  [!] Preparing server-%d failed: %v", newIdx, err)
+			cleanupPartialServerDir(&buf, user, newIdx)
+			return 0, buf.String(), err
 		}
 	}
 
@@ -156,11 +178,11 @@ func AddServerInstanceWithContext(ctx context.Context) (string, error) {
 	if err := mgr.Start(newIdx); err != nil {
 		log("  [!] Failed to start server-%d via tmux: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
-		return buf.String(), err
+		return 0, buf.String(), err
 	}
 	log("  [✓] Server-%d started via tmux", newIdx)
 
-	return buf.String(), nil
+	return newIdx, buf.String(), nil
 }
 
 // cleanupPartialServerDir best-effort removes a partially created server-N
