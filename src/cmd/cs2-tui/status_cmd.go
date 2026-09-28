@@ -43,6 +43,7 @@ func runStatusCommand(args []string) error {
 	if mgr.NumServers > 0 {
 		out += "\nConsole: csm attach <n> • live view: csm status --watch\n"
 	}
+	out += licenseStatusLine() + "\n"
 	csm.LogAction("cli", "status", out, nil)
 	fmt.Print(out)
 	return nil

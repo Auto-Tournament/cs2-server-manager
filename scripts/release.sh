@@ -213,11 +213,17 @@ fi
 echo "[csm] Verified version.go matches tag: ${TAG} (constant: ${VERSION_WITHOUT_V})"
 echo "[csm] Building release binaries for ${TAG}..."
 
+# Version line date for license coverage: the release date of this tag's
+# major.minor.0 (see scripts/line-date.sh and src/internal/license/linedate.go).
+LINE_DATE="$(bash ./scripts/line-date.sh "${TAG}")"
+LDFLAGS="-X github.com/sivert-io/cs2-server-manager/src/internal/license.lineDate=${LINE_DATE}"
+echo "[csm] Version line date: ${LINE_DATE}"
+
 # Linux amd64
-GOOS=linux GOARCH=amd64 go build -o "${DIST_DIR}/csm-linux-amd64" ./src/cmd/cs2-tui
+GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o "${DIST_DIR}/csm-linux-amd64" ./src/cmd/cs2-tui
 
 # Linux arm64 (common on ARM servers)
-GOOS=linux GOARCH=arm64 go build -o "${DIST_DIR}/csm-linux-arm64" ./src/cmd/cs2-tui
+GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o "${DIST_DIR}/csm-linux-arm64" ./src/cmd/cs2-tui
 
 # Verify the built binary reports the correct version (if binary supports it)
 echo "[csm] Verifying built binaries..."
