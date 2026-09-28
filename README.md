@@ -339,7 +339,7 @@ Check it:   https://autotournament.gg/verify/L-3kq8Zx0bQ1aR
 - csm checks the key offline (Ed25519 signature, no network). `csm status` shows the same line under the fleet table; without a key it says so in one line.
 - The key is stored in `/opt/cs2-server-manager/license.json` (mode 600). csm never prints the whole key, only the license id.
 - csm hands the key to Ready Up on every server: it writes `game/csgo/cfg/readyup_license.cfg` (mode 600, setting `readyup_license_key`) and adds `exec readyup_license.cfg` to each `server.cfg`. `update-config`, `bootstrap` and `reinstall` keep it there. Servers pick it up at the next map load or restart. `csm license clear` removes both again.
-- **Nothing is ever blocked.** A key that doesn't match, an event window that has ended, a release line newer than the license's updates, or more servers than the license covers are warnings only. csm counts every `server-N` it set up, spares and test servers included, so the server warning is worded softly: test and CI servers don't count.
+- **Nothing is ever blocked.** A key that doesn't match, an event window that has ended, a release line newer than the license's updates, or more servers than the license covers are warnings only. csm counts every `server-N` it set up, spares and test servers included, and the server warning says so.
 - Both a Servers and a Platform license cover csm. A release is covered when its version line (the release date of its `x.y.0`) is on or before the license's `updates_until`; founder licenses cover every line.
 
 ## Releasing
