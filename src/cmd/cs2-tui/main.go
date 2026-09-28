@@ -892,6 +892,18 @@ func main() {
 		case "license":
 			licenseCommand(args[1:])
 			return
+		case "link":
+			linkCommand(args[1:])
+			return
+		case "unlink":
+			unlinkCommand(args[1:])
+			return
+		case "fleet":
+			fleetCommand(args[1:])
+			return
+		case "agent":
+			agentCommand(args[1:])
+			return
 		case "install-monitor-cron":
 			interval := ""
 			if len(args) > 1 {
@@ -1072,6 +1084,9 @@ func printUsage() {
 	fmt.Println("  updates check          Ask the platform now whether updates are held")
 	fmt.Println("  license set <key>      Store an Auto Tournament license key; Ready Up on every server gets it too")
 	fmt.Println("  license status|clear   Check the key offline / remove it (never blocks anything)")
+	fmt.Println("  link <url> <code|key>  Link this machine to an Auto Tournament platform (host agent; `csm link -h`)")
+	fmt.Println("  link status | unlink   Show / forget the link")
+	fmt.Println("  agent [install|remove|status|config]  Run the host agent (foreground or systemd service)")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob (in the crontab of the user running it)")
 	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
 	fmt.Println("  ci setup|status|update|remove  CI test host for Ready Up's live-server check: a separate CS2")

@@ -122,6 +122,12 @@ csm updates check          # ask the platform now whether updates are held
 csm install-monitor-cron   # run the monitor from cron (the crontab of the user running it)
 csm remove-monitor-cron
 
+# Auto Tournament host agent (the platform starts, stops, creates and updates servers)
+csm link <url> <code|key>  # link this machine to the platform (code from Settings → Hosts → Add host)
+csm link status            # show the link (never the token)
+csm agent install          # run the host agent as a systemd service (csm agent = foreground)
+csm unlink                 # forget the link
+
 # License (commercial use only; never blocks anything)
 csm license set <key>      # store an Auto Tournament license key; Ready Up on every server gets it
 csm license status         # check it offline
@@ -189,6 +195,64 @@ The TUI dashboard and `csm status --watch` follow each server's `/stream` and up
 `SAFE` is Ready Up's `update_safe`: `NO` from the moment a match loads until the series is over and its demo is uploaded. While it says `NO`, `stop`, `restart`, `update-game`, `update-server` and `update-plugins` refuse to run and name the match that is in the way. The auto-update monitor skips that server too. Add `--force` to go ahead anyway; forced runs are written to `csm.log`. The TUI never forces; it tells you the command to run.
 
 Servers without Ready Up (for example with the Auto Tournament CS2 plugin) show `no Ready Up` and behave exactly as before.
+
+### Host agent: control this machine from Auto Tournament (`csm link`)
+
+With the host agent, admins add a machine once and then start, stop, restart, create and update its servers from the [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) web UI. No SSH, and no inbound port: csm keeps one outbound WebSocket to the platform (`wss://<platform>/api/fleet/host`). This is the hosts channel of Ready Up's [fleet protocol](https://github.com/Auto-Tournament/ready-up/blob/master/docs/FLEET.md) (§18); Ready Up's own connection per server stays for the match itself.
+
+**1. Link the machine.** On the platform, open **Settings → Hosts → Add host** and copy the one-time code (valid 15 minutes). On the machine, as the CS2 user (or root):
+
+```bash
+csm link https://cs.example.io RUE-7F3K-9QX2-LM4D-P8TW
+# or with a reusable fleet enrollment key, for scripted installs:
+csm link https://cs.example.io rfk_…
+# "-" reads the code or key from stdin, so it stays out of the shell history:
+csm link https://cs.example.io - < key.txt
+```
+
+csm enrolls the machine (`POST /api/fleet/enroll` with `kind: "host"`) and stores the host id and host token in `<csm root>/fleet/credentials.json` (mode 0600; `/opt/cs2-server-manager/fleet/` by default). The token is never printed or logged. The machine is identified by a hash of `/etc/machine-id`, so linking the same machine again gives back the same host.
+
+**2. Run the agent.**
+
+```bash
+csm agent install   # systemd unit csm-agent.service: a system unit as root,
+                    # a systemd --user unit as the CS2 user (needs lingering: sudo csm setup-host)
+csm agent status    # link + service state
+journalctl -u csm-agent -f          # logs (journalctl --user -u csm-agent -f in user mode)
+```
+
+`csm agent` runs it in the foreground instead. Its lines also go to `csm.log`, prefixed `[agent]`.
+
+**What the platform can do** (every command gets exactly one answer; long jobs report progress):
+
+| Platform message | csm does |
+|---|---|
+| `host.servers.list` | sends the inventory: every `server-N` with ports, process state, and Ready Up's version, `install_id`, phase and `update_safe` |
+| `server.start` / `server.stop` / `server.restart` | `csm start` / `stop` (console `quit`, then kill after the grace time) / `restart` |
+| `server.create` | adds the next `server-N` like the TUI's add-server. With `enroll: true` csm writes `game/csgo/cfg/ReadyUp/fleet.cfg` (`url` + `enroll_key`, mode 0600) before the first start, so Ready Up enrolls itself (FLEET §4.1 B). New servers have no Ready Up yet: install it with `host.update_plugins` |
+| `server.remove` | removes the highest-numbered server (csm keeps `server-N` contiguous) |
+| `host.update_game` | `csm update-game`, or `csm update-server N` for a list |
+| `host.update_plugins` | installs Ready Up with its `install.sh` (bundle `default` → essentials, `skins` → full), stopping and restarting running servers |
+| `host.updates_hold` | `csm updates hold on\|off\|auto` |
+| `logs.tail` / `logs.stop` | tails a server console log, CS2's log (`readyup`), or `csm.log` (`csm`, `monitor`), optionally following it |
+
+The agent also reports **health**: `exited` when a server process stops without csm stopping it, `hung` when Ready Up's `/health` has not answered for 30 s, `recovered` and `restarted`. It never restarts anything on its own during a match; the platform (an admin) decides.
+
+**Live matches.** `server.stop`, `server.restart`, `server.remove`, `host.update_game` and `host.update_plugins` are refused with `match_in_progress` for any server whose Ready Up says `update_safe: false`, exactly like the local `--force` gate. The platform can send `force` (root admins only, audited on the platform); csm then logs `FORCED …` with who and why.
+
+**Where Ready Up comes from.** Ready Up has no GitHub release yet. Until it does, point the agent at a bundle zip (a path, or an https URL with `{version}` / `{bundle}` placeholders):
+
+```bash
+csm agent config readyup_bundle /opt/readyup/ready-up-{bundle}.zip
+csm agent config readyup_accept_license commercial   # install.sh needs your license choice for unattended installs
+csm agent config                                     # show all settings
+```
+
+Without a bundle csm asks GitHub for the requested release; when there is none the platform gets `failed / no_release` and nothing is touched. csm never reports an install that did not happen.
+
+**Security.** `https://` and `wss://` only; `csm link --insecure` allows `http://` and `ws://` to loopback and private (RFC 1918) addresses for development. Certificates are always verified (`--ca-file` adds a private CA). The host token goes only in the `Authorization` header, is rotated by the platform every 90 days (`auth.rotate`, written atomically), and a revoked token makes the agent back off (and re-enroll by itself when it was linked with a fleet key). Tokens, keys and codes are redacted from logs and from everything sent back. Every inbound message is validated and frames are capped at 1 MiB. Commands older than 5 minutes (a replay after an outage) are refused, not run.
+
+`csm unlink` forgets the link (revoke the host on the platform too). The message formats are JSON Schemas in [`protocol/host-v1/`](protocol/host-v1); the tests check every frame the agent sends against them.
 
 ### Ready Up CI test host (`csm ci`)
 
