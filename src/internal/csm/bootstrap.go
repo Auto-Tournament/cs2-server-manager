@@ -1149,6 +1149,10 @@ echo "==========================================="
 		_ = ensureOwnedByUser(user, autoexecCfg)
 	}
 
+	// Keep the Auto Tournament license key (csm license set) in the
+	// regenerated config. Best-effort; never fails the config step.
+	applyStoredLicenseToServer(w, user, serverNum)
+
 	// Note: Ownership of cfg directory (and all other files) is fixed by the
 	// comprehensive fixServerOwnership call at the end of bootstrap/reinstall.
 
@@ -1349,6 +1353,10 @@ echo "==========================================="
 	if os.Geteuid() == 0 {
 		_ = ensureOwnedByUser(user, autoexecCfg)
 	}
+
+	// Keep the Auto Tournament license key (csm license set) in the
+	// regenerated config. Best-effort; never fails the config step.
+	applyStoredLicenseToServer(w, user, serverNum)
 
 	return nil
 }

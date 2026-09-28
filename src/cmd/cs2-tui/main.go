@@ -889,6 +889,9 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "license":
+			licenseCommand(args[1:])
+			return
 		case "install-monitor-cron":
 			interval := ""
 			if len(args) > 1 {
@@ -1067,6 +1070,8 @@ func printUsage() {
 	fmt.Println("  updates grace <min>    Minutes a server must be idle before it is auto-updated")
 	fmt.Println("  updates platform       Point csm at an Auto Tournament instance (<url> <token>, or off)")
 	fmt.Println("  updates check          Ask the platform now whether updates are held")
+	fmt.Println("  license set <key>      Store an Auto Tournament license key; Ready Up on every server gets it too")
+	fmt.Println("  license status|clear   Check the key offline / remove it (never blocks anything)")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob (in the crontab of the user running it)")
 	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
 	fmt.Println("  ci setup|status|update|remove  CI test host for Ready Up's live-server check: a separate CS2")
