@@ -555,11 +555,28 @@ func (m *InstanceManager) nextFree() int {
 		used[n] = true
 	}
 	for n := 1; n <= maxInstanceNumber; n++ {
-		if !used[n] {
-			return n
+		if used[n] || m.numberTaken(n) {
+			continue
 		}
+		return n
 	}
 	return 0
+}
+
+// instancePortInUse is portInUse, swappable in tests.
+var instancePortInUse = portInUse
+
+// numberTaken: instance n would clash with a classic server-N folder (same
+// port scheme, even while that server is stopped) or its game port is in use.
+func (m *InstanceManager) numberTaken(n int) bool {
+	classic := filepath.Join(filepath.Dir(m.L.Root), fmt.Sprintf("server-%d", n))
+	if fi, err := os.Stat(classic); err == nil && fi.IsDir() {
+		return true
+	}
+	if ports, err := m.Ports(n); err == nil && instancePortInUse(ports.Game) {
+		return true
+	}
+	return false
 }
 
 // userCmd runs a shell command line as the CS2 user.
