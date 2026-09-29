@@ -52,6 +52,8 @@ type EnrollOptions struct {
 	CAFile      string
 	// HTTPClient overrides the client (tests).
 	HTTPClient *http.Client
+	// Log, when set, gets one-line notes (e.g. a ws_url upgraded to wss).
+	Log func(string)
 }
 
 // EnrollError is a refused enrollment, with the platform's code.
@@ -162,6 +164,12 @@ func Enroll(ctx context.Context, o EnrollOptions) (*Credentials, error) {
 	}
 	wsURL := DefaultWSURL(base)
 	if strings.TrimSpace(out.WSURL) != "" {
+		if up, ok := UpgradeSameHostWS(base, out.WSURL); ok {
+			if o.Log != nil {
+				o.Log(fmt.Sprintf("note: the platform answered ws_url %s; using %s, since %s was reached over https (its reverse proxy probably does not pass X-Forwarded-Proto)", strings.TrimSpace(out.WSURL), up, base.Host))
+			}
+			out.WSURL = up
+		}
 		if _, err := CheckURL(out.WSURL, o.InsecureDev, "wss", "ws"); err != nil {
 			return nil, fmt.Errorf("the platform's ws_url: %w", err)
 		}
