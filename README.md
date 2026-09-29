@@ -325,6 +325,22 @@ csm does not migrate a legacy host by itself. To move one:
 
 A `server-N` folder is a full copy of the CS2 install. Instance mode doesn't copy anything: every instance runs the one `master-install` read-only, and only stores the files it writes itself. Ten servers cost about as much disk as one.
 
+### How much disk?
+
+| Servers | Instance mode | Classic mode (full copy per server) |
+|---|---|---|
+| 1 | ≈ 69 GB | ≈ 138 GB (master + copy) |
+| 10 | ≈ 69.1 GB | ≈ 760 GB |
+
+- The CS2 install (`master-install`) is about 69 GB. In instance mode all servers run that one install read-only.
+- Each instance's own writable files are about 10 MB (6.7 to 14 MB, mostly its demo) plus about 1 MB of Steam home. The Ready Up layer, shared by all instances, is about 9 MB.
+- Classic mode is less than the table shows if `csm dedupe-vpk` hardlinks the VPKs (see *Disk usage: hardlinked VPKs*).
+- Start time is about 5 to 7 seconds per instance until "server started" (4.6 to 7.1 s measured).
+- RAM is not shared in any meaningful way: each server still uses about 1 to 2 GB.
+- Demos (kept 24 h) and round backups (72 h) add to this over time.
+
+CS2's size changes with updates, so treat these as a snapshot. Measured on one CS2 host in September 2026 with CS2 1.41.8.5, using `du` with hardlinks counted once.
+
 It works with kernel overlayfs inside an unprivileged user namespace (`unshare --user --map-root-user --mount`). No root, no sudo, no fuse-overlayfs; it needs Linux 5.11 or newer. Each instance sees three layers merged together, and only it can see the result:
 
 | Layer | Where | What |
