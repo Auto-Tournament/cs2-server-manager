@@ -697,7 +697,7 @@ echo "Run 'csm' to restart the TUI."
 func runCleanupAllGo() tea.Cmd {
 	return func() tea.Msg {
 		cfg := csm.CleanupConfig{
-			CS2User:          os.Getenv("CS2_USER"),
+			CS2User:          csm.DefaultCS2User,
 			MatchzyContainer: os.Getenv("MATCHZY_DB_CONTAINER"),
 			MatchzyVolume:    os.Getenv("MATCHZY_DB_VOLUME"),
 		}
