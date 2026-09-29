@@ -1,88 +1,122 @@
-# Draft: CS2 Server Manager 1.11.0
+# Draft: CS2 Server Manager 1.12.0
 
 > **Draft. Do not merge until the release.** Nothing has been tagged or published.
-> Prepared 2026-09-29 against `master` `1a5a404` (3 PRs since `v1.10.3`).
+> Prepared 2026-09-29 against `master` `22a687d` (4 PRs since `v1.11.0`: #66–#69).
 >
 > csm has no beta channel: every release is a normal GitHub release, becomes "Latest" and is
 > offered to every install by the built-in update check. This one goes out with the platform's
-> 3.0.0-beta.14 and Ready Up's first beta; see "How this release is cut" for the choice.
+> 3.0.0-beta.14 and Ready Up's first beta (0.1.0-beta.1). Nothing changes for existing hosts
+> unless you use the new commands.
 
 ---
 
 ## Release notes (paste into the GitHub release)
 
-**CSM v1.11.0**
+**CSM v1.12.0**
 
 ### New
 
-- **Auto Tournament license key.** `csm license set <key>` stores your license key
-  (or `csm license set < key.txt`), `csm license status` shows who it is licensed to and
-  what it covers, and `csm license clear` removes it. csm checks the key offline. Nothing is
-  ever blocked: a problem is a warning, and without a key csm prints one quiet line.
-  The key is stored in `license.json` (mode 600) and is never printed in full or logged.
-- **csm hands the key to Ready Up** on every server it manages
-  (`game/csgo/cfg/readyup_license.cfg`, exec'd from `server.cfg`). Ready Up reads it at the
-  next map load or restart.
-- **The key can come from the platform.** When an admin saves or clears the key in Auto
-  Tournament (Settings → License), the update monitor applies it on its next poll, with no
-  command on the host. A key from the platform replaces one you set by hand; clearing it on
-  the platform only removes a key that came from the platform.
-- `csm status` shows the license line under the fleet table.
-
-### Fixed
-
-- **The update-hold poll works with Auto Tournament 3.0 again.** csm sent its server token
-  only as `X-MatchZy-Token`, which the 3.0 platform no longer reads, so every poll got a 401
-  and game updates stayed on hold. csm now sends `X-Auto-Tournament-Token` too.
+- **Host agent: control this machine from Auto Tournament.** `csm link <platform-url> <code>`
+  links the machine (get the command from Servers → Machines → Add machine), and
+  `csm agent install` runs the agent as a systemd service. The platform can then list, start,
+  stop, restart, create and update the machine's servers and see their health, with no SSH
+  and no inbound port.
+  - One outgoing WebSocket, `https`/`wss` only, certificates always verified. The token is
+    stored with mode 600, rotated by the platform every 90 days, and never printed or logged.
+  - A stop, restart or update of a server with a Ready Up match in progress is refused unless
+    an admin gives a reason. The agent never restarts anything on its own.
+  - `csm link status`, `csm unlink`, `csm agent status`.
+- **Ready Up as the plugin stack.** `csm plugins stack readyup` installs
+  [Ready Up](https://github.com/Auto-Tournament/ready-up) on every server instead of
+  Metamod + CounterStrikeSharp + the old plugin.
+  - Channel `stable` or `beta`, a pinned version, bundle `essentials` or `full`
+    (`csm plugins channel|version|bundle`).
+  - Every download is checked against the release's `SHA256SUMS`.
+  - **Keeps itself up to date:** `csm monitor` updates Ready Up on its channel, only on
+    servers that are stopped or idle with nobody connected, and never while updates are held.
+    `csm plugins auto off` turns it off.
+  - New servers get Ready Up before their first start. Servers the platform creates also get
+    their link settings and join the platform by themselves.
+  - After a CS2 update, csm puts the Ready Up line back into `gameinfo.gi`.
+  - A host that runs the old stack stays on it. The README has a "Moving to Ready Up" section.
+- **License answer, asked once.** Ready Up's installer needs to know whether you use it
+  non-commercially or commercially. `csm update-plugins` asks once in a terminal (you type
+  `I AGREE`), or set it with `csm plugins license noncommercial|commercial`.
+  `AT_ACCEPT_LICENSE` overrides it. If you never answered, csm takes the answer from the
+  platform. An answer you gave is never replaced.
+- **Instance mode: one CS2 install, many servers.** `csm instance create` runs a server from
+  the one shared, read-only CS2 install through overlayfs, instead of a full copy per server.
+  Each instance only stores what it writes itself (logs, demos, backups). No root and no
+  sudo: it uses an unprivileged user namespace (Linux 5.11 or newer). Each instance has its
+  own ports, `HOME`, `/dev/shm`, console and crash restart. Ready Up only.
+  - `csm instance create|start|stop|restart|status|remove|attach|logs|shell`,
+    `csm instance layer ...`, `csm instance game`, `csm instance gc`.
+  - `csm status`, `start|stop|restart`, `logs`, `attach` and the TUI work on instances.
+  - With `csm instance config backend instances`, the host agent reports instances as the
+    machine's servers, so the platform creates and scales instances.
+- **Safe, versioned CS2 updates for instances.** A CS2 update never writes to an install a
+  running server uses. csm builds a new game version next to the old one (hardlinked, so it
+  costs only the changed files), and restarts idle instances onto it. Busy or held instances
+  keep the old version until they are idle. Old versions are removed when nothing uses them.
+  Ready Up updates work the same way: a new layer, never a change to the one in use.
 
 ### Changed
 
-- Every server counts toward a license's server limit, including spare, practice and test
-  servers. The wording is "you need a license"; it is still only a warning.
+- **The legacy stack installs Auto Tournament CS2 1.4.35**, pinned, instead of whatever is
+  latest (`CSM_LEGACY_PLUGIN_VERSION` picks another). On an Auto Tournament 3.x platform, csm
+  refuses the legacy stack with a clear message before touching anything; use Ready Up there.
 
 ### Upgrading
 
 - Update as usual (the TUI offers it, or download the new binary). No config changes.
-  Existing servers, `server.cfg` files and Ready Up data are kept.
-- If you run Auto Tournament 3.0 betas: update now, otherwise game updates stay held (see Fixed).
-- If you set a key with `csm license set`, it stays until the platform sends a different one.
+  Existing `server-N` folders, `server.cfg` files and Ready Up data are kept, and nothing
+  changes until you use the new commands.
+- **To move a host to Ready Up** (Auto Tournament 3.0 betas):
+  ```bash
+  csm plugins stack readyup
+  csm plugins channel beta              # while Ready Up has only pre-releases
+  csm plugins license noncommercial     # or commercial
+  csm update-plugins
+  ```
+- **To link the machine to the platform** (Auto Tournament 3.0.0-beta.14 or newer):
+  ```bash
+  csm link https://your-platform <code>
+  csm agent install
+  ```
+- **To try instance mode:** `csm instance layer build`, then `csm instance create` and
+  `csm instance start all`. See "Instance mode" in the README.
 
 ### Known limitations
 
-- **csm does not install Ready Up.** Install it with Ready Up's `install.sh`. csm shows Ready
-  Up's live state and refuses to stop or update a server during a Ready Up match (since
-  1.10.0), and keeps Ready Up's files and data across game updates (since 1.10.2). It does
-  not put the Ready Up line back into `gameinfo.gi` after a CS2 update: run Ready Up's
-  installer again after each one.
-- **The plugin csm installs is the latest stable Auto Tournament CS2 plugin, 1.4.35.**
-  Auto Tournament 3.0 needs 2.0.0 or newer, which is still a pre-release. On a 3.0 platform,
-  install 2.0.0 by hand until this is sorted.
-- **Host agent (`csm link`) is not in this release.** Letting the platform start, stop and
-  update servers through csm is in progress.
+- Instance mode needs Ready Up (not the legacy stack) and Linux 5.11 or newer. Instances save
+  disk and setup time, not memory: each running CS2 server still needs its own RAM.
+- The host agent only removes the last server, and doesn't change launch arguments yet.
+- The TUI install wizard has no license field; it shows how to give the answer.
 
 ---
 
 ## How this release is cut (for the owner)
 
-- **Where the version lives:** `src/internal/tui/version.go`, `const currentVersion = "1.10.3"`
+- **Where the version lives:** `src/internal/tui/version.go`, `const currentVersion = "1.11.0"`
   (no leading `v`). The license line date is baked in with `-ldflags`
   (`license.lineDate`, from `scripts/line-date.sh`).
-- **Scheme:** plain `vX.Y.Z`, no pre-releases. New features → minor: **v1.11.0**.
+- **Scheme:** plain `vX.Y.Z`, no pre-releases. New features → minor: **v1.12.0**.
 - **How:** GitHub Actions → **Release** (`.github/workflows/release.yml`) → *Run workflow*,
-  `mode: minor` (or `explicit` + `version: 1.11.0`). Or:
+  `mode: minor` (or `explicit` + `version: 1.12.0`). Or:
   `gh workflow run release.yml --repo Auto-Tournament/cs2-server-manager -f mode=minor`
   The workflow runs `scripts/release.sh`, which bumps `version.go`, commits
-  `chore: release v1.11.0` **directly on master**, tags, pushes, builds
+  `chore: release v1.12.0` **directly on master**, tags, pushes, builds
   `csm-linux-amd64` / `csm-linux-arm64` and runs `gh release create` with a one-line note.
 - **Secrets/permissions:** `github.token` with `contents: write` (it must be allowed to push
   to master); optional `DISCORD_WEBHOOK_URL`.
 - **Notes:** the script's notes are one line. Afterwards:
-  `gh release edit v1.11.0 --notes-file <the part above the line>`.
+  `gh release edit v1.12.0 --notes-file <the part above the line>`.
+- **Order:** after Ready Up 0.1.0-beta.1 is published (so `csm plugins channel beta` finds a
+  release), before or together with platform 3.0.0-beta.14.
 - **If you want this marked as a beta:** `release.sh` and `line-date.sh` only accept
   `X.Y.Z`, `gh release create` has no `--prerelease`, and the update check reads
-  `releases/latest` (which skips pre-releases). A `1.11.0-beta.1` would need those three
-  changed. Since the changes are small and fix a bug that holds updates on 3.0 platforms,
-  a normal 1.11.0 is the simpler choice.
+  `releases/latest`. Since every new feature is opt-in and existing hosts behave as before,
+  a normal 1.12.0 is the simpler choice.
 
 ---
 
@@ -90,18 +124,18 @@
 
 | Check | Status |
 |---|---|
-| CI on `master` | Green on `1a5a404`, `c429d5b`, `a74be36`. |
-| Open PRs | None. Host agent / `csm link` work is not pushed yet (platform side is `Auto-Tournament/auto-tournament#421`, draft). |
-| Docs | README covers `csm license` and the update-hold poll contract. The docs site's license pages were merged (`Auto-Tournament/docs#20`, `#21`). |
-| Migrations | None. `license.json` is new and gets `source` / `platform_revision` fields; nothing existing is rewritten. |
-| Upgrade path (existing installs) | Binary swap. Keeps servers, configs and Ready Up data. |
-| Blockers | Not for this release itself. For the coordinated set: csm installs cs2-plugin 1.4.35 while platform 3.0 needs ≥ 2.0.0 (`downloadMatchZy` in `src/internal/csm/plugins.go` reads `releases/latest`). Either publish cs2-plugin 2.0.0 as the latest release (which moves 2.x-platform users of csm onto 2.0.0 too) or let csm pick the plugin major to match the platform. |
+| CI on `master` | Green on `22a687d`, `40334fc`, `c824c8e`. |
+| Tests on real hardware | `scripts/instance-integration-test.sh` passed on the cs2 box (20 checks, isolated root, ports 27200+): isolation, crash restart, Ready Up update with idle restarts, update hold, two fake CS2 updates, master untouched. No real SteamCMD update was pulled through instance mode yet. |
+| Open PRs | None besides this one. |
+| Docs | README covers `csm link` / `csm agent`, `csm plugins`, "Moving to Ready Up" and "Instance mode". The docs site's csm pages (`cs2/server-manager/*`) don't cover these yet. README line 127 still says "Settings → Hosts → Add host"; the platform's UI is **Servers → Machines → Add machine**. README says commercial use "needs a paid license"; the rule is "you need a license". |
+| Migrations | None. New files only: `fleet/credentials.json`, `plugins.json`, `instances/`. |
+| Upgrade path (existing installs) | Binary swap. Hosts keep their stack and `server-N` folders. |
+| Blockers | Ready Up 0.1.0-beta.1 must be published first, or the Ready Up stack has nothing to install. |
 
 ## Compatibility
 
-| csm | Installs AT CS2 plugin | Ready Up | Platform |
+| csm | Plugin stack | Ready Up | Platform |
 |---|---|---|---|
-| 1.10.0–1.10.1 | latest stable (1.4.35) | status, live table, match protection; does not install it | update-hold poll gets 401 on 3.0 betas (≥ beta 9) |
-| 1.10.2–1.10.3 | latest stable (1.4.35) | + keeps `csgo/readyup` across game updates | same 401 |
-| **1.11.0 (next)** | latest stable (1.4.35) | + license key hand-off (`readyup_license_key`), read by Ready Up 0.1.0-beta.1 | poll works with 3.0 betas; license from platform ≥ 3.0.0-beta.14 (older platforms: nothing changes) |
-| later | — | may install Ready Up once it has a release | host agent (`csm link`) with platform #421 |
+| 1.10.x | legacy (latest AT CS2 plugin, 1.4.35) | status, live table, match protection; does not install it | update-hold poll gets 401 on 3.0 betas |
+| 1.11.0 | legacy | + license key hand-off | poll works with 3.0 betas; license from platform ≥ 3.0.0-beta.14 |
+| **1.12.0 (next)** | legacy (pinned 1.4.35, refused on 3.x) or **Ready Up** | installs and updates **0.1.0-beta.1** on the `beta` channel; instance mode | **3.0.0-beta.14**: Machines, `csm link`, auto-scaling, failover restart/create, license use. 2.x platforms: legacy stack as before. |
