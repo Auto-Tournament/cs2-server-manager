@@ -153,7 +153,7 @@ func TestRenderCIRunnerUnit(t *testing.T) {
 	for _, want := range []string{
 		"WorkingDirectory=/home/cs2servermanager/actions-runner-readyup\n",
 		"ExecStart=/home/cs2servermanager/actions-runner-readyup/run.sh\n",
-		"KillMode=process\n",
+		"KillMode=control-group\n",
 		"Restart=always\n",
 		"WantedBy=default.target\n",
 	} {

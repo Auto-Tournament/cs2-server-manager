@@ -280,7 +280,9 @@ After=network-online.target
 Type=simple
 WorkingDirectory=%s
 ExecStart=%s
-KillMode=process
+# run.sh does not pass SIGTERM on to Runner.Listener: stop the whole group, or a
+# restart leaves the old listener (with the old .env) taking jobs.
+KillMode=control-group
 KillSignal=SIGTERM
 TimeoutStopSec=5min
 Restart=always
