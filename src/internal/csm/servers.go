@@ -163,6 +163,14 @@ func addServerInstance(ctx context.Context, beforeStart func(serverDir string) e
 		}
 	}
 
+	// On the readyup stack a new server gets Ready Up before its first start
+	// (master-install has none), so it comes up like its siblings. A failure
+	// is logged, not fatal: `csm update-plugins` or the platform's "Update
+	// Ready Up" installs it later.
+	if err := installReadyUpOnNewServer(ctx, &buf, user, newIdx); err != nil {
+		log("  [!] Ready Up was not installed on server-%d: %v", newIdx, err)
+	}
+
 	if beforeStart != nil {
 		if err := beforeStart(filepath.Join("/home", user, fmt.Sprintf("server-%d", newIdx))); err != nil {
 			log("  [!] Preparing server-%d failed: %v", newIdx, err)

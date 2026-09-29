@@ -99,6 +99,7 @@ func RunAutoUpdateMonitor() error {
 		} else {
 			var licLog bytes.Buffer
 			SyncPlatformLicense(&licLog, lic)
+			adoptPlatformLicenseUse(&licLog, lic)
 			if licLog.Len() > 0 {
 				log("%s", strings.TrimRight(licLog.String(), "\n"))
 			}
@@ -209,6 +210,10 @@ func RunAutoUpdateMonitor() error {
 		}
 		log("Server-%d: automatic update done.", i)
 	}
+
+	// Ready Up on the readyup stack: same hold, same idle rules, its own
+	// schedule (readyup_auto_update.go).
+	runReadyUpAutoUpdate(ctx, log, mgr, hold, grace, &state, saveState)
 
 	log("Monitor cycle complete.")
 	return writeMonitorLog(buf.String(), nil)

@@ -904,6 +904,10 @@ func configureMetamodGo(w io.Writer, user string, serverNum int, enable bool) er
 		_ = ensureOwnedByUser(user, gameinfo)
 		_ = ensureOwnedByUser(user, backup)
 	}
+	// Every caller reapplies gameinfo.gi after master's copy replaced it
+	// (bootstrap, add-server, update-game, plugin deploy): put Ready Up's
+	// line back too, on servers that have Ready Up.
+	ensureReadyUpGameinfo(w, user, serverNum)
 	return nil
 }
 

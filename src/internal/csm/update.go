@@ -553,6 +553,22 @@ func UpdateAndDeployPluginsWithContext(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
+	stack, why := PluginStack(ctx, w, configuredCS2User())
+	if stack == PluginStackReadyUp {
+		log("Plugin stack: Ready Up (%s)", why)
+		out, err := UpdateReadyUpOnServers(ctx, nil)
+		if out != "" {
+			log("%s", out)
+		}
+		if err != nil {
+			log("[ERROR] Ready Up update failed: %v", err)
+		}
+		all := buf.String()
+		AppendLog("update-and-deploy-plugins.log", all)
+		return all, err
+	}
+	log("Plugin stack: legacy Metamod + CounterStrikeSharp + Auto Tournament CS2 (%s)", why)
+
 	out, err := UpdatePlugins()
 	if out != "" {
 		log("%s", out)
