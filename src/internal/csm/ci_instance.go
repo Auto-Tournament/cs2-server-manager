@@ -218,10 +218,10 @@ func ciStatusInstance(ctx context.Context, w io.Writer, env ciEnv, n int) error 
 		if d == "" {
 			continue
 		}
-		if out, err := exec.CommandContext(ctx, "du", "-sh", d).Output(); err == nil {
-			if f := strings.Fields(string(out)); len(f) > 0 {
-				used = append(used, f[0]+" "+d)
-			}
+		// du exits 1 on overlayfs' unreadable work/work but still prints the total.
+		out, _ := exec.CommandContext(ctx, "du", "-sh", d).Output()
+		if f := strings.Fields(string(out)); len(f) > 0 {
+			used = append(used, f[0]+" "+d)
 		}
 	}
 	if len(used) > 0 {
