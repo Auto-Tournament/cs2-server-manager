@@ -230,7 +230,7 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 		return "", errors.New("no Ready Up bundle zip or version to build the layer from")
 	}
 	if src.Bundle == "" {
-		src.Bundle = readyup.BundleEssentials
+		src.Bundle = readyup.BundleFull
 	}
 	// The layer sits on the current game version (the master install until
 	// the first CS2 update), and records it in <id>.game.
@@ -432,12 +432,14 @@ func (m *InstanceManager) RebuildLayer(ctx context.Context, w io.Writer, reason 
 }
 
 // BuildLayerFromRelease downloads the configured Ready Up release (csm
-// plugins channel/version/bundle/license) and builds a layer from it.
+// plugins channel/version/license) and builds a layer from it, with the
+// full bundle unless the operator chose one (PluginSettings.LayerBundle).
 func (m *InstanceManager) BuildLayerFromRelease(ctx context.Context, w io.Writer, reason string) (string, error) {
 	s, err := LoadPluginSettings()
 	if err != nil {
 		return "", err
 	}
+	s.ReadyUpBundle = s.LayerBundle()
 	b, err := ReadyUpPlanFor(ctx, w, s)
 	if err != nil {
 		return "", err
