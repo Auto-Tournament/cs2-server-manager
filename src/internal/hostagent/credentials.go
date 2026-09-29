@@ -42,7 +42,7 @@ type Credentials struct {
 	MachineID  string `json:"machine_id"`
 	EnrolledAt string `json:"enrolled_at"`
 	RotatedAt  string `json:"rotated_at,omitempty"`
-	// InsecureDev allows ws:// and http:// to loopback / RFC 1918 hosts.
+	// InsecureDev allows ws:// and http:// (csm link --insecure), to any host.
 	InsecureDev bool `json:"insecure_dev,omitempty"`
 	// CAFile is an extra CA bundle (PEM) for a platform behind a private CA.
 	CAFile string `json:"ca_file,omitempty"`
@@ -209,9 +209,10 @@ func isChmodUnsupported(err error) bool {
 // --- URLs --------------------------------------------------------------------
 
 // CheckURL parses a platform URL and applies the transport rules (FLEET.md
-// §4.4): the secure scheme always; the plain one only with insecure set and a
-// loopback or RFC 1918 host. No user info, query or fragment (a token must
-// never ride in a URL).
+// §4.4): the secure scheme always; the plain one only with insecure set
+// (--insecure: any host, for platforms served over plain http://ip:port; the
+// token then travels unencrypted). No user info, query or fragment (a token
+// must never ride in a URL).
 func CheckURL(raw string, insecure bool, secure, plain string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
@@ -226,10 +227,7 @@ func CheckURL(raw string, insecure bool, secure, plain string) (*url.URL, error)
 		return u, nil
 	case plain:
 		if !insecure {
-			return nil, fmt.Errorf("%s:// is refused; use %s:// (or --insecure for a loopback / private dev platform)", plain, secure)
-		}
-		if !IsPrivateHost(u.Hostname()) {
-			return nil, fmt.Errorf("%s:// is only allowed to loopback or RFC 1918 hosts, not %s", plain, u.Hostname())
+			return nil, fmt.Errorf("%s:// is refused: use %s://, or add --insecure if the platform only serves plain %s:// (the token then travels unencrypted)", plain, secure, plain)
 		}
 		return u, nil
 	}
