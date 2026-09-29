@@ -21,7 +21,7 @@ const (
 
 var (
 	// logLevel controls the minimum log level (default: INFO)
-	logLevel LogLevel = LogLevelInfo
+	logLevel LogLevel = LogLevelWarn
 
 	// logOutput is where structured logs are written (default: stderr)
 	logOutput io.Writer = os.Stderr
@@ -176,12 +176,8 @@ func AppendLog(filename, content string) {
 //
 // Individual log files make it easy to find specific command outputs for debugging.
 func LogAction(source, action, output string, err error) {
-	// Use structured logging to stderr/configured output
-	if err != nil {
-		LogError("Action failed", err, "source", source, "action", action)
-	} else {
-		LogInfo("Action completed", "source", source, "action", action)
-	}
+	// The outcome goes to the log files below; the command itself tells the
+	// user what happened, so nothing is printed here.
 
 	ts := time.Now()
 	tsFormatted := ts.Format(time.RFC3339)

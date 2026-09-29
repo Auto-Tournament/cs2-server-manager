@@ -97,7 +97,7 @@ func ExtractMapData(ctx context.Context, opts MapDataOptions) (string, *MapDataR
 	if err != nil {
 		root = "."
 	}
-	cs2User := getenvDefault("CS2_USER", DefaultCS2User)
+	cs2User := DefaultCS2User
 	masterDir := filepath.Join("/home", cs2User, "master-install")
 	csgoDir := filepath.Join(masterDir, "game", "csgo")
 	outputDir := filepath.Join(root, "extracted_csgo")

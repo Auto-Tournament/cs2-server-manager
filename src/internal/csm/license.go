@@ -254,7 +254,7 @@ func licenseCS2User() string {
 	if mgr, err := NewTmuxManager(); err == nil && mgr.CS2User != "" {
 		return mgr.CS2User
 	}
-	return getenvDefault("CS2_USER", DefaultCS2User)
+	return DefaultCS2User
 }
 
 // applyLicenseToAllServers writes (or removes) the key on every server-N.

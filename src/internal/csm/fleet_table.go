@@ -46,7 +46,7 @@ func RenderFleetTable(rows []FleetRow, opts FleetTableOptions) string {
 		now = time.Now()
 	}
 	if len(rows) == 0 {
-		return "No CS2 servers found. Run the install wizard (sudo csm) to create servers.\n"
+		return "No CS2 servers found. Run the install wizard (csm) to create servers.\n"
 	}
 
 	grid := make([][]cell, 0, len(rows))

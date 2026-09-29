@@ -21,6 +21,10 @@ import (
 // (the root path) and plain `tmux ...` run as that user talk to the same
 // server, so sessions started either way are found by the other.
 
+// DefaultCS2User is the user whose servers csm manages: always the user who
+// runs csm. There is no dedicated service user; csm refuses to run as root.
+var DefaultCS2User = currentUsername()
+
 // runAsMode says how csm runs a command that has to execute as the CS2 user.
 type runAsMode int
 
@@ -62,32 +66,13 @@ func isCurrentUser(target string) bool {
 // configuredCS2User returns the CS2 user csm manages: CS2_USER when set,
 // otherwise the user NewTmuxManager discovers (DefaultCS2User on most hosts).
 func configuredCS2User() string {
-	if v := strings.TrimSpace(os.Getenv("CS2_USER")); v != "" {
-		return v
-	}
-	if mgr, err := NewTmuxManager(); err == nil && strings.TrimSpace(mgr.CS2User) != "" {
-		return mgr.CS2User
-	}
 	return DefaultCS2User
 }
 
 // RunningAsCS2User reports whether csm runs as the CS2 service user (user
 // mode) rather than as root or some other account.
 func RunningAsCS2User() bool {
-	if os.Geteuid() == 0 {
-		return false
-	}
-	me := currentUsername()
-	if me == "" {
-		return false
-	}
-	if v := strings.TrimSpace(os.Getenv("CS2_USER")); v != "" {
-		return me == v
-	}
-	if me == DefaultCS2User {
-		return true
-	}
-	return me == configuredCS2User()
+	return os.Geteuid() != 0 && currentUsername() != ""
 }
 
 // CanManageServers reports whether csm may run operations that only need the
@@ -99,15 +84,10 @@ func CanManageServers() bool {
 // privilegeError returns nil when an operation that needs root or the CS2
 // user may run, and otherwise an error that explains both ways to run it.
 func privilegeError(euid int, currentUser, cs2User, what string) error {
-	if euid == 0 || decideRunAs(euid, currentUser, cs2User) == runAsDirect {
-		return nil
+	if euid == 0 {
+		return fmt.Errorf("%s: don't run csm as root or with sudo; run it as the user whose servers it manages", what)
 	}
-	if strings.TrimSpace(cs2User) == "" {
-		cs2User = DefaultCS2User
-	}
-	return fmt.Errorf("%s must be run as root or as the CS2 user %q (current user: %q). "+
-		"Run `sudo csm setup-host` once, then run csm as %s without sudo (for example `sudo -iu %s`)",
-		what, cs2User, currentUser, cs2User, cs2User)
+	return nil
 }
 
 // requireRootOrCS2User is privilegeError for the running process.
