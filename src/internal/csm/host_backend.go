@@ -51,6 +51,7 @@ func NewHostBackend() *HostBackend {
 
 var _ hostagent.Backend = (*HostBackend)(nil)
 var _ hostagent.FirstServerCreator = (*HostBackend)(nil)
+var _ hostagent.ReadyUpCurrentChecker = (*HostBackend)(nil)
 
 // HostAgentPaths is where the agent keeps its files: <csm root>/fleet/.
 func HostAgentPaths() hostagent.Paths { return hostagent.NewPaths(ResolveRoot()) }

@@ -51,6 +51,14 @@ type FirstServerCreator interface {
 	FirstServerGamePort() (port int, ok bool)
 }
 
+// ReadyUpCurrentChecker is an optional Backend extension: a server that
+// already runs the planned Ready Up (csm instance mode: the shared layer has
+// it and the instance is mounted on that layer) needs no install, so the
+// agent leaves it alone instead of stopping and restarting it.
+type ReadyUpCurrentChecker interface {
+	ReadyUpCurrent(server int, plan ReadyUpPlan) (current bool, why string)
+}
+
 // HostFacts are the machine parts of host.inventory.
 type HostFacts struct {
 	Hostname  string
