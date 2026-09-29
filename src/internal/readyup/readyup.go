@@ -13,7 +13,7 @@
 //
 //   - stable: GitHub's releases/latest. While Ready Up has only pre-releases
 //     this is a 404, and Resolve says so and names the newest pre-release.
-//   - beta: the newest published release, pre-releases included.
+//   - beta: the highest-versioned published release, pre-releases included.
 //
 // A pinned version (vX.Y.Z or vX.Y.Z-beta.N) overrides the channel.
 //
@@ -254,8 +254,9 @@ func (c *Client) List(ctx context.Context) ([]Release, error) {
 	return out, nil
 }
 
-// Newest returns the most recently published release, pre-releases included
-// when pre is true (install.sh --channel beta picks the same one).
+// Newest returns the highest-versioned release (SemVer precedence, see
+// CompareVersions), pre-releases included
+// when pre is true. It never depends on the order of rels, and skips drafts.
 func Newest(rels []Release, pre bool) (Release, bool) {
 	var best Release
 	found := false
@@ -263,7 +264,7 @@ func Newest(rels []Release, pre bool) (Release, bool) {
 		if r.Draft || r.TagName == "" || (r.Prerelease && !pre) {
 			continue
 		}
-		if !found || r.time().After(best.time()) {
+		if !found || releaseNewer(r, best) {
 			best, found = r, true
 		}
 	}
