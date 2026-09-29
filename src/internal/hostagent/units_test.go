@@ -118,7 +118,9 @@ func TestCheckURL(t *testing.T) {
 	}{
 		{"https://at.example.com", false, true},
 		{"http://at.example.com", false, false},
-		{"http://at.example.com", true, false},
+		{"http://at.example.com", true, true},
+		{"http://203.0.113.7:3069", true, true},
+		{"http://203.0.113.7:3069", false, false},
 		{"http://127.0.0.1:3000", true, true},
 		{"http://192.168.50.10", true, true},
 		{"http://localhost:3000", false, false},
@@ -132,6 +134,9 @@ func TestCheckURL(t *testing.T) {
 		if (err == nil) != c.ok {
 			t.Errorf("%s insecure=%v: err=%v", c.url, c.insecure, err)
 		}
+	}
+	if _, err := CheckURL("http://203.0.113.7:3069", false, "https", "http"); err == nil || !strings.Contains(err.Error(), "--insecure") {
+		t.Fatalf("refusal does not mention --insecure: %v", err)
 	}
 	u, _ := CheckURL("https://at.example.com/base/", false, "https", "http")
 	if got := DefaultWSURL(u); got != "wss://at.example.com/base/api/fleet/host" {
@@ -285,6 +290,29 @@ func TestEnrollUpgradesSameHostWS(t *testing.T) {
 	wsURL = "ws://127.0.0.1:1" + HostWSPath
 	if _, err := Enroll(context.Background(), opts); err == nil {
 		t.Fatalf("other port accepted")
+	}
+}
+
+func TestEnrollPlainHTTPNeedsInsecure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		resp := map[string]any{"success": true, "host_id": "host_7", "tenant_id": "default", "token": testToken, "ws_url": "ws://" + host + HostWSPath}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+	opts := EnrollOptions{PlatformURL: srv.URL, CodeOrKey: "RUE-7F3K-9QX2-LM4D-P8TW", MachineID: "0123456789abcdef0123456789abcdef",
+		Hostname: "box", OS: "linux", CSMVersion: "1.11.0", HTTPClient: srv.Client()}
+	if _, err := Enroll(context.Background(), opts); err == nil || !strings.Contains(err.Error(), "--insecure") {
+		t.Fatalf("plain http without --insecure: %v", err)
+	}
+	opts.InsecureDev = true
+	c, err := Enroll(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(c.WSURL, "ws://") || !c.InsecureDev {
+		t.Fatalf("creds = %+v", c)
 	}
 }
 
