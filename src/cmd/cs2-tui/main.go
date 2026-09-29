@@ -897,6 +897,9 @@ func main() {
 		case "plugins":
 			pluginsCommand(args[1:])
 			return
+		case "instance", "instances":
+			instanceCommand(args[1:])
+			return
 		case "license":
 			licenseCommand(args[1:])
 			return
@@ -1083,6 +1086,7 @@ func printUsage() {
 	fmt.Println("  update-game            Update CS2 game files after a Valve update")
 	fmt.Println("  update-plugins         Install/update the plugin stack on every server (Ready Up or legacy; csm plugins)")
 	fmt.Println("  plugins [status]       Plugin stack, Ready Up channel/version/bundle/license (`csm plugins -h`)")
+	fmt.Println("  instance ...           Instance mode: many servers from one read-only install (`csm instance -h`)")
 	fmt.Println("  self-update            Update csm itself to the latest release")
 	fmt.Println("  dedupe-vpk [server]    Hardlink server VPKs to master-install to save disk (--dry-run, --verify, --undo)")
 	fmt.Println("  monitor                Update servers with a pending CS2 update once idle (cron runs this)")

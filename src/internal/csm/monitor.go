@@ -68,7 +68,7 @@ func RunAutoUpdateMonitor() error {
 		return writeMonitorLog(buf.String(), err)
 	}
 
-	if mgr.NumServers <= 0 {
+	if mgr.NumServers <= 0 && !InstancesExist() {
 		log("No CS2 servers found for user %s (no /home/%s/server-* directories). Skipping update cycle.", mgr.CS2User, mgr.CS2User)
 		return writeMonitorLog(buf.String(), nil)
 	}
@@ -214,6 +214,10 @@ func RunAutoUpdateMonitor() error {
 	// Ready Up on the readyup stack: same hold, same idle rules, its own
 	// schedule (readyup_auto_update.go).
 	runReadyUpAutoUpdate(ctx, log, mgr, hold, grace, &state, saveState)
+
+	// Instances (instance mode): one shared update, idle-only restarts
+	// (instance_update.go).
+	runInstanceMonitor(ctx, log, hold, grace, &state, saveState)
 
 	log("Monitor cycle complete.")
 	return writeMonitorLog(buf.String(), nil)
