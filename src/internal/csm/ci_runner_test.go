@@ -36,6 +36,10 @@ func TestParseCIArgs(t *testing.T) {
 	if cmd, err = ParseCIArgs([]string{"status"}); err != nil || cmd.Action != "status" {
 		t.Fatalf("status: %+v %v", cmd, err)
 	}
+	// The token is only needed while the runner is not registered (checked at run time).
+	if cmd, err = ParseCIArgs([]string{"setup", "--instance", "9"}); err != nil || cmd.Instance != 9 || cmd.Token != "" {
+		t.Fatalf("setup --instance: %+v %v", cmd, err)
+	}
 	if _, err = ParseCIArgs([]string{"help"}); !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("help: %v", err)
 	}
@@ -43,7 +47,9 @@ func TestParseCIArgs(t *testing.T) {
 	bad := [][]string{
 		nil,
 		{"frobnicate"},
-		{"setup"}, // no token
+		{"setup", "--instance", "9", "--dir", "/srv/ci"}, // an instance has no dir
+		{"setup", "--instance", "-1"},
+		{"setup", "--instance", "1000"},
 		{"setup", "--token", "x", "--repo", "nope"},  // not owner/name
 		{"setup", "--token", "x", "--port", "80"},    // privileged port
 		{"setup", "--token", "x", "--port", "70000"}, // out of range
@@ -174,6 +180,19 @@ func TestRenderCIRunnerEnv(t *testing.T) {
 	vars := parseEnvFile(got)
 	if vars["CS2_CI_DIR"] != "/d" || vars["CS2_CI_PORT"] != "1234" {
 		t.Fatalf("parseEnvFile: %v", vars)
+	}
+}
+
+func TestRenderCIRunnerEnvInstance(t *testing.T) {
+	existing := "LANG=C.UTF-8\nCS2_CI_DIR=/home/u/ru-ci\nCS2_CI_PORT=27095\nCS2_CI_INSTANCE=3\nCS2_CI_CSM=/old/csm\n"
+	got := RenderCIRunnerEnvInstance(existing, "/home/u/instances/instance-9/merged", 27095, 9, "/home/u/.local/bin/csm")
+	want := "LANG=C.UTF-8\nCS2_CI_DIR=/home/u/instances/instance-9/merged\nCS2_CI_PORT=27095\nCS2_CI_INSTANCE=9\nCS2_CI_CSM=/home/u/.local/bin/csm\n"
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	// Back to a --dir install: the instance keys go.
+	if got := RenderCIRunnerEnv(want, "/srv/ci", 27095); got != "LANG=C.UTF-8\nCS2_CI_DIR=/srv/ci\nCS2_CI_PORT=27095\n" {
+		t.Fatalf("dir mode: %q", got)
 	}
 }
 

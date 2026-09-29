@@ -27,10 +27,12 @@ import (
 // runner's environment (CS2_CI_DIR, CS2_CI_PORT) and starts and stops the CI
 // server itself.
 //
-// The CI install is not one of the numbered servers: it does not live in a
-// server-N directory, so the server list, `csm monitor`, auto-update and
-// start/stop/restart never see it, and nothing here starts, stops, restarts
-// or updates a numbered server.
+// The CI server is either a csm instance (--instance N, the default on an
+// instance host: no copy of CS2, see ci_instance.go) or a full CS2 install
+// of its own (--dir). Neither is one of the numbered servers: the server
+// list, the host agent, `csm monitor`, auto-update and start/stop/restart
+// never touch it, and nothing here starts, stops, restarts or updates a
+// numbered server.
 
 const (
 	// CIRunnerLabel is the runner label the Ready Up workflow targets.
@@ -62,28 +64,41 @@ type CICommand struct {
 	Dir    string // raw --dir value; "" means from the runner's .env or the default
 	Port   int
 	Purge  bool
+	// Instance is the CI instance number (setup --instance N; 0 = a full
+	// install in Dir).
+	Instance int
 }
 
 // CIUsage is the help text for `csm ci`.
 const CIUsage = `Usage:
-  csm ci setup --token <registration token> [--repo Auto-Tournament/ready-up] [--dir ~/ru-ci] [--port 27095]
+  csm ci setup --instance N [--token <registration token>] [--repo Auto-Tournament/ready-up]
+  csm ci setup --token <registration token> [--repo ...] [--dir ~/ru-ci] [--port 27095]
   csm ci status [--dir <dir>]
   csm ci update [--dir <dir>]
   csm ci remove [--token <removal token>] [--purge] [--dir <dir>]
 
-Sets up this host as the CI test host for Ready Up's real-server check: a
-dedicated CS2 install (not one of the numbered servers: csm monitor,
+Sets up this host as the CI test host for Ready Up's real-server check: a CI
+server (not one of the numbered servers: the host agent, csm monitor,
 auto-update and start/stop never touch it) and a GitHub Actions self-hosted
 runner labelled readyup-live, running as the CS2 user under systemd --user.
 Run as the CS2 user (not root) after a one-time ` + "`sudo csm setup-host`" + `.
 
-  setup   register the runner, install CS2 into --dir, enable the service.
+  setup   register the runner (the token is needed only the first time),
+          prepare the CI server, enable the service.
+          --instance N: the CI server is csm instance N (game port
+          base+10N), run from the shared master install with no copy of CS2.
+          Every CI run builds its Ready Up bundle into a private layer for
+          N (csm instance layer build --for N): layers/current and the other
+          instances never see it, and the previous run's layer is removed.
+          Without --instance: a full CS2 install of its own in --dir (~70 GB).
           The token (repo Settings > Actions > Runners > New self-hosted
           runner) is only passed to config.sh; it is never written to disk.
-  status  runner service state, runner name/labels, CI install build, disk use
-  update  SteamCMD update of the CI install only
+  status  runner service state, runner name/labels, the CI server, disk use
+  update  SteamCMD update of a --dir install (an instance uses the shared
+          CS2 game version: csm instance update-game)
   remove  stop and disable the runner; --token unregisters it on GitHub,
-          --purge also deletes the runner directory and the CI install
+          --purge also deletes the runner directory and the CI server
+          (the instance and its private layer, or the --dir install)
 `
 
 var (
@@ -116,6 +131,7 @@ func ParseCIArgs(args []string) (CICommand, error) {
 		fs.StringVar(&cmd.Token, "token", "", "runner registration token")
 		fs.StringVar(&cmd.Repo, "repo", CIDefaultRepo, "repository (owner/name)")
 		fs.IntVar(&cmd.Port, "port", CIDefaultPort, "CI server game port")
+		fs.IntVar(&cmd.Instance, "instance", 0, "CI instance number (instance mode)")
 	case "remove":
 		fs.StringVar(&cmd.Token, "token", "", "runner removal token")
 		fs.BoolVar(&cmd.Purge, "purge", false, "also delete the runner directory and the CI install")
@@ -135,14 +151,18 @@ func ParseCIArgs(args []string) (CICommand, error) {
 	cmd.Dir = strings.TrimSpace(cmd.Dir)
 
 	if cmd.Action == "setup" {
-		if cmd.Token == "" {
-			return cmd, fmt.Errorf("--token is required (GitHub: %s > Settings > Actions > Runners > New self-hosted runner)", cmd.Repo)
-		}
+		// --token is checked when the runner turns out not to be registered.
 		if !ciRepoRe.MatchString(cmd.Repo) {
 			return cmd, fmt.Errorf("--repo %q is not owner/name", cmd.Repo)
 		}
 		if cmd.Port < 1024 || cmd.Port > 65535 {
 			return cmd, fmt.Errorf("--port %d is out of range (1024-65535)", cmd.Port)
+		}
+		if cmd.Instance < 0 || cmd.Instance > maxInstanceNumber {
+			return cmd, fmt.Errorf("--instance %d is out of range (1-%d)", cmd.Instance, maxInstanceNumber)
+		}
+		if cmd.Instance > 0 && cmd.Dir != "" {
+			return cmd, errors.New("--instance and --dir exclude each other (an instance has no install directory of its own)")
 		}
 	}
 	if strings.ContainsAny(cmd.Token, " \t\r\n") {
@@ -277,7 +297,7 @@ func RenderCIRunnerEnv(existing, ciDir string, port int) string {
 	var b strings.Builder
 	for _, line := range strings.Split(existing, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "CS2_CI_DIR=") || strings.HasPrefix(trimmed, "CS2_CI_PORT=") {
+		if trimmed == "" || ciEnvKey(trimmed) {
 			continue
 		}
 		b.WriteString(strings.TrimRight(line, "\r"))
@@ -436,12 +456,24 @@ func runCI(ctx context.Context, w io.Writer, cmd CICommand) error {
 	if err != nil {
 		return err
 	}
+	inst := env.ciInstance()
 	switch cmd.Action {
 	case "setup":
+		if cmd.Instance > 0 {
+			return ciSetupInstance(ctx, w, env, cmd)
+		}
 		return ciSetup(ctx, w, env, cmd)
 	case "status":
+		if inst > 0 && cmd.Dir == "" {
+			return ciStatusInstance(ctx, w, env, inst)
+		}
 		return ciStatus(ctx, w, env, cmd)
 	case "update":
+		if inst > 0 && cmd.Dir == "" {
+			fmt.Fprintf(w, "The CI server is instance %d: it runs the shared CS2 game version (csm instance game).\n", inst)
+			fmt.Fprintln(w, "`csm instance update-game` updates it for every instance; csm monitor does that when an instance logs that an update is out.")
+			return nil
+		}
 		dir, err := env.ciDirFor(cmd.Dir)
 		if err != nil {
 			return err
@@ -451,6 +483,9 @@ func runCI(ctx context.Context, w io.Writer, cmd CICommand) error {
 		}
 		return ciSteamUpdate(ctx, w, env.cs2User, dir)
 	case "remove":
+		if inst > 0 && cmd.Dir == "" {
+			return ciRemoveInstance(ctx, w, env, cmd, inst)
+		}
 		return ciRemove(ctx, w, env, cmd)
 	}
 	return fmt.Errorf("unknown ci subcommand %q", cmd.Action)
@@ -744,6 +779,9 @@ func configureRunner(ctx context.Context, w io.Writer, runnerDir string, cmd CIC
 		fmt.Fprintln(w, "  [i] Runner already registered; token not used. To re-register: `csm ci remove --token <removal token>`, then setup again")
 		return nil
 	}
+	if cmd.Token == "" {
+		return fmt.Errorf("the runner is not registered yet: --token is required (GitHub: %s > Settings > Actions > Runners > New self-hosted runner)", cmd.Repo)
+	}
 	name := ciRunnerName(hostnameOrEmpty())
 	c := exec.CommandContext(ctx, "./config.sh",
 		"--unattended",
@@ -836,6 +874,30 @@ func ciRemove(ctx context.Context, w io.Writer, env ciEnv, cmd CICommand) error 
 	// Resolve the CI dir before .env goes away with the runner directory.
 	dir, dirErr := env.ciDirFor(cmd.Dir)
 
+	if err := ciRemoveRunner(ctx, w, env, cmd); err != nil {
+		return err
+	}
+	if !cmd.Purge {
+		fmt.Fprintln(w, "Runner files and the CI install are kept (--purge deletes them).")
+		return nil
+	}
+	if dirErr != nil {
+		return dirErr
+	}
+	if _, err := os.Stat(filepath.Join(dir, ciMarkerFile)); err != nil {
+		fmt.Fprintf(w, "  [i] %s has no %s marker; not deleting it\n", dir, ciMarkerFile)
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("deleting %s: %w", dir, err)
+	}
+	fmt.Fprintf(w, "  [✓] Deleted the CI install %s\n", dir)
+	return nil
+}
+
+// ciRemoveRunner stops, disables and (with a token) unregisters the runner;
+// with --purge it also deletes the runner directory.
+func ciRemoveRunner(ctx context.Context, w io.Writer, env ciEnv, cmd CICommand) error {
 	fmt.Fprintf(w, "Stopping %s\n", CIRunnerUnit)
 	if out, err := env.systemctl(ctx, "disable", "--now", CIRunnerUnit).CombinedOutput(); err != nil {
 		fmt.Fprintf(w, "  [i] systemctl --user disable --now: %s\n", strings.TrimSpace(string(out)))
@@ -867,7 +929,6 @@ func ciRemove(ctx context.Context, w io.Writer, env ciEnv, cmd CICommand) error 
 	}
 
 	if !cmd.Purge {
-		fmt.Fprintln(w, "Runner files and the CI install are kept (--purge deletes them).")
 		return nil
 	}
 	if _, err := os.Stat(filepath.Join(env.runnerDir, "config.sh")); err == nil {
@@ -876,17 +937,6 @@ func ciRemove(ctx context.Context, w io.Writer, env ciEnv, cmd CICommand) error 
 		}
 		fmt.Fprintf(w, "  [✓] Deleted %s\n", env.runnerDir)
 	}
-	if dirErr != nil {
-		return dirErr
-	}
-	if _, err := os.Stat(filepath.Join(dir, ciMarkerFile)); err != nil {
-		fmt.Fprintf(w, "  [i] %s has no %s marker; not deleting it\n", dir, ciMarkerFile)
-		return nil
-	}
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("deleting %s: %w", dir, err)
-	}
-	fmt.Fprintf(w, "  [✓] Deleted the CI install %s\n", dir)
 	return nil
 }
 
