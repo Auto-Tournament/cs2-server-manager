@@ -155,7 +155,7 @@ var fleetCfgKeys = map[string]bool{
 	"url": true, "fleet_url": true,
 	"enroll_key": true, "fleet_enroll_key": true,
 	"enroll_code": true, "fleet_enroll_code": true,
-	"insecure_dev": true, "fleet_insecure_dev": true,
+	"insecure_dev": true, "fleet_insecure_dev": true, "insecure": true, "fleet_insecure": true,
 	"ca_file": true, "fleet_ca_file": true,
 }
 
