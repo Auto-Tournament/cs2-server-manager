@@ -265,6 +265,39 @@ func TestUpdatePluginsFromConfiguredBundle(t *testing.T) {
 	}
 }
 
+// currentBackend reports server 1 as already running the planned Ready Up
+// (csm instance mode: a server created on the current layer).
+type currentBackend struct{ *fakeBackend }
+
+func (currentBackend) ReadyUpCurrent(n int, _ ReadyUpPlan) (bool, string) {
+	return n == 1, "on the current layer"
+}
+
+func TestUpdatePluginsSkipsServersAlreadyCurrent(t *testing.T) {
+	ta := startAgent(t, 2, "", func(o *Options) {
+		o.Backend = currentBackend{o.Backend.(*fakeBackend)}
+	})
+	dir := t.TempDir()
+	zip := filepath.Join(dir, "ready-up-essentials.zip")
+	inst := filepath.Join(dir, "install.sh")
+	_ = os.WriteFile(zip, []byte("PK"), 0o644)
+	_ = os.WriteFile(inst, []byte("#!/bin/sh\n"), 0o755)
+	if _, err := SetConfig(ta.paths, "readyup_bundle", abs(zip)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetConfig(ta.paths, "readyup_installer", abs(inst)); err != nil {
+		t.Fatal(err)
+	}
+	id := ta.p.send(TypeUpdatePlugins, map[string]any{"servers": []string{"server-1", "server-2"}, "readyup": map[string]any{"version": "latest", "bundle": "default"}})
+	if r := ta.p.result(id); r.Status != StatusOK {
+		t.Fatalf("result = %+v", r)
+	}
+	// server-1 keeps running (no stop, install or start); server-2 is installed as before.
+	if calls := strings.Join(ta.b.Calls(), ","); calls != "stop 2 10,install 2 essentials,start 2 " {
+		t.Fatalf("calls = %s", calls)
+	}
+}
+
 func TestAuthRotateWritesTokenAndReplies(t *testing.T) {
 	ta := startAgent(t, 1, "", nil)
 	newTok := "rhs_abcdefghijkl_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"

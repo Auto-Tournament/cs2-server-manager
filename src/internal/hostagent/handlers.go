@@ -438,6 +438,13 @@ func (a *Agent) handleUpdatePlugins(ctx context.Context, ref string, c *UpdatePl
 	for i, s := range sel {
 		name := ServerName(s.Number)
 		a.progress(ref, "installing Ready Up on "+name, i*100/len(sel))
+		if cc, ok := a.opts.Backend.(ReadyUpCurrentChecker); ok {
+			if current, why := cc.ReadyUpCurrent(s.Number, plan); current {
+				fmt.Fprintf(&out, "== %s ==\n%s: nothing to install, not restarted\n", name, why)
+				done = append(done, name)
+				continue
+			}
+		}
 		wasRunning := s.Running
 		if wasRunning {
 			if err := a.opts.Backend.Stop(ctx, s.Number, 10); err != nil {

@@ -236,13 +236,10 @@ func (b *HostBackend) instanceInstallReadyUp(ctx context.Context, n int, plan ho
 		return "", err
 	}
 	var out bytes.Buffer
-	if cur, err := m.CurrentLayer(); err == nil {
+	if cur, err := m.CurrentLayer(); err == nil && layerHasPlan(m, cur, plan) {
 		info := m.ReadLayerInfo(cur)
-		want := strings.TrimPrefix(plan.Version, "v")
-		if want != "" && info.Core == want && (plan.Component == "" || info.Bundle == plan.Component) {
-			fmt.Fprintf(&out, "The shared Ready Up layer %s already has Ready Up %s (%s).\n", info.ID, info.Core, info.Bundle)
-			return out.String(), nil
-		}
+		fmt.Fprintf(&out, "The shared Ready Up layer %s already has Ready Up %s (%s).\n", info.ID, info.Core, info.Bundle)
+		return out.String(), nil
 	}
 	src := LayerSource{Installer: plan.Installer, Zip: plan.Zip, Bundle: plan.Component, Version: plan.Version, AcceptLicense: plan.AcceptLicense}
 	if src.Bundle == "" {
@@ -254,6 +251,45 @@ func (b *HostBackend) instanceInstallReadyUp(ctx context.Context, n int, plan ho
 	}
 	LogAction("agent", fmt.Sprintf("Ready Up layer for instance-%d", n), out.String(), err)
 	return out.String(), err
+}
+
+// layerHasPlan: layer dir carries the planned Ready Up. A release plan
+// matches on its version; a plan from a configured bundle zip (agent config
+// readyup_bundle: no version) matches when the layer was built from a zip
+// with the same bytes. Either way the bundle must match.
+func layerHasPlan(m *InstanceManager, dir string, plan hostagent.ReadyUpPlan) bool {
+	info := m.ReadLayerInfo(dir)
+	if plan.Component != "" && info.Bundle != plan.Component {
+		return false
+	}
+	if want := strings.TrimPrefix(plan.Version, "v"); want != "" {
+		return info.Core == want
+	}
+	return plan.Zip != "" && info.Zip != "" && sameFileContent(plan.Zip, filepath.Join(dir+".src", info.Zip))
+}
+
+// ReadyUpCurrent (hostagent.ReadyUpCurrentChecker): on an instance host a
+// server needs no Ready Up install when the current layer already carries
+// the plan and the instance is not running an older layer. A new instance
+// (created on the current layer) is then left running instead of being
+// stopped and restarted, and the layer is not rebuilt for every new server.
+func (b *HostBackend) ReadyUpCurrent(n int, plan hostagent.ReadyUpPlan) (bool, string) {
+	if !InstanceBackendOn() {
+		return false, ""
+	}
+	m, err := b.instances()
+	if err != nil || !m.Exists(n) {
+		return false, ""
+	}
+	cur, err := m.CurrentLayer()
+	if err != nil || !layerHasPlan(m, cur, plan) {
+		return false, ""
+	}
+	if inUse := m.LayerInUse(n); inUse != "" && m.IsRunning(n) && filepath.Clean(inUse) != filepath.Clean(cur) {
+		return false, ""
+	}
+	info := m.ReadLayerInfo(cur)
+	return true, fmt.Sprintf("instance %d runs on the shared Ready Up layer %s (Ready Up %s, %s)", n, info.ID, info.Core, info.Bundle)
 }
 
 func (b *HostBackend) instanceLogFile(n int, source string) (string, error) {
