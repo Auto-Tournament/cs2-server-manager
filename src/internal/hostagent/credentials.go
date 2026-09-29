@@ -249,6 +249,34 @@ func IsPrivateHost(host string) bool {
 	return ip.IsLoopback() || ip.IsPrivate()
 }
 
+// UpgradeSameHostWS turns a ws:// URL into wss:// when the platform was
+// enrolled with over https at the same host (and the same or no port): a
+// platform behind a TLS proxy that does not pass X-Forwarded-Proto sees
+// plain http and answers ws://, though the host evidently speaks TLS. A ws://
+// URL to any other host is left alone for CheckURL to refuse.
+func UpgradeSameHostWS(base *url.URL, raw string) (string, bool) {
+	if base == nil || !strings.EqualFold(base.Scheme, "https") {
+		return "", false
+	}
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !strings.EqualFold(u.Scheme, "ws") || u.Host == "" {
+		return "", false
+	}
+	if !strings.EqualFold(strings.TrimSuffix(u.Hostname(), "."), strings.TrimSuffix(base.Hostname(), ".")) {
+		return "", false
+	}
+	switch p := u.Port(); p {
+	case "", "80", base.Port():
+	default:
+		if !(p == "443" && base.Port() == "") {
+			return "", false
+		}
+	}
+	u.Scheme = "wss"
+	u.Host = base.Host
+	return u.String(), true
+}
+
 // DefaultWSURL derives wss://host/api/fleet/host from the platform base URL.
 func DefaultWSURL(base *url.URL) string {
 	u := *base
