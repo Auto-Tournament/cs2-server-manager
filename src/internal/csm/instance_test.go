@@ -1,6 +1,7 @@
 package csm
 
 import (
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -320,7 +321,40 @@ func testInstanceManager(t *testing.T) *InstanceManager {
 	}
 }
 
+func stubInstancePorts(t *testing.T, busy ...int) {
+	t.Helper()
+	old := instancePortInUse
+	instancePortInUse = func(p int) bool {
+		for _, b := range busy {
+			if b == p {
+				return true
+			}
+		}
+		return false
+	}
+	t.Cleanup(func() { instancePortInUse = old })
+}
+
+func TestNextFreeSkipsClassicServersAndBusyPorts(t *testing.T) {
+	m := testInstanceManager(t)
+	// Classic server-1..3 next to the instances root (stopped: no port in use).
+	for _, n := range []int{1, 2, 3} {
+		if err := os.MkdirAll(filepath.Join(filepath.Dir(m.L.Root), fmt.Sprintf("server-%d", n)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Instance 5 exists; something else listens on instance 4's game port (27045).
+	if err := writeJSONAtomic(m.L.StateFile(5), instanceState{Number: 5}); err != nil {
+		t.Fatal(err)
+	}
+	stubInstancePorts(t, 27045)
+	if got := m.nextFree(); got != 6 {
+		t.Fatalf("nextFree = %d, want 6 (1-3 classic servers, 4 port busy, 5 exists)", got)
+	}
+}
+
 func TestInstanceListAndNextFree(t *testing.T) {
+	stubInstancePorts(t)
 	m := testInstanceManager(t)
 	if len(m.List()) != 0 || m.nextFree() != 1 {
 		t.Fatal("empty root")
