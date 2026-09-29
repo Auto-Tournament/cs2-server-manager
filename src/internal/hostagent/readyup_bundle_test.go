@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -19,6 +20,11 @@ import (
 // fakeReadyUpReleases serves Auto-Tournament/ready-up with the given
 // releases (tag -> prerelease) and real, checksummed bundle zips. latest is
 // what releases/latest answers ("" = 404, as while only pre-releases exist).
+//
+// The tags are visited in sorted order (never map order) and the list is served
+// oldest version first with the oldest version published last, the opposite of
+// what GitHub gives and of version order, so nothing can pass by relying on
+// list position or publish time.
 func fakeReadyUpReleases(t *testing.T, latest string, tags map[string]bool) *httptest.Server {
 	t.Helper()
 	files := map[string][]byte{}
@@ -52,8 +58,14 @@ func fakeReadyUpReleases(t *testing.T, latest string, tags map[string]bool) *htt
 		}
 	}))
 	t.Cleanup(srv.Close)
-	day := 1
-	for tag, pre := range tags {
+	sorted := make([]string, 0, len(tags))
+	for tag := range tags {
+		sorted = append(sorted, tag)
+	}
+	sort.Strings(sorted)
+	day := 28
+	for _, tag := range sorted {
+		pre := tags[tag]
 		v := strings.TrimPrefix(tag, "v")
 		var assets []map[string]any
 		sums := ""
@@ -73,7 +85,7 @@ func fakeReadyUpReleases(t *testing.T, latest string, tags map[string]bool) *htt
 		assets = append(assets, map[string]any{"name": "SHA256SUMS", "browser_download_url": srv.URL + "/dl/" + tag + "/SHA256SUMS"})
 		rels = append(rels, map[string]any{"tag_name": tag, "prerelease": pre, "assets": assets,
 			"published_at": "2026-09-" + string(rune('0'+day/10)) + string(rune('0'+day%10)) + "T00:00:00Z"})
-		day++
+		day--
 	}
 	return srv
 }
