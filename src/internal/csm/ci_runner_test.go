@@ -242,14 +242,56 @@ func TestPickRunnerAsset(t *testing.T) {
 }
 
 func TestCIPrivilegeError(t *testing.T) {
-	if err := ciPrivilegeError(0, "root", "cs2servermanager"); err == nil || !strings.Contains(err.Error(), "sudo -iu cs2servermanager") {
-		t.Fatalf("root: %v", err)
+	const cs2 = "cs2servermanager"
+	cases := []struct {
+		action, user string
+		euid         int
+		wantErr      bool
+	}{
+		{"status", "root", 0, false},
+		{"status", cs2, 998, false},
+		{"status", "sivert", 1000, false},
+		{"setup", cs2, 998, false},
+		{"update", cs2, 998, false},
+		{"remove", cs2, 998, false},
+		{"setup", "root", 0, true},
+		{"update", "root", 0, true},
+		{"remove", "root", 0, true},
+		{"setup", "sivert", 1000, true},
+		{"update", "sivert", 1000, true},
+		{"remove", "sivert", 1000, true},
 	}
-	if err := ciPrivilegeError(998, "cs2servermanager", "cs2servermanager"); err != nil {
-		t.Fatalf("cs2 user: %v", err)
+	for _, c := range cases {
+		err := ciPrivilegeError(c.action, c.euid, c.user, cs2)
+		if (err != nil) != c.wantErr {
+			t.Errorf("%s as %s: err=%v, wantErr=%v", c.action, c.user, err, c.wantErr)
+			continue
+		}
+		if err == nil {
+			continue
+		}
+		msg := err.Error()
+		want := "sudo -iu " + cs2 + " csm ci " + c.action
+		if !strings.Contains(msg, want) {
+			t.Errorf("%s as %s: %q should suggest %q", c.action, c.user, msg, want)
+		}
+		if strings.Contains(msg, "root or") || strings.Contains(msg, "as root or") {
+			t.Errorf("%s as %s: message must not suggest root: %q", c.action, c.user, msg)
+		}
 	}
-	if err := ciPrivilegeError(1000, "alice", "cs2servermanager"); err == nil {
-		t.Fatal("other user should be refused")
+}
+
+func TestCIForeignSystemctl(t *testing.T) {
+	e := ciEnv{cs2User: "cs2servermanager", uid: "998"}
+	got := strings.Join(e.foreignSystemctl([]string{"is-active", CIRunnerUnit}), " ")
+	if os.Geteuid() == 0 {
+		if !strings.HasPrefix(got, "systemctl --user -M cs2servermanager@ is-active") {
+			t.Fatalf("root: %s", got)
+		}
+		return
+	}
+	if !strings.HasPrefix(got, "sudo -n -u cs2servermanager env XDG_RUNTIME_DIR=/run/user/998 systemctl --user is-active") {
+		t.Fatalf("non-root: %s", got)
 	}
 }
 

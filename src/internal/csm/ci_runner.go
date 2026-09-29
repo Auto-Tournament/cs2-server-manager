@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -381,38 +382,62 @@ func pickRunnerAsset(rel runnerRelease) (name, url, sha string, err error) {
 	return "", "", "", fmt.Errorf("release %s has no %s", rel.TagName, want)
 }
 
-// ciPrivilegeError refuses root (the runner must not run as root) and any
-// user other than the CS2 user.
-func ciPrivilegeError(euid int, currentUser, cs2User string) error {
-	if euid == 0 {
-		return fmt.Errorf("csm ci must not run as root (the runner would run as root). "+
-			"Run it as the CS2 user, for example `sudo -iu %s csm ci ...` (after a one-time `sudo csm setup-host`)", cs2User)
+// ciPrivilegeError decides who may run `csm ci <action>`. The read-only
+// status works for everyone (root, the CS2 user, or any user who can read the
+// CS2 user's files). setup, update and remove must run as the CS2 user: the
+// runner must not run as root, and other users would put it in the wrong home.
+func ciPrivilegeError(action string, euid int, currentUser, cs2User string) error {
+	if action == "status" {
+		return nil
 	}
-	return privilegeError(euid, currentUser, cs2User, "csm ci")
+	if strings.TrimSpace(cs2User) == "" {
+		cs2User = DefaultCS2User
+	}
+	if euid != 0 && decideRunAs(euid, currentUser, cs2User) == runAsDirect {
+		return nil
+	}
+	who := fmt.Sprintf("current user: %q", currentUser)
+	if euid == 0 {
+		who = "the runner would run as root"
+	}
+	return fmt.Errorf("csm ci %s must be run as the CS2 user %q (%s). "+
+		"Run it as the CS2 user, for example `sudo -iu %s csm ci %s` (after a one-time `sudo csm setup-host`)",
+		action, cs2User, who, cs2User, action)
 }
 
 // ciEnv is where things live for the running CS2 user.
 type ciEnv struct {
+	asCS2     bool // csm runs as the CS2 user (otherwise: read-only status as root or another user)
+	uid       string
 	cs2User   string
 	home      string
 	runnerDir string
 	unitPath  string
 }
 
-func newCIEnv() (ciEnv, error) {
+func newCIEnv(action string) (ciEnv, error) {
 	cs2User := configuredCS2User()
-	if err := ciPrivilegeError(os.Geteuid(), currentUsername(), cs2User); err != nil {
+	if err := ciPrivilegeError(action, os.Geteuid(), currentUsername(), cs2User); err != nil {
 		return ciEnv{}, err
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
+	asCS2 := os.Geteuid() != 0 && isCurrentUser(cs2User)
+	var home, cfg, uid string
+	if asCS2 {
+		home, _ = os.UserHomeDir()
+		cfg = os.Getenv("XDG_CONFIG_HOME")
+	} else if u, err := user.Lookup(cs2User); err == nil {
+		// Read-only status as root or another user: look at the CS2 user's files.
+		home, uid = u.HomeDir, u.Uid
+	}
+	if strings.TrimSpace(home) == "" {
 		home = filepath.Join("/home", cs2User)
 	}
-	cfg := os.Getenv("XDG_CONFIG_HOME")
 	if cfg == "" {
 		cfg = filepath.Join(home, ".config")
 	}
 	return ciEnv{
+		asCS2:     asCS2,
+		uid:       uid,
 		cs2User:   cs2User,
 		home:      home,
 		runnerDir: filepath.Join(home, CIRunnerDirName),
@@ -431,9 +456,28 @@ func (e ciEnv) ciDirFor(raw string) (string, error) {
 }
 
 func (e ciEnv) systemctl(ctx context.Context, args ...string) *exec.Cmd {
+	if !e.asCS2 {
+		argv := e.foreignSystemctl(args)
+		return exec.CommandContext(ctx, argv[0], argv[1:]...)
+	}
 	cmd := exec.CommandContext(ctx, "systemctl", append([]string{"--user"}, args...)...)
 	cmd.Env = userBusEnv(os.Environ(), os.Getuid())
 	return cmd
+}
+
+// foreignSystemctl is the argv that reaches the CS2 user's systemd instance
+// from outside (read-only status): root uses `systemctl --user -M <user>@`,
+// any other user tries non-interactive `sudo -u <user>` and gets "unknown" if
+// that is not allowed.
+func (e ciEnv) foreignSystemctl(args []string) []string {
+	if os.Geteuid() == 0 {
+		return append([]string{"systemctl", "--user", "-M", e.cs2User + "@"}, args...)
+	}
+	uid := e.uid
+	if uid == "" {
+		uid = "0"
+	}
+	return append([]string{"sudo", "-n", "-u", e.cs2User, "env", "XDG_RUNTIME_DIR=/run/user/" + uid, "systemctl", "--user"}, args...)
 }
 
 func lingerEnabled(user string) bool {
@@ -454,7 +498,7 @@ func RunCI(ctx context.Context, w io.Writer, cmd CICommand) error {
 }
 
 func runCI(ctx context.Context, w io.Writer, cmd CICommand) error {
-	env, err := newCIEnv()
+	env, err := newCIEnv(cmd.Action)
 	if err != nil {
 		return err
 	}
