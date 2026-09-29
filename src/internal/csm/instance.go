@@ -415,10 +415,16 @@ func renderInstanceRunScript(s instanceLaunch) string {
 	b.WriteString("#!/usr/bin/env bash\n")
 	fmt.Fprintf(&b, "# csm instance %d supervisor (written by csm on every start; `csm instance stop %d` stops it)\n", n, n)
 	b.WriteString("set -u\n")
-	fmt.Fprintf(&b, "STOP=%s\nINUSE=%s\nCURRENT=%s\nEXEC=%s\nMASTER=%s\n", q(s.L.StopFlag(n)), q(s.L.InUseFile(n)), q(s.L.CurrentLayerLink()), q(s.L.ExecScript(n)), q(s.L.Master))
+	fmt.Fprintf(&b, "STOP=%s\nINUSE=%s\nCURRENT=%s\nPIN=%s\nEXEC=%s\nMASTER=%s\n", q(s.L.StopFlag(n)), q(s.L.InUseFile(n)), q(s.L.CurrentLayerLink()), q(s.L.PinFile(n)), q(s.L.ExecScript(n)), q(s.L.Master))
 	b.WriteString("exits=()\n")
 	b.WriteString("while :; do\n")
-	b.WriteString("  LAYER=$(readlink -f \"$CURRENT\") || { echo \"[csm] no Ready Up layer at $CURRENT (csm instance layer build)\"; exit 1; }\n")
+	b.WriteString("  if [ -s \"$PIN\" ]; then\n")
+	b.WriteString("    # a private layer (csm instance layer build --for N), never layers/current\n")
+	b.WriteString("    LAYER=\"$(dirname \"$CURRENT\")/$(head -n1 \"$PIN\")\"\n")
+	b.WriteString("    [ -d \"$LAYER\" ] || { echo \"[csm] pinned layer $LAYER is gone (csm instance layer build --for N)\"; exit 1; }\n")
+	b.WriteString("  else\n")
+	b.WriteString("    LAYER=$(readlink -f \"$CURRENT\") || { echo \"[csm] no Ready Up layer at $CURRENT (csm instance layer build)\"; exit 1; }\n")
+	b.WriteString("  fi\n")
 	b.WriteString("  GAME=$(cat \"$LAYER.game\" 2>/dev/null) || GAME=\"\"\n")
 	b.WriteString("  [ -n \"$GAME\" ] || GAME=\"$MASTER\"\n")
 	b.WriteString("  printf '%s\\n%s\\n' \"$LAYER\" \"$GAME\" > \"$INUSE\"\n")
@@ -733,7 +739,7 @@ func (m *InstanceManager) prepare(n int) (instanceLaunch, error) {
 		st.CreatedAt = time.Now().Unix()
 	}
 	st.StartedAt = time.Now().Unix()
-	st.MasterBuild = m.currentLayerBuild()
+	st.MasterBuild = m.layerBuildFor(n)
 	if err := writeJSONAtomic(m.L.StateFile(n), st); err != nil {
 		return s, err
 	}
@@ -767,7 +773,10 @@ func (m *InstanceManager) Start(ctx context.Context, n int) error {
 	if m.IsRunning(n) {
 		return fmt.Errorf("instance %d is already running", n)
 	}
-	if _, err := m.CurrentLayer(); err != nil {
+	if m.execBusy(n) {
+		return fmt.Errorf("instance %d is busy: a `csm instance exec` runs in it", n)
+	}
+	if _, err := m.EffectiveLayer(n); err != nil {
 		return err
 	}
 	s, err := m.prepare(n)
@@ -889,7 +898,7 @@ func (m *InstanceManager) ShellCommand(n int) (*exec.Cmd, error) {
 	if !m.Exists(n) {
 		return nil, fmt.Errorf("instance %d does not exist", n)
 	}
-	layer, err := m.CurrentLayer()
+	layer, err := m.EffectiveLayer(n)
 	if err != nil {
 		return nil, err
 	}
@@ -935,9 +944,9 @@ func restartPending(inUse, current string, startedBuild, masterBuild int64) (boo
 
 // RestartPending is restartPending for running instance n.
 func (m *InstanceManager) RestartPending(n int) (bool, string) {
-	current, _ := m.CurrentLayer()
+	current, _ := m.EffectiveLayer(n)
 	st, _ := readInstanceState(m.L.StateFile(n))
-	return restartPending(m.LayerInUse(n), current, st.MasterBuild, m.currentLayerBuild())
+	return restartPending(m.LayerInUse(n), current, st.MasterBuild, m.layerBuildFor(n))
 }
 
 // MasterBuild is the ServerVersion of the current CS2 game version (the
@@ -960,19 +969,19 @@ func (m *InstanceManager) FleetTarget(n int) FleetTarget {
 	return FleetTarget{Server: n, Dir: m.L.Upper(n), GamePort: p.Game, Running: m.IsRunning(n)}
 }
 
-// FleetTargets lists every instance.
+// FleetTargets lists the serving instances (not pinned, CI ones).
 func (m *InstanceManager) FleetTargets() []FleetTarget {
 	var out []FleetTarget
-	for _, n := range m.List() {
+	for _, n := range m.Serving() {
 		out = append(out, m.FleetTarget(n))
 	}
 	return out
 }
 
-// InstancesExist reports whether this host has any instance.
+// InstancesExist reports whether this host has any serving instance.
 func InstancesExist() bool {
 	m, err := NewInstanceManager()
-	return err == nil && len(m.List()) > 0
+	return err == nil && len(m.Serving()) > 0
 }
 
 // InstanceSession is instance n's tmux session name.

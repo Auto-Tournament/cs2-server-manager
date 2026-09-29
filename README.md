@@ -255,19 +255,25 @@ csm agent config                                     # show all settings
 
 ### Ready Up CI test host (`csm ci`)
 
-`csm ci` turns a csm host into the test host for [Ready Up](https://github.com/Auto-Tournament/ready-up)'s real-server compatibility check: a separate CS2 install plus a GitHub Actions self-hosted runner labelled `readyup-live`. Run it as the CS2 user after the one-time `sudo csm setup-host` (it refuses root, so the runner never runs as root):
+`csm ci` turns a csm host into the test host for [Ready Up](https://github.com/Auto-Tournament/ready-up)'s real-server compatibility check: a CI server plus a GitHub Actions self-hosted runner labelled `readyup-live`. Run it as the CS2 user after the one-time `sudo csm setup-host` (it refuses root, so the runner never runs as root):
 
 ```bash
 sudo -iu cs2servermanager
-csm ci setup --token <registration token>   # [--repo Auto-Tournament/ready-up] [--dir ~/ru-ci] [--port 27095]
+csm ci setup --instance 9 --token <registration token>   # the CI server is instance 9 (port 27095)
 csm ci status
-csm ci update                               # SteamCMD update of the CI install only
-csm ci remove --token <removal token>       # [--purge] also deletes the runner files and the CI install
+csm ci remove --token <removal token>       # [--purge] also deletes the runner files and the CI server
 ```
 
-The registration token comes from the repository's **Settings → Actions → Runners → New self-hosted runner** and lasts an hour; the removal token comes from the runner's page there. csm only hands a token to the runner's `config.sh`: it is never written to disk, and it is redacted from csm's output and log.
+The registration token comes from the repository's **Settings → Actions → Runners → New self-hosted runner** and lasts an hour; it is only needed while the runner is not registered yet. The removal token comes from the runner's page there. csm only hands a token to the runner's `config.sh`: it is never written to disk, and it is redacted from csm's output and log.
 
-`setup`:
+**On a csm instance (`--instance N`, recommended).** The CI server is instance N (game port `base + 10×N`: 27095 for 9), so it costs no CS2 copy, only the few MB each run writes. `setup` creates the instance if needed and makes it private: it is not one of the host's servers (the host agent, the fleet, `start all` and `csm monitor`'s restarts leave it alone). It writes `CS2_CI_INSTANCE=N`, `CS2_CI_DIR=<the instance's merged view>`, `CS2_CI_PORT` and `CS2_CI_CSM=<this csm>` into the runner's `.env`. Every CI run then:
+
+1. empties the instance (`csm instance reset N`) and builds the freshly built bundle into a layer of its own (`csm instance layer build --for N --zip <bundle> --installer install.sh --bundle full`). That layer never becomes current, no other instance ever mounts it, and the previous run's layer is removed;
+2. runs its own `cs2.sh` launch and the live tests inside `csm instance exec N -- <command>`: a namespace with the instance's view mounted at `CS2_CI_DIR`. Only one exec (or start) can use an instance at a time.
+
+The CS2 build is the shared game version: csm keeps it updated for every instance (`csm monitor`, `csm instance update-game`); `csm ci update` only applies to a `--dir` install.
+
+**On a CS2 install of its own (`--dir`, no `--instance`).** `setup` checks linger, downloads and registers the runner, writes `CS2_CI_DIR` and `CS2_CI_PORT` (`--port`, 27095 by default) into `.env`, copies the master install into `--dir` (default `~/ru-ci`, about 70 GB) and updates it with SteamCMD; `csm ci update` updates it later. In detail, `setup`:
 
 1. checks that lingering is on for the user (`setup-host` enables it; otherwise `sudo loginctl enable-linger cs2servermanager`), since `systemd --user` services stop at logout without it;
 2. downloads the latest `linux-x64` runner from [actions/runner](https://github.com/actions/runner/releases), checks the SHA256 published with the release, unpacks it into `~/actions-runner-readyup` and registers it as `<hostname>-readyup-live` with the label `readyup-live`;
@@ -277,7 +283,7 @@ The registration token comes from the repository's **Settings → Actions → Ru
 
 It is safe to run again: an unpacked or registered runner is kept, the install is updated, and the service is restarted to pick up a new `--dir` or `--port`. If `config.sh` reports missing .NET dependencies, run `sudo ~cs2servermanager/actions-runner-readyup/bin/installdependencies.sh` once.
 
-The CI install is **not one of the numbered servers**. It does not live in a `server-N` directory, so it is not in the server list or `csm status`, and `csm monitor`, auto-update, `update-game` and start/stop/restart never touch it. `csm ci` never starts, stops, restarts or updates a numbered server. The Ready Up workflow starts and stops the CI server itself. Give it a port that the numbered servers don't use (27095 by default). `--dir` must not be a server directory, the master install or the home directory, and `--purge` only deletes a directory that `csm ci setup` created.
+The CI server is **not one of the numbered servers**. A `--dir` install does not live in a `server-N` directory, so it is not in the server list or `csm status`, and `csm monitor`, auto-update, `update-game` and start/stop/restart never touch it; a CI instance is private (above). `csm ci` never starts, stops, restarts or updates a numbered server or another instance. The Ready Up workflow starts and stops the CI server itself. Give it a port that the numbered servers don't use (27095 by default). `--dir` must not be a server directory, the master install or the home directory, and `--purge` only deletes a directory that `csm ci setup` created.
 
 Security: this is a self-hosted runner for a public repository, so the Ready Up workflow that uses it only runs on `schedule`, `workflow_dispatch` and `workflow_run`, never on `pull_request`: code from forks never reaches this host. The runner runs as the unprivileged CS2 user, not root, and the CI server is started with `+sv_lan 1`, so it doesn't advertise itself or accept Steam clients from the internet.
 
@@ -359,6 +365,8 @@ csm instance status                  # state, ports, Ready Up phase, layer, pend
 csm instance attach 1                # the server console (Ctrl-b d to leave)
 csm instance logs 1                  # console log tail
 csm instance shell 1                 # a shell in a stopped instance's merged view
+csm instance exec 1 -- ls game/csgo  # a command in a stopped instance's merged view
+csm instance reset 1                 # empty a stopped instance (delete what it wrote)
 csm instance stop 1
 csm instance remove 1                # deletes the instance and everything it wrote
 ```
@@ -382,6 +390,8 @@ Don't edit Ready Up's own files in an instance: a changed copy of a layer file h
 - **CS2**: `csm instance update-game` (or `csm update-game`, or `csm monitor` when an instance logs that an update is out) makes a new game version once, then rebuilds the Ready Up layer on it, because `gameinfo.gi` comes from the game.
 
 After either one, csm restarts only idle instances onto the new version. An instance is idle when Ready Up reports `update_safe: true` and nobody is connected. A busy instance keeps running and shows *restart pending*. `csm monitor` restarts it once it has been idle for the grace period (`csm updates grace`). Nothing restarts while updates are on hold (`csm updates hold`, or the platform's hold during a tournament), and never mid-match. `csm instance layer use <id>` switches back to an older layer; csm keeps the previous one on the same CS2 version.
+
+**Private layers.** `csm instance layer build --for N --zip Z --installer I` builds a layer for instance N alone: `layers/current` does not move, N mounts it through its pin (`instance-N/layer.pin`) from its next start or `csm instance exec`, and no other instance ever does. N's previous private layer is removed. A pinned instance is not one of the host's servers (host agent, fleet and `start all` skip it). `csm instance layer unpin N` puts it back on the shared layer. Ready Up's CI uses this (`csm ci setup --instance N`).
 
 **CS2 updates.** A running instance has its CS2 install mounted, and changing files under a mounted overlay is undefined. So csm never runs SteamCMD on an install an instance may be using:
 
