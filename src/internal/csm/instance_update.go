@@ -1,11 +1,11 @@
 package csm
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,12 +13,16 @@ import (
 
 // Keeping instances up to date
 //
-// Instances share the master install and a Ready Up layer, so an update is
+// Instances share a CS2 game version and a Ready Up layer, so an update is
 // done once and every instance picks it up at its next start:
 //
 //   - Ready Up: a new release builds a new layer (layers/current moves).
-//   - CS2: SteamCMD updates the master install once, then the layer is
-//     rebuilt from its own sources so gameinfo.gi comes from the new build.
+//   - CS2: SteamCMD makes a new game version once (instance_game.go; the
+//     version running instances use is never written), then the layer is
+//     rebuilt from its own sources on it, so gameinfo.gi comes from the new
+//     build.
+//
+// Old layers and game versions stay until no running instance uses them.
 //
 // A running instance whose layer or CS2 build is older than current is
 // "restart pending". csm restarts it only when that is safe: updates are not
@@ -151,9 +155,10 @@ func (m *InstanceManager) RestartIdleInstances(ctx context.Context, w io.Writer,
 	}
 }
 
-// UpdateGame updates the master install with SteamCMD, rebuilds the Ready Up
-// layer on the new build and restarts idle instances. Busy instances keep
-// running and are restarted by csm monitor when idle.
+// UpdateGame makes a new CS2 game version with SteamCMD, rebuilds the Ready
+// Up layer on it and restarts idle instances. Busy instances keep running on
+// their old layer and game version until csm monitor finds them idle; old
+// versions are removed once nothing uses them.
 func (m *InstanceManager) UpdateGame(ctx context.Context, w io.Writer, hold UpdateHold) error {
 	if err := m.requireInstancePrivileges("instance update-game"); err != nil {
 		return err
@@ -163,6 +168,7 @@ func (m *InstanceManager) UpdateGame(ctx context.Context, w io.Writer, hold Upda
 		return err
 	}
 	m.RestartIdleInstances(ctx, w, hold)
+	m.GC(w)
 	return nil
 }
 
@@ -175,21 +181,33 @@ func (m *InstanceManager) updateGameLocked(ctx context.Context, w io.Writer) err
 	if err := steamcmdRunAsPreflight(m.L.User); err != nil {
 		return err
 	}
-	before := m.MasterBuild()
-	var buf bytes.Buffer
-	err := updateMasterInstallWithContext(ctx, &buf, nil, m.L.User, m.L.Master)
-	_, _ = w.Write(buf.Bytes())
-	if err != nil {
+	if _, err := m.updateGameVersion(ctx, w); err != nil {
 		return err
 	}
-	after := m.MasterBuild()
-	fmt.Fprintf(w, "CS2 build: %d -> %d\n", before, after)
-	if cur, err := m.CurrentLayer(); err == nil && m.ReadLayerInfo(cur).MasterBuild != after {
-		if _, err := m.RebuildLayer(ctx, w, "CS2 update"); err != nil {
-			return fmt.Errorf("rebuilding the Ready Up layer on the new CS2 build: %w", err)
+	if cur, err := m.CurrentLayer(); err == nil {
+		if stale, why := m.layerStale(cur); stale {
+			fmt.Fprintf(w, "[Ready Up layer] %s; rebuilding it.\n", why)
+			if _, err := m.RebuildLayer(ctx, w, "CS2 update"); err != nil {
+				return fmt.Errorf("rebuilding the Ready Up layer on the new CS2 version: %w", err)
+			}
 		}
 	}
 	return nil
+}
+
+// layerStale: the layer does not sit on the current game version, or the
+// install it sits on changed build under it (a master install updated
+// outside csm).
+func (m *InstanceManager) layerStale(layer string) (bool, string) {
+	info := m.ReadLayerInfo(layer)
+	game, cur := m.layerGame(layer), m.CurrentGame()
+	if game != cur {
+		return true, fmt.Sprintf("layer %s sits on game version %s, the current one is %s", info.ID, filepath.Base(game), filepath.Base(cur))
+	}
+	if mb := gameBuild(cur); mb > 0 && info.MasterBuild != 0 && info.MasterBuild != mb {
+		return true, fmt.Sprintf("layer %s was built on CS2 build %d, the install is now %d", info.ID, info.MasterBuild, mb)
+	}
+	return false, ""
 }
 
 // UpdateReadyUp builds a layer from the configured Ready Up release (unless
@@ -218,6 +236,7 @@ func (m *InstanceManager) UpdateReadyUp(ctx context.Context, w io.Writer, hold U
 		}
 	}
 	m.RestartIdleInstances(ctx, w, hold)
+	m.GC(w)
 	return nil
 }
 
@@ -261,38 +280,37 @@ func runInstanceMonitor(ctx context.Context, logf func(string, ...any), hold Upd
 			logf("Instances: CS2 update available; the master install was updated %s ago, waiting for the %s cooldown.",
 				time.Since(time.Unix(ls.LastGameUpdate, 0)).Round(time.Second), autoUpdateCooldown)
 		default:
-			logf("Instances: CS2 update available (instance %v); updating the master install once.", marked)
+			logf("Instances: CS2 update available (instance %v); making a new game version once.", marked)
 			for n, sz := range sizes {
 				state.instance(n).LogOffset = sz
 			}
 			ls.LastGameUpdate = time.Now().Unix()
 			saveState()
 			_, err := withGameUpdateLock(func() (string, error) {
-				var buf bytes.Buffer
-				err := updateMasterInstallWithContext(ctx, &buf, nil, m.L.User, m.L.Master)
-				logf("%s", strings.TrimRight(buf.String(), "\n"))
+				if err := steamcmdRunAsPreflight(m.L.User); err != nil {
+					return "", err
+				}
+				_, err := m.updateGameVersion(ctx, logw)
 				return "", err
 			})
 			if err != nil {
-				logf("Instances: master install update failed: %v", err)
+				logf("Instances: CS2 update failed: %v", err)
 			}
 		}
 	}
 
-	// 2. The layer follows the master build (gameinfo.gi comes from it).
+	// 2. The layer follows the game version (gameinfo.gi comes from it).
 	cur, cerr := m.CurrentLayer()
 	if cerr != nil {
 		logf("Instances: %v", cerr)
 		return
 	}
-	if mb := m.MasterBuild(); mb > 0 {
-		if info := m.ReadLayerInfo(cur); info.MasterBuild != 0 && info.MasterBuild != mb {
-			logf("Instances: master install is CS2 build %d, the Ready Up layer was built on %d; rebuilding it.", mb, info.MasterBuild)
-			if p, err := m.RebuildLayer(ctx, logw, "CS2 build "+strconv.FormatInt(mb, 10)); err != nil {
-				logf("Instances: layer rebuild failed: %v", err)
-			} else {
-				cur = p
-			}
+	if stale, why := m.layerStale(cur); stale {
+		logf("Instances: %s; rebuilding it.", why)
+		if p, err := m.RebuildLayer(ctx, logw, "CS2 build "+strconv.FormatInt(m.MasterBuild(), 10)); err != nil {
+			logf("Instances: layer rebuild failed: %v", err)
+		} else {
+			cur = p
 		}
 	}
 
@@ -367,6 +385,9 @@ func runInstanceMonitor(ctx context.Context, logf func(string, ...any), hold Upd
 		saveState()
 		m.restartForUpdate(ctx, logf, n, why)
 	}
+
+	// 5. Old layers and game versions nothing uses any more.
+	m.GC(logw)
 }
 
 // monitorWriter turns monitor log lines into an io.Writer.
