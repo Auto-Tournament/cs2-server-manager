@@ -140,6 +140,34 @@ func (s PluginSettings) Resolved() PluginSettings {
 	return r
 }
 
+// LayerBundle is the bundle instance mode builds its shared Ready Up layer
+// with: the operator's `csm plugins bundle` (or CSM_READYUP_BUNDLE) when one
+// was chosen, else full. Instances share one layer, so it carries every
+// plugin and the platform picks each server's plugins by enabling or
+// disabling them (cmd plugins.set). Classic servers keep Resolved's default
+// (essentials).
+func (s PluginSettings) LayerBundle() string {
+	v := strings.TrimSpace(getenvDefault(EnvReadyUpBundle, s.ReadyUpBundle))
+	if v == "" {
+		return readyup.BundleFull
+	}
+	if b, err := readyup.NormalizeBundle(v); err == nil {
+		return b
+	}
+	return readyup.BundleFull
+}
+
+// LayerBundleFor is the bundle an instance layer gets when the platform asks
+// for `requested` (host.update_plugins): full stays full; its default
+// (essentials) becomes LayerBundle, so a platform install does not shrink
+// the shared layer back to essentials.
+func (s PluginSettings) LayerBundleFor(requested string) string {
+	if b, err := readyup.NormalizeBundle(requested); err == nil && b == readyup.BundleFull {
+		return b
+	}
+	return s.LayerBundle()
+}
+
 // SetPluginSetting changes one setting and saves. value "" (or "latest" for
 // version, "clear" for license) resets it.
 func SetPluginSetting(key, value string) (PluginSettings, error) {
@@ -566,7 +594,11 @@ func PluginsReport(ctx context.Context, lookup bool) string {
 	} else {
 		fmt.Fprintf(&b, "Ready Up version: newest on the channel\n")
 	}
-	fmt.Fprintf(&b, "Ready Up bundle : %s\n", r.ReadyUpBundle)
+	if InstanceBackendOn() {
+		fmt.Fprintf(&b, "Ready Up bundle : %s (instance layer; classic servers: %s)\n", s.LayerBundle(), r.ReadyUpBundle)
+	} else {
+		fmt.Fprintf(&b, "Ready Up bundle : %s\n", r.ReadyUpBundle)
+	}
 	switch {
 	case r.AcceptLicense == "":
 		fmt.Fprintf(&b, "Ready Up license: not answered (csm plugins license noncommercial|commercial)\n")

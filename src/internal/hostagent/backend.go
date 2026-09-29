@@ -59,6 +59,14 @@ type ReadyUpCurrentChecker interface {
 	ReadyUpCurrent(server int, plan ReadyUpPlan) (current bool, why string)
 }
 
+// ReadyUpBundleChooser is an optional Backend extension: the bundle to
+// install when host.update_plugins asks for `requested`. csm instance mode
+// shares one Ready Up layer between all servers and builds it with the full
+// bundle, so the platform's default (essentials) does not shrink it.
+type ReadyUpBundleChooser interface {
+	ReadyUpBundleFor(requested string) string
+}
+
 // HostFacts are the machine parts of host.inventory.
 type HostFacts struct {
 	Hostname  string
