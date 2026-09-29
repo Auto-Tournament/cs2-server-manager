@@ -37,94 +37,29 @@ func cs2ShLooksCSMManagedLegacy(gameDir string) bool {
 	return strings.Contains(s, "DEFAULT_ARGS=(") && strings.Contains(s, "linuxsteamrt64/cs2")
 }
 
-// NewTmuxManager discovers the CS2 service user and number of servers.
-// It prefers the CS2_USER environment variable when set, then falls back to
-// scanning /home for any user that has server-* directories. This makes it
-// resilient to older installs that might have used a different CS2 user.
+// NewTmuxManager manages the servers of the user running csm.
 func NewTmuxManager() (*TmuxManager, error) {
-	// Helper to count server-* directories for a given user.
-	countServers := func(user string) (int, error) {
-		home := filepath.Join("/home", user)
-		entries, err := os.ReadDir(home)
-		if err != nil {
-			return 0, err
-		}
-		maxServer := 0
+	user := DefaultCS2User
+	if user == "" {
+		return nil, fmt.Errorf("cannot tell which user csm runs as")
+	}
+	home := filepath.Join("/home", user)
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		home = h
+	}
+	maxServer := 0
+	if entries, err := os.ReadDir(home); err == nil {
 		for _, e := range entries {
 			name := e.Name()
 			if !e.IsDir() || !strings.HasPrefix(name, "server-") {
 				continue
 			}
-			nStr := strings.TrimPrefix(name, "server-")
-			if n, err := strconv.Atoi(nStr); err == nil && n > maxServer {
+			if n, err := strconv.Atoi(strings.TrimPrefix(name, "server-")); err == nil && n > maxServer {
 				maxServer = n
 			}
 		}
-		return maxServer, nil
 	}
-
-	// 1) If CS2_USER is explicitly set, trust it.
-	if envUser := os.Getenv("CS2_USER"); envUser != "" {
-		n, err := countServers(envUser)
-		if err != nil {
-			return nil, fmt.Errorf("CS2_USER=%q is set but /home/%s could not be inspected for servers: %w", envUser, envUser, err)
-		}
-		log.Printf("[tmux] NewTmuxManager: using CS2_USER=%q with %d server(s)", envUser, n)
-		return &TmuxManager{
-			CS2User:    envUser,
-			NumServers: n,
-		}, nil
-	}
-
-	// 2) Prefer the modern default user if it exists.
-	if n, err := countServers(DefaultCS2User); err == nil && n > 0 {
-		log.Printf("[tmux] NewTmuxManager: discovered %s with %d server(s)", DefaultCS2User, n)
-		return &TmuxManager{
-			CS2User:    DefaultCS2User,
-			NumServers: n,
-		}, nil
-	}
-
-	// 3) Fall back to scanning all users under /home to support older setups
-	// that may have used a different CS2 user name.
-	homeRoot := "/home"
-	homeEntries, err := os.ReadDir(homeRoot)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read %s: %w", homeRoot, err)
-	}
-
-	bestUser := ""
-	bestCount := 0
-	for _, e := range homeEntries {
-		if !e.IsDir() {
-			continue
-		}
-		user := e.Name()
-		n, err := countServers(user)
-		if err != nil || n == 0 {
-			continue
-		}
-		if n > bestCount {
-			bestCount = n
-			bestUser = user
-		}
-	}
-
-	if bestUser == "" {
-		// No server-* directories found anywhere under /home; treat as a
-		// "no servers installed yet" situation.
-		log.Printf("[tmux] NewTmuxManager: no server-* directories found under /home; returning NumServers=0")
-		return &TmuxManager{
-			CS2User:    DefaultCS2User,
-			NumServers: 0,
-		}, nil
-	}
-
-	log.Printf("[tmux] NewTmuxManager: selected user=%q with %d server(s)", bestUser, bestCount)
-	return &TmuxManager{
-		CS2User:    bestUser,
-		NumServers: bestCount,
-	}, nil
+	return &TmuxManager{CS2User: user, NumServers: maxServer}, nil
 }
 
 // serverDir returns /home/<user>/server-N.

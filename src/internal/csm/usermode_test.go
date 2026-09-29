@@ -32,24 +32,15 @@ func TestDecideRunAs(t *testing.T) {
 }
 
 func TestPrivilegeError(t *testing.T) {
-	if err := privilegeError(0, "root", "cs2servermanager", "monitor"); err != nil {
-		t.Fatalf("root: unexpected error %v", err)
+	// csm runs as whoever starts it; only root is refused.
+	err := privilegeError(0, "root", "", "monitor")
+	if err == nil || !strings.Contains(err.Error(), "monitor") || !strings.Contains(err.Error(), "root") {
+		t.Fatalf("root: got %v", err)
 	}
-	if err := privilegeError(998, "cs2servermanager", "cs2servermanager", "monitor"); err != nil {
-		t.Fatalf("cs2 user: unexpected error %v", err)
-	}
-	err := privilegeError(1000, "alice", "cs2servermanager", "monitor")
-	if err == nil {
-		t.Fatal("other user: expected an error")
-	}
-	for _, want := range []string{"monitor", "cs2servermanager", "sudo csm setup-host", `"alice"`} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not mention %q", err, want)
+	for _, u := range []string{"alice", "sivert", "cs2servermanager"} {
+		if err := privilegeError(1000, u, "", "monitor"); err != nil {
+			t.Fatalf("%s: unexpected error %v", u, err)
 		}
-	}
-	// An empty CS2 user falls back to the default in the message.
-	if err := privilegeError(1000, "alice", "", "bootstrap"); err == nil || !strings.Contains(err.Error(), DefaultCS2User) {
-		t.Fatalf("empty cs2 user: got %v", err)
 	}
 }
 
