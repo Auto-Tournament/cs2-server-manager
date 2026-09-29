@@ -26,7 +26,7 @@ import (
 const linkUsage = `usage:
   csm link <platform-url> <code|key|-> [--insecure] [--ca-file PATH]
       Link this machine to an Auto Tournament platform as a host. <code> is the
-      one-time code from Settings -> Hosts -> Add host (RUE-XXXX-...), <key> a
+      one-time code from Servers -> Machines -> Add machine (RUE-XXXX-...), <key> a
       fleet enrollment key (rfk_...). "-" reads it from stdin, so it stays out of
       the shell history. --insecure allows http:// to a loopback / private dev
       platform only.
@@ -120,6 +120,7 @@ func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 	creds, err := hostagent.Enroll(ctx, hostagent.EnrollOptions{
 		PlatformURL: pos[0], CodeOrKey: secret, MachineID: machineID, Hostname: hostname,
 		OS: csm.HostOSDescription(), CSMVersion: tui.Version(), InsecureDev: insecure, CAFile: caFile,
+		Log: func(s string) { fmt.Fprintln(os.Stderr, s) },
 	})
 	if err != nil {
 		return "", err
@@ -183,7 +184,7 @@ func unlinkCommand(args []string) {
 	}
 	csm.LogAction("cli", "unlink", "", nil)
 	if c != nil {
-		fmt.Printf("Forgot host %s on %s. Revoke it on the platform (Settings -> Hosts) as well.\n", c.HostID, c.PlatformURL)
+		fmt.Printf("Forgot host %s on %s. Revoke it on the platform (Servers -> Machines) as well.\n", c.HostID, c.PlatformURL)
 	} else {
 		fmt.Println("This machine was not linked.")
 	}

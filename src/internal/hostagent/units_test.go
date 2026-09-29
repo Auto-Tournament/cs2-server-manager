@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -248,6 +249,60 @@ func TestEnroll(t *testing.T) {
 	opts.PlatformURL = "http://at.example.com"
 	if _, err := Enroll(context.Background(), opts); err == nil {
 		t.Fatalf("plain http accepted")
+	}
+}
+
+func TestEnrollUpgradesSameHostWS(t *testing.T) {
+	var wsURL string
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{"success": true, "host_id": "host_7", "tenant_id": "default", "token": testToken, "ws_url": wsURL}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+	hostport := strings.TrimPrefix(srv.URL, "https://")
+	var notes []string
+	opts := EnrollOptions{PlatformURL: srv.URL, CodeOrKey: "RUE-7F3K-9QX2-LM4D-P8TW", MachineID: "0123456789abcdef0123456789abcdef",
+		Hostname: "box", OS: "linux", CSMVersion: "1.11.0", HTTPClient: srv.Client(), Log: func(s string) { notes = append(notes, s) }}
+
+	// Behind a TLS proxy the platform thinks it is plain http: same host, upgraded.
+	wsURL = "ws://" + hostport + HostWSPath
+	c, err := Enroll(context.Background(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.WSURL != "wss://"+hostport+HostWSPath || len(notes) != 1 || !strings.Contains(notes[0], "wss://") {
+		t.Fatalf("ws_url = %q, notes = %v", c.WSURL, notes)
+	}
+
+	// A ws:// URL to another host is still refused without --insecure.
+	notes = nil
+	wsURL = "ws://at.example.com" + HostWSPath
+	if _, err := Enroll(context.Background(), opts); err == nil || !strings.Contains(err.Error(), "ws:// is refused") || len(notes) != 0 {
+		t.Fatalf("other host accepted: %v %v", err, notes)
+	}
+	// ... and so is the same host on some other port.
+	wsURL = "ws://127.0.0.1:1" + HostWSPath
+	if _, err := Enroll(context.Background(), opts); err == nil {
+		t.Fatalf("other port accepted")
+	}
+}
+
+func TestUpgradeSameHostWS(t *testing.T) {
+	base := func(s string) *url.URL { u, _ := url.Parse(s); return u }
+	for _, tc := range []struct{ base, ws, want string }{
+		{"https://cs.sivert.io", "ws://cs.sivert.io/api/fleet/host", "wss://cs.sivert.io/api/fleet/host"},
+		{"https://CS.sivert.io", "ws://cs.sivert.io:80/api/fleet/host", "wss://CS.sivert.io/api/fleet/host"},
+		{"https://cs.sivert.io:8443", "ws://cs.sivert.io:8443/api/fleet/host", "wss://cs.sivert.io:8443/api/fleet/host"},
+		{"https://cs.sivert.io", "ws://cs.sivert.io:3069/api/fleet/host", ""},
+		{"https://cs.sivert.io", "ws://other.example.com/api/fleet/host", ""},
+		{"http://10.0.0.5:3069", "ws://10.0.0.5:3069/api/fleet/host", ""},
+		{"https://cs.sivert.io", "wss://cs.sivert.io/api/fleet/host", ""},
+	} {
+		got, ok := UpgradeSameHostWS(base(tc.base), tc.ws)
+		if got != tc.want || ok != (tc.want != "") {
+			t.Errorf("%s + %s = %q %v, want %q", tc.base, tc.ws, got, ok, tc.want)
+		}
 	}
 }
 
