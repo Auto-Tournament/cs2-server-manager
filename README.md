@@ -124,7 +124,7 @@ csm install-monitor-cron   # run the monitor from cron (the crontab of the user 
 csm remove-monitor-cron
 
 # Auto Tournament host agent (the platform starts, stops, creates and updates servers)
-csm link <url> <code|key>  # link this machine to the platform (code from Settings → Hosts → Add host)
+csm link <url> <code|key>  # link this machine to the platform (code from Servers → Machines → Add machine)
 csm link status            # show the link (never the token)
 csm agent install          # run the host agent as a systemd service (csm agent = foreground)
 csm unlink                 # forget the link
@@ -201,7 +201,7 @@ Servers without Ready Up (for example with the Auto Tournament CS2 plugin) show 
 
 With the host agent, admins add a machine once and then start, stop, restart, create and update its servers from the [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) web UI. No SSH, and no inbound port: csm keeps one outbound WebSocket to the platform (`wss://<platform>/api/fleet/host`). This is the hosts channel of Ready Up's [fleet protocol](https://github.com/Auto-Tournament/ready-up/blob/master/docs/FLEET.md) (§18); Ready Up's own connection per server stays for the match itself.
 
-**1. Link the machine.** On the platform, open **Settings → Hosts → Add host** and copy the one-time code (valid 15 minutes). On the machine, as the CS2 user (or root):
+**1. Link the machine.** On the platform, open **Servers → Machines → Add machine** and copy the one-time code (valid 15 minutes). On the machine, as the CS2 user (or root):
 
 ```bash
 csm link https://cs.example.io RUE-7F3K-9QX2-LM4D-P8TW
@@ -305,7 +305,7 @@ csm update-plugins                   # install / update now (stops and restarts 
 
 **How it installs.** csm downloads the bundle zip (`ready-up-essentials-*` or `ready-up-full-*`) and `SHA256SUMS` once, refuses a zip that is not listed or does not match, and runs the `install.sh` that ships inside the bundle on each server as the CS2 user: `install.sh <bundle> --dir server-N --yes --zip <zip> --accept-license=<answer>`. install.sh verifies the checksum again, lays out `game/csgo/readyup/`, keeps everything in `cfg/ReadyUp/` (including `fleet.cfg`) and `readyup.cfg`, and adds `Game csgo/readyup` to `gameinfo.gi`. After a CS2 update replaces `gameinfo.gi`, csm puts that line back on every server that has Ready Up. csm never passes the license key on the command line (it is in `cfg/readyup_license.cfg`, written by `csm license set` or taken from the platform) and never touches GSLT or `sv_setsteamaccount`. A server csm creates (`csm` add-server, or the platform's `server.create`) gets Ready Up before its first start.
 
-**License answer.** Ready Up is free for noncommercial use (PolyForm Noncommercial 1.0.0); commercial use needs a paid license. install.sh needs your answer before an unattended install, and csm never picks one for you. It is asked once: `csm update-plugins` asks in a terminal (answer `I AGREE`), or set it with `csm plugins license noncommercial|commercial`. `AT_ACCEPT_LICENSE=noncommercial|commercial` (the same variable as the platform) overrides it. When no answer is saved and the platform hands over a license key (see [License key](#license-key)), csm records `commercial`, since a key is a paid license; a platform that sends `license.use` in the update-hold answer sets it directly. An answer you gave is never replaced.
+**License answer.** Ready Up is free for noncommercial use (PolyForm Noncommercial 1.0.0); commercial use needs a license. install.sh needs your answer before an unattended install, and csm never picks one for you. It is asked once: `csm update-plugins` asks in a terminal (answer `I AGREE`), or set it with `csm plugins license noncommercial|commercial`. `AT_ACCEPT_LICENSE=noncommercial|commercial` (the same variable as the platform) overrides it. When no answer is saved and the platform hands over a license key (see [License key](#license-key)), csm records `commercial`, since a key is a commercial license; a platform that sends `license.use` in the update-hold answer sets it directly. An answer you gave is never replaced.
 
 **Automatic updates.** On the Ready Up stack every `csm monitor` cycle (cron, every 5 minutes) keeps Ready Up on its channel. It asks GitHub at most every 30 minutes. A server is updated only when updates are not on hold (`csm updates hold`, or the platform's update-hold while a tournament runs) and it is stopped, or Ready Up reports `update_safe: true` with nobody connected for the idle grace period (`csm updates grace`). Never mid-match. A failed update is retried after an hour. Each cycle logs what it did to `csm.log`.
 
