@@ -62,6 +62,12 @@ func InstanceStatusReport(ctx context.Context, only int) (string, error) {
 				upd = "current"
 			}
 		}
+		if pin := m.PinnedLayer(n); pin != "" {
+			if !r.Target.Running {
+				layer = filepath.Base(pin)
+			}
+			layer += " (private)"
+		}
 		ru := string(r.State)
 		if r.Status != nil {
 			ru = PhaseLabel(r.Status.Summary)
@@ -86,6 +92,7 @@ func InstanceLayerReport() (string, error) {
 	}
 	cur, _ := m.CurrentLayer()
 	used := m.layersInUse()
+	pinned := m.pinnedLayers()
 	var b strings.Builder
 	layers := m.ListLayers()
 	if len(layers) == 0 {
@@ -101,6 +108,11 @@ func InstanceLayerReport() (string, error) {
 		}
 		if used[filepath.Clean(d)] {
 			mark = strings.TrimPrefix(mark+", in use", ", ")
+		}
+		if n, ok := pinned[filepath.Clean(d)]; ok {
+			mark = strings.TrimPrefix(mark+fmt.Sprintf(", instance %d only", n), ", ")
+		} else if info.For > 0 {
+			mark = strings.TrimPrefix(mark+fmt.Sprintf(", was instance %d's", info.For), ", ")
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\n", info.ID, info.Core, info.Bundle, m.ReadGameInfo(m.layerGame(d)).ID, info.MasterBuild, info.BuiltAt, info.Reason, mark)
 	}

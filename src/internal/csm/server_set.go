@@ -49,7 +49,7 @@ func (s *ServerSet) Noun() string {
 // Numbers lists the servers (instances) there are.
 func (s *ServerSet) Numbers() []int {
 	if s.IsInstances() {
-		return s.Instances.List()
+		return s.Instances.Serving()
 	}
 	out := make([]int, 0, s.Tmux.NumServers)
 	for n := 1; n <= s.Tmux.NumServers; n++ {
@@ -110,7 +110,7 @@ func (s *ServerSet) Notes() string {
 	var b strings.Builder
 	if cur, err := m.CurrentLayer(); err == nil {
 		info := m.ReadLayerInfo(cur)
-		fmt.Fprintf(&b, "Ready Up layer %s (core %s) on CS2 game version %s (build %d)\n", info.ID, info.Core, m.ReadGameInfo(m.layerGame(cur)).ID, m.currentLayerBuild())
+		fmt.Fprintf(&b, "Ready Up layer %s (core %s) on CS2 game version %s (build %d)\n", info.ID, info.Core, m.ReadGameInfo(m.layerGame(cur)).ID, gameBuild(m.layerGame(cur)))
 	} else {
 		fmt.Fprintf(&b, "No Ready Up layer yet: csm instance layer build\n")
 	}
@@ -160,7 +160,7 @@ func (s *ServerSet) Restart(ctx context.Context, n int) error {
 
 func (s *ServerSet) pick(n int) []int {
 	if n == 0 {
-		return s.Instances.List()
+		return s.Instances.Serving()
 	}
 	return []int{n}
 }
