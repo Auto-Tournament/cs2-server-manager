@@ -12,23 +12,29 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sivert-io/cs2-server-manager/src/internal/readyup"
 )
 
 // Where host.update_plugins gets Ready Up from
 //
-// Ready Up installs with its own install.sh (bundles essentials / full, or a
-// local zip with --zip). host.update_plugins {readyup: {version, bundle}} maps
-// bundle "default" to essentials and "skins" to full.
+// Ready Up installs with its own install.sh. host.update_plugins {readyup:
+// {version, bundle}} maps bundle "default" to essentials and "skins" to full.
 //
 //   - With `readyup_bundle` set in fleet/agent.json (a local zip, or an https
 //     URL; {version} and {bundle} in it are replaced), csm installs that zip.
-//   - Without it, csm asks GitHub for the release tag (or the latest
-//     release) and lets install.sh download it. No such release gives
-//     host.result failed / no_release: csm never reports an install that did
-//     not happen.
+//   - Without it, csm resolves the GitHub release the same way `csm
+//     update-plugins` does (package readyup): version "latest" means the
+//     host's pinned version when the operator set one (csm plugins version),
+//     else the newest release on the host's channel (csm plugins channel
+//     stable|beta). csm downloads that bundle once, checks it against the
+//     release's SHA256SUMS and runs the install.sh inside it with --zip on
+//     every target. No such release gives host.result failed / no_release:
+//     csm never reports an install that did not happen.
 //
-// install.sh itself comes from `readyup_installer` (a local path or an https
-// URL), by default the one on Ready Up's master branch.
+// `readyup_installer` (a local path or an https URL) replaces the install.sh
+// from the bundle. The license answer is readyup_accept_license, else the
+// host's `csm plugins license` answer (or AT_ACCEPT_LICENSE).
 
 // Defaults for the Ready Up source.
 const (
@@ -131,12 +137,23 @@ type PlanError struct {
 
 func (e *PlanError) Error() string { return e.Msg }
 
+// ReadyUpDefaults are the operator's Ready Up settings on this host (csm
+// plugins ...): the channel, a pinned version, the license answer.
+type ReadyUpDefaults struct {
+	Channel       string
+	Version       string
+	AcceptLicense string
+	// API overrides the GitHub API base URL (mirrors, tests).
+	API string
+}
+
 // Fetcher downloads Ready Up sources. HTTPClient and GitHubAPI are
-// overridable for tests.
+// overridable for tests; Defaults supplies the host's Ready Up settings.
 type Fetcher struct {
 	HTTPClient *http.Client
 	GitHubAPI  string
 	TempDir    string
+	Defaults   func() ReadyUpDefaults
 }
 
 func (f *Fetcher) client() *http.Client {
@@ -146,25 +163,41 @@ func (f *Fetcher) client() *http.Client {
 	return &http.Client{Timeout: 10 * time.Minute}
 }
 
-// componentFor maps the protocol's bundle to install.sh's name.
-func componentFor(bundle string) string {
-	if bundle == "skins" {
-		return "full"
+func (f *Fetcher) defaults() ReadyUpDefaults {
+	if f.Defaults == nil {
+		return ReadyUpDefaults{}
 	}
-	return "essentials"
+	return f.Defaults()
 }
 
-// Prepare resolves a Ready Up plan: installer and bundle downloaded to temp
-// files (removed by the returned cleanup), or a release tag install.sh will
-// fetch. A missing release is a *PlanError with CodeNoRelease.
+// componentFor maps the protocol's bundle to install.sh's name.
+func componentFor(bundle string) string {
+	b, err := readyup.NormalizeBundle(bundle)
+	if err != nil {
+		return readyup.BundleEssentials
+	}
+	return b
+}
+
+// Prepare resolves a Ready Up plan: a verified bundle zip and an installer
+// in temp files (removed by the returned cleanup). A missing release is a
+// *PlanError with CodeNoRelease.
 func (f *Fetcher) Prepare(ctx context.Context, cfg AgentConfig, version, bundle string) (ReadyUpPlan, func(), error) {
 	var tmpFiles []string
+	var tmpDirs []string
 	cleanup := func() {
 		for _, p := range tmpFiles {
 			_ = os.Remove(p)
 		}
+		for _, d := range tmpDirs {
+			_ = os.RemoveAll(d)
+		}
 	}
+	def := f.defaults()
 	plan := ReadyUpPlan{Component: componentFor(bundle), AcceptLicense: cfg.ReadyUpAcceptLicense}
+	if plan.AcceptLicense == "" {
+		plan.AcceptLicense = def.AcceptLicense
+	}
 
 	if src := strings.TrimSpace(cfg.ReadyUpBundle); src != "" {
 		src = strings.NewReplacer("{version}", version, "{bundle}", plan.Component).Replace(src)
@@ -178,14 +211,20 @@ func (f *Fetcher) Prepare(ctx context.Context, cfg AgentConfig, version, bundle 
 		}
 		plan.Zip = path
 	} else {
-		tag, err := f.releaseTag(ctx, cfg, version)
+		b, err := f.download(ctx, cfg, def, version, plan.Component)
 		if err != nil {
 			return plan, func() {}, err
 		}
-		plan.Version = tag
+		tmpDirs = append(tmpDirs, b.Dir)
+		plan.Version = b.Tag
+		plan.Zip = b.Zip
+		plan.Installer = b.Installer
 	}
 
 	inst := strings.TrimSpace(cfg.ReadyUpInstaller)
+	if inst == "" && plan.Installer != "" {
+		return plan, cleanup, nil
+	}
 	if inst == "" {
 		inst = DefaultReadyUpInstaller
 	}
@@ -201,56 +240,40 @@ func (f *Fetcher) Prepare(ctx context.Context, cfg AgentConfig, version, bundle 
 	return plan, cleanup, nil
 }
 
-// releaseTag asks GitHub whether the release exists.
-func (f *Fetcher) releaseTag(ctx context.Context, cfg AgentConfig, version string) (string, error) {
-	repo := cfg.ReadyUpRepo
-	if repo == "" {
-		repo = DefaultReadyUpRepo
-	}
+// download resolves the release (version, else the host's pin, else the
+// newest on the host's channel) and downloads the verified bundle.
+func (f *Fetcher) download(ctx context.Context, cfg AgentConfig, def ReadyUpDefaults, version, component string) (*readyup.Bundle, error) {
 	api := f.GitHubAPI
 	if api == "" {
-		api = "https://api.github.com"
+		api = def.API
 	}
-	u := api + "/repos/" + repo + "/releases/latest"
-	if version != "latest" {
-		tag := version
-		if !strings.HasPrefix(tag, "v") {
-			tag = "v" + tag
-		}
-		u = api + "/repos/" + repo + "/releases/tags/" + url.PathEscape(tag)
+	c := &readyup.Client{HTTP: f.client(), API: api, Repo: cfg.ReadyUpRepo, UserAgent: "csm-host-agent"}
+	v := strings.TrimSpace(version)
+	if v == "" || strings.EqualFold(v, "latest") {
+		v = def.Version
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	rel, err := c.Resolve(ctx, def.Channel, v)
 	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "csm-host-agent")
-	resp, err := f.client().Do(req)
-	if err != nil {
-		return "", &PlanError{Code: CodeNoRelease, Msg: "could not ask GitHub for Ready Up releases: " + err.Error()}
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode == http.StatusNotFound {
-		what := "release " + version
-		if version == "latest" {
-			what = "release"
+		code := CodeNoRelease
+		var re *readyup.Error
+		if errors.As(err, &re) && re.Code != readyup.CodeNoRelease {
+			code = CodeInstallFailed
 		}
-		return "", &PlanError{Code: CodeNoRelease, Msg: fmt.Sprintf(
-			"Ready Up has no published %s in %s. Point csm at a bundle instead: csm agent config readyup_bundle <zip path or https URL>", what, repo)}
+		msg := err.Error()
+		if code == CodeNoRelease {
+			msg += " (or point csm at a bundle: csm agent config readyup_bundle <zip path or https URL>)"
+		}
+		return nil, &PlanError{Code: code, Msg: msg}
 	}
-	if resp.StatusCode != http.StatusOK {
-		return "", &PlanError{Code: CodeNoRelease, Msg: fmt.Sprintf("GitHub answered %d for the Ready Up release", resp.StatusCode)}
+	b, err := c.Download(ctx, rel, component, f.TempDir)
+	if err != nil {
+		code := CodeInstallFailed
+		if readyup.IsNoRelease(err) {
+			code = CodeNoRelease
+		}
+		return nil, &PlanError{Code: code, Msg: err.Error()}
 	}
-	var rel struct {
-		TagName    string `json:"tag_name"`
-		Draft      bool   `json:"draft"`
-		Prerelease bool   `json:"prerelease"`
-	}
-	if err := json.Unmarshal(body, &rel); err != nil || rel.TagName == "" || rel.Draft {
-		return "", &PlanError{Code: CodeNoRelease, Msg: "the Ready Up release has no tag"}
-	}
-	return rel.TagName, nil
+	return b, nil
 }
 
 // fetch returns a local path for src: the path itself, or a temp download of

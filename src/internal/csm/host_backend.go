@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/sivert-io/cs2-server-manager/src/internal/hostagent"
+	"github.com/sivert-io/cs2-server-manager/src/internal/readyup"
 )
 
 // The host agent's view of this machine (hostagent.Backend)
@@ -461,34 +462,15 @@ func (b *HostBackend) InstallReadyUp(ctx context.Context, server int, plan hosta
 		return "", err
 	}
 	dir := mgr.serverDir(server)
-	args := []string{"bash", shellQuote(plan.Installer), shellQuote(plan.Component), "--dir", shellQuote(dir), "--yes"}
-	switch {
-	case plan.Zip != "":
-		args = append(args, "--zip", shellQuote(plan.Zip))
-	case plan.Version != "":
-		args = append(args, "--version", shellQuote(plan.Version))
-	}
-	if plan.AcceptLicense != "" {
-		args = append(args, "--accept-license="+shellQuote(plan.AcceptLicense))
-	}
-	cmdline := "NO_COLOR=1 " + strings.Join(args, " ") + " </dev/null"
-	cctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
-	defer cancel()
-	cmd := userShellCommand(mgr.CS2User, cmdline)
+	cmdline := readyup.InstallArgs{
+		Installer: plan.Installer, Bundle: plan.Component, Dir: dir,
+		Zip: plan.Zip, Version: plan.Version, AcceptLicense: plan.AcceptLicense,
+	}.Cmdline()
 	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err = <-done:
-	case <-cctx.Done():
-		_ = cmd.Process.Kill()
-		err = fmt.Errorf("install.sh did not finish in 15 minutes")
-		<-done
+	err = runReadyUpInstaller(ctx, mgr.CS2User, cmdline, &buf)
+	if err == nil {
+		applyStoredLicenseToServer(&buf, mgr.CS2User, server)
+		adoptReadyUpStack(&buf, "platform")
 	}
 	out := buf.String()
 	LogAction("agent", fmt.Sprintf("install Ready Up on server-%d", server), out, err)

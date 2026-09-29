@@ -457,7 +457,7 @@ func (a *Agent) handleUpdatePlugins(ctx context.Context, ref string, c *UpdatePl
 	}
 	a.progress(ref, "done", 100)
 	src := plan.Version
-	if plan.Zip != "" {
+	if src == "" {
 		src = "the configured bundle"
 	}
 	return okResult(fmt.Sprintf("Ready Up %s (%s) installed on %s\n%s", src, plan.Component, strings.Join(done, ", "), out.String()))

@@ -42,10 +42,11 @@ const agentUsage = `usage:
   csm agent config [key [value]]
       Agent settings (fleet/agent.json). Keys:
         readyup_bundle          Ready Up bundle for host.update_plugins: a zip path or https URL
-                                ({version} and {bundle} are replaced). Unset: GitHub releases.
-        readyup_installer       Ready Up install.sh: a path or https URL (default: master's)
-        readyup_accept_license  noncommercial | commercial, passed to install.sh (unattended
-                                installs need it; csm never picks one for you)
+                                ({version} and {bundle} are replaced). Unset: the GitHub release
+                                on the host's channel (csm plugins channel/version), SHA256-checked.
+        readyup_installer       Ready Up install.sh: a path or https URL (default: the one in the bundle)
+        readyup_accept_license  noncommercial | commercial, passed to install.sh. Unset: the
+                                host's answer (csm plugins license, or AT_ACCEPT_LICENSE)
         readyup_repo            owner/name for the releases lookup
       "csm agent config <key> ''" clears a key.`
 
@@ -260,9 +261,9 @@ func agentConfig(args []string) (string, error) {
 		}
 		return fmt.Sprintf("%-24s %s\n", k, v)
 	}
-	return show("readyup_bundle", c.ReadyUpBundle, "-> GitHub release of the requested version") +
-		show("readyup_installer", c.ReadyUpInstaller, "-> "+hostagent.DefaultReadyUpInstaller) +
-		show("readyup_accept_license", c.ReadyUpAcceptLicense, "-> install.sh asks; unattended installs fail until set") +
+	return show("readyup_bundle", c.ReadyUpBundle, "-> GitHub release (csm plugins channel/version), SHA256-checked") +
+		show("readyup_installer", c.ReadyUpInstaller, "-> install.sh from the bundle") +
+		show("readyup_accept_license", c.ReadyUpAcceptLicense, "-> csm plugins license / AT_ACCEPT_LICENSE") +
 		show("readyup_repo", c.ReadyUpRepo, "-> "+hostagent.DefaultReadyUpRepo), nil
 }
 
@@ -284,6 +285,7 @@ func runAgent() error {
 		CSMVersion: tui.Version(),
 		OS:         csm.HostOSDescription(),
 		Hostname:   hostname,
+		Fetcher:    &hostagent.Fetcher{Defaults: csm.HostReadyUpDefaults},
 		Logf: func(format string, args ...any) {
 			line := fmt.Sprintf(format, args...)
 			logger.Print(line)
