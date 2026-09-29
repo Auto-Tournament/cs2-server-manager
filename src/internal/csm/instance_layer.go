@@ -61,6 +61,8 @@ type LayerInfo struct {
 	Zip         string `json:"zip,omitempty"`  // file name inside <id>.src/
 	Installer   string `json:"installer,omitempty"`
 	Reason      string `json:"reason,omitempty"`
+	// For is the instance a private layer was built for (0 = shared).
+	For int `json:"for,omitempty"`
 }
 
 // errNoLayer is returned while no layer has been built yet.
@@ -220,6 +222,23 @@ func layerBuildCmdline(master, upper, work, mnt string, install readyup.InstallA
 // BuildLayer builds a new layer from src and makes it current. Running
 // instances keep their layer until they restart.
 func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src LayerSource, reason string) (string, error) {
+	return m.buildLayer(ctx, w, src, reason, 0)
+}
+
+// BuildLayerFor builds a private layer for instance n only
+// (instance_private.go): layers/current does not move, instance n is pinned
+// to it, and its previous private layer is collected.
+func (m *InstanceManager) BuildLayerFor(ctx context.Context, w io.Writer, src LayerSource, reason string, n int) (string, error) {
+	if n < 1 {
+		return "", fmt.Errorf("not an instance number: %d", n)
+	}
+	if !m.Exists(n) {
+		return "", fmt.Errorf("instance %d does not exist (csm instance create %d)", n, n)
+	}
+	return m.buildLayer(ctx, w, src, reason, n)
+}
+
+func (m *InstanceManager) buildLayer(ctx context.Context, w io.Writer, src LayerSource, reason string, forN int) (string, error) {
 	if err := m.requireInstancePrivileges("instance layer build"); err != nil {
 		return "", err
 	}
@@ -257,7 +276,7 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 
 	// Keep what the layer is built from, so a CS2 update can rebuild it.
 	info := LayerInfo{ID: id, Bundle: src.Bundle, Tag: src.Version, BuiltAt: time.Now().UTC().Format(time.RFC3339),
-		MasterBuild: gameBuild(game), Game: game, Reason: reason, Installer: "install.sh"}
+		MasterBuild: gameBuild(game), Game: game, Reason: reason, Installer: "install.sh", For: forN}
 	if err := copyFile(src.Installer, filepath.Join(srcDir, "install.sh"), 0o755); err != nil {
 		return "", fmt.Errorf("copy install.sh: %w", err)
 	}
@@ -323,6 +342,13 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 		_ = removeTreeForce(srcDir)
 		return "", err
 	}
+	if forN > 0 {
+		// Pinned before <id>.json says For: a GC in between sees either a
+		// layer newer than current or a pinned one, and keeps it.
+		if err := m.pin(forN, id); err != nil {
+			return "", err
+		}
+	}
 	if err := writeJSONAtomic(final+".json", info); err != nil {
 		return "", err
 	}
@@ -330,6 +356,11 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 		return "", err
 	}
 	m.own(final+".json", layerGameFile(final))
+	if forN > 0 {
+		fmt.Fprintf(w, "[✓] Ready Up layer %s (core %s, CS2 build %d) is instance %d's own; layers/current and the other instances are unchanged.\n", id, info.Core, info.MasterBuild, forN)
+		m.GC(w)
+		return final, nil
+	}
 	if err := m.setCurrentLayer(id); err != nil {
 		return "", err
 	}
@@ -362,6 +393,9 @@ func (m *InstanceManager) UseLayer(id string) error {
 	if id == "" || strings.ContainsAny(id, "/\\") || strings.HasPrefix(id, ".") {
 		return fmt.Errorf("not a layer id: %q", id)
 	}
+	if info := m.ReadLayerInfo(filepath.Join(m.L.LayersDir(), id)); info.For > 0 {
+		return fmt.Errorf("layer %s was built for instance %d only; it never becomes current", id, info.For)
+	}
 	return m.setCurrentLayer(id)
 }
 
@@ -383,6 +417,7 @@ func (m *InstanceManager) layersInUse() map[string]bool {
 func (m *InstanceManager) gcLayers(w io.Writer) {
 	current, _ := m.CurrentLayer()
 	used := m.layersInUse()
+	pinned := m.pinnedLayers()
 	all := m.ListLayers()
 	curGame := ""
 	if current != "" {
@@ -391,6 +426,14 @@ func (m *InstanceManager) gcLayers(w io.Writer) {
 	keptPrevious := false
 	for i := len(all) - 1; i >= 0; i-- {
 		d := filepath.Clean(all[i])
+		if _, ok := pinned[d]; ok || m.ReadLayerInfo(d).For > 0 {
+			// A private layer: kept while an instance is pinned to it or
+			// runs on it, never a rollback target, collected after.
+			if !ok && !used[d] {
+				m.removeLayer(w, d)
+			}
+			continue
+		}
 		// A layer newer than current is one a build just finished (it becomes
 		// current next); never collect it.
 		if d == filepath.Clean(current) || used[d] || filepath.Base(d) > filepath.Base(current) {
@@ -400,12 +443,17 @@ func (m *InstanceManager) gcLayers(w io.Writer) {
 			keptPrevious = true
 			continue
 		}
-		if err := removeTreeForce(d); err == nil {
-			_ = removeTreeForce(d + ".src")
-			_ = os.Remove(d + ".json")
-			_ = os.Remove(layerGameFile(d))
-			fmt.Fprintf(w, "[Ready Up layer] removed unused layer %s\n", filepath.Base(d))
-		}
+		m.removeLayer(w, d)
+	}
+}
+
+// removeLayer deletes a layer with its sources and metadata.
+func (m *InstanceManager) removeLayer(w io.Writer, d string) {
+	if err := removeTreeForce(d); err == nil {
+		_ = removeTreeForce(d + ".src")
+		_ = os.Remove(d + ".json")
+		_ = os.Remove(layerGameFile(d))
+		fmt.Fprintf(w, "[Ready Up layer] removed unused layer %s\n", filepath.Base(d))
 	}
 }
 
@@ -525,7 +573,7 @@ func sameFileContent(a, b string) bool {
 
 // Shadows lists instance n's shadowing of the current layer.
 func (m *InstanceManager) Shadows(n int) ([]LayerShadow, error) {
-	cur, err := m.CurrentLayer()
+	cur, err := m.EffectiveLayer(n)
 	if err != nil {
 		return nil, err
 	}

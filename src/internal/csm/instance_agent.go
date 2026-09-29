@@ -29,6 +29,9 @@ func (b *HostBackend) checkInstance(m *InstanceManager, n int) error {
 	if !m.Exists(n) {
 		return fmt.Errorf("server-%d does not exist (no instance %d)", n, n)
 	}
+	if m.Pinned(n) {
+		return fmt.Errorf("instance %d runs a private Ready Up layer (CI); it is not one of this host's servers", n)
+	}
 	return nil
 }
 
@@ -200,7 +203,7 @@ func (b *HostBackend) instanceRemoveLast() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	list := m.List()
+	list := m.Serving()
 	if len(list) == 0 {
 		return "", fmt.Errorf("no instances to remove")
 	}

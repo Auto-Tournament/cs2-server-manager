@@ -26,11 +26,19 @@ Ready Up status +7; base 27005 = 27015 for instance 1).
   csm instance status [N]          state, ports, Ready Up phase, layer, pending restarts
   csm instance remove N [--force]  delete it and everything it wrote
   csm instance shell N             a shell in instance N's merged view (stopped instances)
+  csm instance exec N -- CMD...    run CMD in stopped instance N's view (cwd = the view,
+                                   $CSM_INSTANCE_DIR); CI uses it to run its own cs2.sh
+  csm instance reset N             empty stopped instance N's upper layer (what it wrote)
   csm instance attach N            the instance's console (tmux; Ctrl-b d detaches)
   csm instance logs N [lines]      console log tail
   csm instance layer [status]      Ready Up layers (shared, read-only)
   csm instance layer build [--zip Z --installer I] [--bundle essentials|full]
-                                   build a layer (default: the csm plugins release)
+                           [--accept-license noncommercial|commercial] [--for N]
+                                   build a layer (default: the csm plugins release);
+                                   --for N: instance N's private layer (CI): current does
+                                   not move, no other instance ever uses it, N's previous
+                                   private layer is removed
+  csm instance layer unpin N       instance N back on the shared layer
   csm instance layer rebuild       same Ready Up, rebuilt on the current CS2 build
   csm instance layer use <id>      make an older layer current (rollback)
   csm instance update [--zip Z --installer I]
@@ -164,7 +172,7 @@ func instanceCommand(args []string) {
 // instanceNumbers parses N or "all".
 func instanceNumbers(m *csm.InstanceManager, arg string) ([]int, error) {
 	if arg == "all" {
-		l := m.List()
+		l := m.Serving()
 		if len(l) == 0 {
 			return nil, errors.New("no instances yet (csm instance create)")
 		}
@@ -177,9 +185,17 @@ func instanceNumbers(m *csm.InstanceManager, arg string) ([]int, error) {
 	return []int{n}, nil
 }
 
-// layerFlags parses --zip/--installer/--bundle.
+// layerFlags parses --zip/--installer/--bundle/--accept-license.
 func layerFlags(args []string) (*csm.LayerSource, error) {
+	src, _, err := layerBuildFlags(args, false)
+	return src, err
+}
+
+// layerBuildFlags is layerFlags plus --for N (allowFor).
+func layerBuildFlags(args []string, allowFor bool) (*csm.LayerSource, int, error) {
 	var src csm.LayerSource
+	forN := 0
+	license := ""
 	for i := 0; i < len(args); i++ {
 		val := func() (string, error) {
 			if i+1 >= len(args) {
@@ -196,23 +212,42 @@ func layerFlags(args []string) (*csm.LayerSource, error) {
 			src.Installer, err = val()
 		case "--bundle":
 			src.Bundle, err = val()
+		case "--accept-license":
+			if license, err = val(); err == nil && license != "noncommercial" && license != "commercial" {
+				err = fmt.Errorf("--accept-license is noncommercial or commercial, not %q", license)
+			}
+		case "--for":
+			if !allowFor {
+				return nil, 0, fmt.Errorf("unknown option %q", args[i])
+			}
+			var v string
+			if v, err = val(); err == nil {
+				if forN, err = strconv.Atoi(v); err != nil || forN < 1 {
+					err = fmt.Errorf("--for needs an instance number, not %q", v)
+				}
+			}
 		default:
-			return nil, fmt.Errorf("unknown option %q", args[i])
+			return nil, 0, fmt.Errorf("unknown option %q", args[i])
 		}
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 	if src.Zip == "" && src.Installer == "" {
-		return nil, nil
+		if forN > 0 {
+			return nil, 0, errors.New("--for needs --zip and --installer (the bundle to test)")
+		}
+		return nil, 0, nil
 	}
 	if src.Zip == "" || src.Installer == "" {
-		return nil, errors.New("--zip and --installer go together")
+		return nil, 0, errors.New("--zip and --installer go together")
 	}
-	if s, err := csm.LoadPluginSettings(); err == nil {
+	if license != "" {
+		src.AcceptLicense = license
+	} else if s, err := csm.LoadPluginSettings(); err == nil {
 		src.AcceptLicense = s.Resolved().AcceptLicense
 	}
-	return &src, nil
+	return &src, forN, nil
 }
 
 func runInstanceCommand(args []string) (string, error) {
@@ -315,6 +350,29 @@ func runInstanceCommand(args []string) (string, error) {
 			return "", err
 		}
 		return "", cmd.Run()
+	case "exec":
+		// csm instance exec N [--] cmd args...
+		if err := need(3); err != nil {
+			return "", err
+		}
+		n, err := strconv.Atoi(args[1])
+		if err != nil || n < 1 {
+			return "", fmt.Errorf("not an instance number: %q", args[1])
+		}
+		cmd := args[2:]
+		if cmd[0] == "--" {
+			cmd = cmd[1:]
+		}
+		return "", m.ExecInInstance(n, cmd)
+	case "reset":
+		if err := need(2); err != nil {
+			return "", err
+		}
+		n, err := strconv.Atoi(args[1])
+		if err != nil || n < 1 {
+			return "", fmt.Errorf("not an instance number: %q", args[1])
+		}
+		return b.String(), m.Reset(w, n)
 	case "attach":
 		if err := need(2); err != nil {
 			return "", err
@@ -365,11 +423,13 @@ func runInstanceCommand(args []string) (string, error) {
 		case "status":
 			return csm.InstanceLayerReport()
 		case "build":
-			src, err := layerFlags(args[2:])
+			src, forN, err := layerBuildFlags(args[2:], true)
 			if err != nil {
 				return "", err
 			}
-			if src != nil {
+			if src != nil && forN > 0 {
+				_, err = m.BuildLayerFor(ctx, w, *src, fmt.Sprintf("private for instance %d", forN), forN)
+			} else if src != nil {
 				_, err = m.BuildLayer(ctx, w, *src, "operator")
 			} else {
 				_, err = m.BuildLayerFromRelease(ctx, w, "operator")
@@ -378,6 +438,15 @@ func runInstanceCommand(args []string) (string, error) {
 		case "rebuild":
 			_, err := m.RebuildLayer(ctx, w, "operator rebuild")
 			return "", err
+		case "unpin":
+			if len(args) < 3 {
+				return "", errors.New("usage: csm instance layer unpin N")
+			}
+			n, err := strconv.Atoi(args[2])
+			if err != nil || n < 1 {
+				return "", fmt.Errorf("not an instance number: %q", args[2])
+			}
+			return "", m.Unpin(w, n)
 		case "use":
 			if len(args) < 3 {
 				return "", errors.New("usage: csm instance layer use <id>")
