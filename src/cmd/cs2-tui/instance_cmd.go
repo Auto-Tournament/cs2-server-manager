@@ -35,13 +35,115 @@ Ready Up status +7; base 27005 = 27015 for instance 1).
   csm instance layer use <id>      make an older layer current (rollback)
   csm instance update [--zip Z --installer I]
                                    Ready Up update: new layer, then restart idle instances
-  csm instance update-game         CS2 update: master once, layer rebuild, idle restarts
+  csm instance update-game         CS2 update: a new game version (the running one is never
+                                   written), layer rebuild, idle restarts
+  csm instance game                CS2 game versions (current, in use, unused)
+  csm instance gc                  remove layers and game versions nothing uses
   csm instance config [<key> <value>]
                                    backend servers|instances, base_port, map, max_players,
                                    private_shm on|off, nice 0..19
 
 Busy instances (a match on, players connected, or updates on hold) are never
 restarted for an update; csm monitor restarts them once idle.`
+
+// instanceBackendCommand runs a plain `csm start|stop|restart|logs|attach`
+// against the instances when this host's backend is instances (instance N
+// is server N). It reports false on a server-N host, where the caller runs
+// the command as before.
+func instanceBackendCommand(cmd string, args []string) bool {
+	if !csm.InstanceBackendOn() {
+		return false
+	}
+	out, err := runInstanceBackendCommand(cmd, args)
+	csm.LogAction("cli", strings.TrimSpace(cmd+" "+strings.Join(args, " "))+" (instances)", out, err)
+	if out != "" {
+		fmt.Print(out)
+	}
+	if err != nil {
+		var gate *csm.MatchInProgressError
+		fmt.Fprintf(os.Stderr, "%s: %v\n", cmd, err)
+		if errors.As(err, &gate) {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
+	return true
+}
+
+func runInstanceBackendCommand(cmd string, args []string) (string, error) {
+	force, rest := extractForce(args)
+	var pos []string
+	for _, a := range rest {
+		switch a {
+		case "--alternate", "-alternate", "--binary", "-binary":
+			return "", fmt.Errorf("%s does not apply to instances (they always run the cs2 binary in their overlay)", a)
+		}
+		pos = append(pos, a)
+	}
+	set, err := csm.OpenServerSet()
+	if err != nil {
+		return "", err
+	}
+	if set.Count() == 0 {
+		return "", errors.New(set.EmptyHint())
+	}
+	n := 0
+	if len(pos) > 0 && pos[0] != "all" {
+		if n, err = strconv.Atoi(pos[0]); err != nil || n < 1 {
+			return "", fmt.Errorf("invalid instance number %q (must be a positive integer)", pos[0])
+		}
+		if err := set.Check(n); err != nil {
+			return "", err
+		}
+	}
+	target := "all instances"
+	if n > 0 {
+		target = fmt.Sprintf("instance %d", n)
+	}
+	ctx := context.Background()
+	switch cmd {
+	case "start":
+		if err := set.Start(ctx, n); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Started %s. Status: csm status • console: csm attach <n>\n", target), nil
+	case "stop", "restart":
+		action := cmd
+		if n > 0 {
+			action = fmt.Sprintf("%s instance-%d", cmd, n)
+		}
+		if err := set.Gate(ctx, action, n, force, os.Stderr); err != nil {
+			return "", err
+		}
+		if cmd == "stop" {
+			err = set.Stop(n)
+		} else {
+			err = set.Restart(ctx, n)
+		}
+		if err != nil {
+			return "", err
+		}
+		past := map[string]string{"stop": "Stopped", "restart": "Restarted"}[cmd]
+		return fmt.Sprintf("%s %s.\n", past, target), nil
+	case "logs":
+		if n == 0 {
+			return "", errors.New("usage: csm logs <instance> [lines]")
+		}
+		lines := 0
+		if len(pos) > 1 {
+			if lines, err = strconv.Atoi(pos[1]); err != nil {
+				return "", fmt.Errorf("invalid line count %q", pos[1])
+			}
+		}
+		return set.Logs(n, lines)
+	case "attach":
+		if n == 0 {
+			return "", errors.New("usage: csm attach <instance>")
+		}
+		return runInstanceCommand([]string{"attach", strconv.Itoa(n)})
+	}
+	return "", fmt.Errorf("%s is not an instance command", cmd)
+}
 
 func instanceCommand(args []string) {
 	out, err := runInstanceCommand(args)
@@ -294,6 +396,16 @@ func runInstanceCommand(args []string) (string, error) {
 		return "", m.UpdateReadyUp(ctx, w, csm.InstanceHoldNow(ctx), src)
 	case "update-game":
 		return "", m.UpdateGame(ctx, w, csm.InstanceHoldNow(ctx))
+	case "game", "games":
+		return m.GameVersionsReport(), nil
+	case "gc":
+		if err := m.GCNow(w); err != nil {
+			return b.String(), err
+		}
+		if b.Len() == 0 {
+			return "Nothing to remove.\n", nil
+		}
+		return b.String(), nil
 	case "config":
 		if len(args) == 1 {
 			s, err := csm.LoadInstanceSettings()

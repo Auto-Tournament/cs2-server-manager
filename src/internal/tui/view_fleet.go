@@ -21,7 +21,8 @@ const fleetProcInterval = 10 * time.Second
 // fleetState is the dashboard while it is open. Messages carry the pointer so
 // a message from a dashboard that was already closed is ignored.
 type fleetState struct {
-	mgr     *csm.TmuxManager
+	mgr     *csm.ServerSet
+	notes   string // instance mode: layer, game version, pending restarts
 	watcher *csm.FleetWatcher
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -37,13 +38,14 @@ type fleetProcTickMsg struct{ fleet *fleetState }
 type fleetProcMsg struct {
 	fleet   *fleetState
 	targets []csm.FleetTarget
+	notes   string
 }
 
 // startFleetCmd discovers the servers (tmux checks go through su, so this
 // runs off the UI goroutine) and starts the watcher.
 func startFleetCmd() tea.Cmd {
 	return func() tea.Msg {
-		mgr, err := csm.NewTmuxManager()
+		mgr, err := csm.OpenServerSet()
 		if err != nil {
 			return viewportFinishedMsg{
 				title:   "Servers dashboard",
@@ -58,6 +60,7 @@ func startFleetCmd() tea.Cmd {
 			ctx:     ctx,
 			cancel:  cancel,
 			opened:  time.Now(),
+			notes:   mgr.Notes(),
 		}
 		f.watcher.Run(ctx)
 		return fleetStartedMsg{fleet: f}
@@ -91,7 +94,7 @@ func refreshFleetProcs(f *fleetState) tea.Cmd {
 		if f.ctx.Err() != nil {
 			return nil
 		}
-		return fleetProcMsg{fleet: f, targets: f.mgr.FleetTargets()}
+		return fleetProcMsg{fleet: f, targets: f.mgr.FleetTargets(), notes: f.mgr.Notes()}
 	}
 }
 
@@ -128,6 +131,7 @@ func (m model) updateFleetMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		if m.fleet == nil || msg.fleet != m.fleet {
 			return m, nil, true
 		}
+		m.fleet.notes = msg.notes
 		for _, t := range msg.targets {
 			m.fleet.watcher.SetProcess(t)
 		}
@@ -155,7 +159,11 @@ func (m model) updateFleetKey(key tea.KeyMsg) (model, tea.Cmd) {
 
 func (m model) viewFleet() string {
 	var b strings.Builder
-	header := headerBorderStyle.Render(titleStyle.Render("Servers dashboard")) +
+	title := "Servers dashboard"
+	if m.fleet != nil && m.fleet.mgr.IsInstances() {
+		title = "Instances dashboard"
+	}
+	header := headerBorderStyle.Render(titleStyle.Render(title)) +
 		"\n" +
 		headerBorderStyle.Render("Live from Ready Up • r re-checks processes • Enter/q/Esc to return")
 	fmt.Fprintln(&b, header)
@@ -168,6 +176,9 @@ func (m model) viewFleet() string {
 	rows := m.fleet.watcher.Rows()
 	fmt.Fprint(&b, csm.RenderFleetTable(rows, csm.FleetTableOptions{Color: true}))
 	fmt.Fprintln(&b)
+	if m.fleet.notes != "" {
+		fmt.Fprintln(&b, m.fleet.notes)
+	}
 
 	streaming, polling := 0, 0
 	for _, r := range rows {
