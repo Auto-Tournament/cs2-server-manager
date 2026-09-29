@@ -321,6 +321,49 @@ csm does not migrate a legacy host by itself. To move one:
 4. Link the servers to the platform: `csm link` for the host agent, and `cfg/ReadyUp/fleet.cfg` (`url`, `enroll_key`) per server, which csm writes for servers the platform creates.
 5. When nothing uses the legacy plugin any more, remove the `Game csgo/addons/metamod` line from each `game/csgo/gameinfo.gi` (or run the install wizard with Metamod off) and delete `game/csgo/addons/`. MatchZy's database and configs are not used by Ready Up.
 
+## Instance mode (one install, many servers)
+
+A `server-N` folder is a full copy of the CS2 install. Instance mode doesn't copy anything: every instance runs the one `master-install` read-only, and only stores the files it writes itself. Ten servers cost about as much disk as one.
+
+It works with kernel overlayfs inside an unprivileged user namespace (`unshare --user --map-root-user --mount`). No root, no sudo, no fuse-overlayfs; it needs Linux 5.11 or newer. Each instance sees three layers merged together, and only it can see the result:
+
+| Layer | Where | What |
+|---|---|---|
+| upper | `~/instances/instance-N/upper` | everything instance N writes: logs, demos, backups, Ready Up's `state.json` and `status.json`, `steam_appid.txt`, its `fleet.cfg` |
+| Ready Up layer | `~/instances/layers/<id>` | Ready Up, installed once by its own `install.sh`, plus the patched `gameinfo.gi` |
+| master | `~/master-install` | the CS2 install. Never written to |
+
+Each instance also gets its own `HOME` (Steam writes to `$HOME/Steam`) and, by default, its own `/dev/shm`. Instance N uses game port `base + 10×N`, GOTV `+1`, client port `+2` and the Ready Up status port `+7`. The default base is 27005, so instance 1 plays on 27015 like `server-1` does.
+
+```bash
+csm instance layer build             # install the configured Ready Up release into a shared layer
+csm instance create                  # instance 1 (then 2, 3, ...)
+csm instance start all
+csm instance status                  # state, ports, Ready Up phase, layer, pending restarts
+csm instance attach 1                # the server console (Ctrl-b d to leave)
+csm instance logs 1                  # console log tail
+csm instance shell 1                 # a shell in a stopped instance's merged view
+csm instance stop 1
+csm instance remove 1                # deletes the instance and everything it wrote
+```
+
+**Settings.** csm writes `cfg/instance.cfg` on every start (hostname, RCON password, `log on`, the license key). Put your own settings in `cfg/instance_custom.cfg` in the instance's `upper/game/csgo/cfg/`; it runs last. Don't edit Ready Up's own files in an instance: a changed copy of a layer file hides every later update of that file from that instance. `csm instance status` and every update warn about such copies.
+
+**Running.** Each instance runs in tmux session `cs2-inst-N` under a small supervisor script. If CS2 exits without `csm instance stop` (a crash, or `quit` in the console), the supervisor starts it again after 10 seconds. It gives up after 5 exits in 10 minutes. The console log is `~/instances/instance-N/console.log`.
+
+**Updates.** An update happens once for all instances:
+
+- **Ready Up**: `csm instance update` (or `csm monitor` following `csm plugins channel/version`) builds a new layer next to the old one and makes it current. Running instances keep the layer they started with.
+- **CS2**: `csm instance update-game` (or `csm update-game`, or `csm monitor` when an instance logs that an update is out) runs SteamCMD on the master install once, then rebuilds the Ready Up layer on the new build, because `gameinfo.gi` comes from the game.
+
+After either one, csm restarts only idle instances onto the new version. An instance is idle when Ready Up reports `update_safe: true` and nobody is connected. A busy instance keeps running and shows *restart pending*. `csm monitor` restarts it once it has been idle for the grace period (`csm updates grace`). Nothing restarts while updates are on hold (`csm updates hold`, or the platform's hold during a tournament), and never mid-match. `csm instance layer use <id>` switches back to an older layer; csm keeps the previous one.
+
+**Host agent.** With `csm instance config backend instances`, the host agent reports instances as the host's servers (instance N is `server-N` to the platform), and `server.create`, `start`, `stop`, `restart` and `remove` act on instances. A server the platform creates gets its own `fleet.cfg` (platform URL and enroll key) in its upper layer and enrolls itself; the platform links it. `host.update_plugins` updates the shared layer, and `host.update_game` updates the master once. An instance host can create its first server from the platform. The default backend stays `servers`, and nothing changes for existing `server-N` hosts.
+
+**Other settings.** `csm instance config` shows and sets `base_port`, `map`, `max_players`, `private_shm on|off` and `nice` (the game's CPU priority). Environment overrides: `CSM_SERVER_BACKEND`, `CSM_INSTANCE_ROOT`, `CSM_MASTER_DIR`, `CSM_INSTANCE_BASE_PORT`, `CSM_INSTANCE_NICE`, `CSM_STEAMCLIENT`, and `CSM_INSTANCE_MASTER_READONLY=1` if something else keeps the master install updated. Instances never get a GSLT.
+
+**Testing.** `scripts/instance-integration-test.sh` runs two real instances against a CS2 install and checks the isolation, the crash restart, the shadow warning, a Ready Up update with idle restarts, the update hold, and that the master install is left untouched. It needs two Ready Up bundle zips; the header has the details.
+
 ## Map thumbnails and maps.json
 
 `csm extract-map-data` reads the map screenshots out of the master install's `pak01_dir.vpk` and writes them to `map_thumbnails/` in the current directory: a PNG, a full-size WEBP and a 1280px `_thumb.webp` per map. Next to them it writes `maps.json`, which the Auto Tournament platform can read to learn which maps exist and which are in the current Active Duty pool:

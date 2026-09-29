@@ -236,6 +236,9 @@ type autoUpdateState struct {
 	Servers map[string]*serverUpdateState `json:"servers"`
 	// ReadyUp is the Ready Up updater's memory (readyup_auto_update.go).
 	ReadyUp *readyUpAutoState `json:"readyup,omitempty"`
+	// Instances / InstanceLayer are the instance-mode memory (instance_update.go).
+	Instances     map[string]*instanceAutoState `json:"instances,omitempty"`
+	InstanceLayer *instanceLayerAutoState       `json:"instance_layer,omitempty"`
 }
 
 func autoUpdateStatePath() string {

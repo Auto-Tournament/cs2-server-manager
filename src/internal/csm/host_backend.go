@@ -50,6 +50,7 @@ func NewHostBackend() *HostBackend {
 }
 
 var _ hostagent.Backend = (*HostBackend)(nil)
+var _ hostagent.FirstServerCreator = (*HostBackend)(nil)
 
 // HostAgentPaths is where the agent keeps its files: <csm root>/fleet/.
 func HostAgentPaths() hostagent.Paths { return hostagent.NewPaths(ResolveRoot()) }
@@ -62,6 +63,9 @@ var installIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{8,128}$`)
 
 // Servers lists server-1..N with process and Ready Up state.
 func (b *HostBackend) Servers(ctx context.Context) ([]hostagent.ServerState, error) {
+	if InstanceBackendOn() {
+		return b.instanceServers(ctx)
+	}
 	mgr, err := b.manager()
 	if err != nil {
 		return nil, err
@@ -82,8 +86,12 @@ func (b *HostBackend) Servers(ctx context.Context) ([]hostagent.ServerState, err
 }
 
 func (b *HostBackend) serverState(ctx context.Context, mgr *TmuxManager, r FleetRow) hostagent.ServerState {
+	_, tvPort := detectServerPorts(mgr.CS2User, r.Target.Server)
+	return b.serverStateTV(ctx, r, tvPort)
+}
+
+func (b *HostBackend) serverStateTV(ctx context.Context, r FleetRow, tvPort int) hostagent.ServerState {
 	t := r.Target
-	_, tvPort := detectServerPorts(mgr.CS2User, t.Server)
 	s := hostagent.ServerState{
 		Number: t.Server, Dir: t.Dir, GamePort: t.GamePort, TVPort: tvPort, StatusPort: r.StatusPort,
 		Running: t.Running, Updating: t.Updating, Health: "not_running", LaunchArgs: []string{},
@@ -221,6 +229,10 @@ func (b *HostBackend) Host(ctx context.Context) (hostagent.HostFacts, error) {
 
 	user := configuredCS2User()
 	mgr, merr := b.manager()
+	if InstanceBackendOn() {
+		b.instanceHostFacts(&f)
+		return f, nil
+	}
 	if merr == nil {
 		user = mgr.CS2User
 	}
@@ -324,6 +336,9 @@ func (b *HostBackend) checkServer(mgr *TmuxManager, server int) error {
 
 // Start starts one server. launchMode "" keeps csm's default launcher.
 func (b *HostBackend) Start(ctx context.Context, server int, launchMode string) error {
+	if InstanceBackendOn() {
+		return b.instanceStart(ctx, server)
+	}
 	mgr, err := b.manager()
 	if err != nil {
 		return err
@@ -354,6 +369,9 @@ func (b *HostBackend) Start(ctx context.Context, server int, launchMode string) 
 // Stop sends `quit` to the server console, waits up to graceS for it to
 // exit, then kills the tmux session (as `csm stop` does).
 func (b *HostBackend) Stop(ctx context.Context, server int, graceS int) error {
+	if InstanceBackendOn() {
+		return b.instanceStop(server, graceS)
+	}
 	mgr, err := b.manager()
 	if err != nil {
 		return err
@@ -391,6 +409,9 @@ func (m *TmuxManager) tmux(args ...string) error {
 
 // Restart restarts one server.
 func (b *HostBackend) Restart(ctx context.Context, server int) error {
+	if InstanceBackendOn() {
+		return b.instanceRestart(ctx, server)
+	}
 	mgr, err := b.manager()
 	if err != nil {
 		return err
@@ -405,6 +426,9 @@ func (b *HostBackend) Restart(ctx context.Context, server int) error {
 
 // CreateServer runs the add-server flow with a pre-start hook.
 func (b *HostBackend) CreateServer(ctx context.Context, beforeStart func(serverDir string) error) (int, string, error) {
+	if InstanceBackendOn() {
+		return b.instanceCreate(ctx, beforeStart)
+	}
 	n, out, err := AddServerInstanceForAgent(ctx, beforeStart)
 	LogAction("agent", "add server", out, err)
 	if err == nil {
@@ -424,6 +448,9 @@ func configuredOrDetectedUser() string {
 
 // RemoveLastServer removes the highest-numbered server.
 func (b *HostBackend) RemoveLastServer(ctx context.Context) (string, error) {
+	if InstanceBackendOn() {
+		return b.instanceRemoveLast()
+	}
 	out, err := RemoveLastServerInstance()
 	LogAction("agent", "remove last server", out, err)
 	return out, err
@@ -431,6 +458,9 @@ func (b *HostBackend) RemoveLastServer(ctx context.Context) (string, error) {
 
 // UpdateGame updates every server (servers nil) or the listed ones.
 func (b *HostBackend) UpdateGame(ctx context.Context, servers []int, progress func(step string)) (string, error) {
+	if InstanceBackendOn() {
+		return b.instanceUpdateGame(ctx, progress)
+	}
 	if len(servers) == 0 {
 		progress("SteamCMD update of the master install, then sync and restart of every server")
 		out, err := UpdateGameWithContext(ctx)
@@ -454,6 +484,9 @@ func (b *HostBackend) UpdateGame(ctx context.Context, servers []int, progress fu
 
 // InstallReadyUp runs Ready Up's install.sh for one server as the CS2 user.
 func (b *HostBackend) InstallReadyUp(ctx context.Context, server int, plan hostagent.ReadyUpPlan) (string, error) {
+	if InstanceBackendOn() {
+		return b.instanceInstallReadyUp(ctx, server, plan)
+	}
 	mgr, err := b.manager()
 	if err != nil {
 		return "", err
@@ -494,6 +527,9 @@ func (b *HostBackend) LogFile(server int, source string) (string, error) {
 	case "csm", "monitor":
 		// The monitor writes into csm's consolidated log (writeMonitorLog).
 		return filepath.Join(logDir(), "csm.log"), nil
+	}
+	if InstanceBackendOn() {
+		return b.instanceLogFile(server, source)
 	}
 	mgr, err := b.manager()
 	if err != nil {

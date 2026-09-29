@@ -285,12 +285,23 @@ func (a *Agent) handleCreate(ctx context.Context, ref string, c *ServerCreateCmd
 	if err != nil {
 		return failed(CodeFailed, "could not list servers: "+err.Error(), "")
 	}
+	next := 0
 	if len(all) == 0 {
-		return rejected(CodeUnsupported, "no servers on this host yet: run the csm install wizard once, then servers can be created from the platform")
+		// An instance-mode host can start from zero servers (instances run
+		// from the master install); a server-N host needs the wizard first.
+		first, ok := 0, false
+		if fc, isFC := a.opts.Backend.(FirstServerCreator); isFC {
+			first, ok = fc.FirstServerGamePort()
+		}
+		if !ok {
+			return rejected(CodeUnsupported, "no servers on this host yet: run the csm install wizard once, then servers can be created from the platform")
+		}
+		next = first
+	} else {
+		next = all[len(all)-1].GamePort + 10
 	}
 	if c.GamePort != nil {
-		last := all[len(all)-1]
-		if next := last.GamePort + 10; *c.GamePort != next || count != 1 {
+		if *c.GamePort != next || count != 1 {
 			return rejected(CodeUnsupported, fmt.Sprintf("csm spaces servers 10 ports apart: the next server gets game port %d", next))
 		}
 	}
