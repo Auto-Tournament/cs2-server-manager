@@ -28,7 +28,7 @@ Using it for a business, paid events or hosting? That needs a commercial licence
 > organisation, together with Auto Tournament (formerly MatchZy Auto Tournament). Old links
 > redirect, and nothing changes for existing installs.
 
-csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, sets up Metamod:Source, CounterStrikeSharp and [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) (formerly MatchZy Enhanced) on every server, runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
+csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, puts a plugin stack on every server ([Ready Up](https://github.com/Auto-Tournament/ready-up), or the legacy Metamod:Source + CounterStrikeSharp + [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin); see [Plugin stack](#plugin-stack-ready-up-or-legacy)), runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
 
 It's for people running their own match servers: LAN organisers, small leagues, and anyone using [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) who needs servers for it to control. The default MatchZy database is MySQL in a Docker container, so Docker is needed for that setup.
 
@@ -114,7 +114,8 @@ csm restart [server]
 
 # Updates
 csm update-game            # update CS2 game files
-csm update-plugins         # download and deploy plugins, restart servers
+csm update-plugins         # install/update the plugin stack on every server (Ready Up or legacy)
+csm plugins                # plugin stack, Ready Up channel/version/bundle/license, what each server has
 csm monitor                # run the auto-update monitor once
 csm updates hold on        # no automatic restarts; "off" to resume, "auto" to let the platform decide
 csm updates platform <url> <token> # let Auto Tournament hold updates while a tournament runs
@@ -229,10 +230,10 @@ journalctl -u csm-agent -f          # logs (journalctl --user -u csm-agent -f in
 |---|---|
 | `host.servers.list` | sends the inventory: every `server-N` with ports, process state, and Ready Up's version, `install_id`, phase and `update_safe` |
 | `server.start` / `server.stop` / `server.restart` | `csm start` / `stop` (console `quit`, then kill after the grace time) / `restart` |
-| `server.create` | adds the next `server-N` like the TUI's add-server. With `enroll: true` csm writes `game/csgo/cfg/ReadyUp/fleet.cfg` (`url` + `enroll_key`, mode 0600) before the first start, so Ready Up enrolls itself (FLEET §4.1 B). New servers have no Ready Up yet: install it with `host.update_plugins` |
+| `server.create` | adds the next `server-N` like the TUI's add-server. With `enroll: true` csm writes `game/csgo/cfg/ReadyUp/fleet.cfg` (`url` + `enroll_key`, mode 0600) before the first start, so Ready Up enrolls itself (FLEET §4.1 B). On the Ready Up stack csm installs Ready Up on the new server before that first start, so it comes up enrolled with no further step |
 | `server.remove` | removes the highest-numbered server (csm keeps `server-N` contiguous) |
 | `host.update_game` | `csm update-game`, or `csm update-server N` for a list |
-| `host.update_plugins` | installs Ready Up with its `install.sh` (bundle `default` → essentials, `skins` → full), stopping and restarting running servers |
+| `host.update_plugins` | installs Ready Up like `csm update-plugins` does (bundle `default` → essentials, `skins` → full; version `latest` = the host's channel or pin), stopping and restarting running servers. The first one on a host without a stack choice sets it to Ready Up |
 | `host.updates_hold` | `csm updates hold on\|off\|auto` |
 | `logs.tail` / `logs.stop` | tails a server console log, CS2's log (`readyup`), or `csm.log` (`csm`, `monitor`), optionally following it |
 
@@ -240,15 +241,13 @@ The agent also reports **health**: `exited` when a server process stops without 
 
 **Live matches.** `server.stop`, `server.restart`, `server.remove`, `host.update_game` and `host.update_plugins` are refused with `match_in_progress` for any server whose Ready Up says `update_safe: false`, exactly like the local `--force` gate. The platform can send `force` (root admins only, audited on the platform); csm then logs `FORCED …` with who and why.
 
-**Where Ready Up comes from.** Ready Up has no GitHub release yet. Until it does, point the agent at a bundle zip (a path, or an https URL with `{version}` / `{bundle}` placeholders):
+**Where Ready Up comes from.** The same place as `csm update-plugins`: the GitHub release on the host's channel (`csm plugins channel`) or its pinned version (`csm plugins version`), checked against the release's `SHA256SUMS`, installed with the `install.sh` inside the bundle. A `version` other than `latest` from the platform wins over the pin. If there is no such release the platform gets `failed / no_release` with the reason (for example "no stable release yet, only pre-releases") and nothing is touched; csm never reports an install that did not happen. The license answer is `csm plugins license` (or `AT_ACCEPT_LICENSE`); without one the platform gets `license_not_accepted`. To install a zip that is not on GitHub, point the agent at it (a path, or an https URL with `{version}` / `{bundle}` placeholders):
 
 ```bash
 csm agent config readyup_bundle /opt/readyup/ready-up-{bundle}.zip
-csm agent config readyup_accept_license commercial   # install.sh needs your license choice for unattended installs
+csm agent config readyup_accept_license commercial   # overrides csm plugins license for the agent
 csm agent config                                     # show all settings
 ```
-
-Without a bundle csm asks GitHub for the requested release; when there is none the platform gets `failed / no_release` and nothing is touched. csm never reports an install that did not happen.
 
 **Security.** `https://` and `wss://` only; `csm link --insecure` allows `http://` and `ws://` to loopback and private (RFC 1918) addresses for development. Certificates are always verified (`--ca-file` adds a private CA). The host token goes only in the `Authorization` header, is rotated by the platform every 90 days (`auth.rotate`, written atomically), and a revoked token makes the agent back off (and re-enroll by itself when it was linked with a fleet key). Tokens, keys and codes are redacted from logs and from everything sent back. Every inbound message is validated and frames are capped at 1 MiB. Commands older than 5 minutes (a replay after an outage) are refused, not run.
 
@@ -281,6 +280,46 @@ It is safe to run again: an unpacked or registered runner is kept, the install i
 The CI install is **not one of the numbered servers**. It does not live in a `server-N` directory, so it is not in the server list or `csm status`, and `csm monitor`, auto-update, `update-game` and start/stop/restart never touch it. `csm ci` never starts, stops, restarts or updates a numbered server. The Ready Up workflow starts and stops the CI server itself. Give it a port that the numbered servers don't use (27095 by default). `--dir` must not be a server directory, the master install or the home directory, and `--purge` only deletes a directory that `csm ci setup` created.
 
 Security: this is a self-hosted runner for a public repository, so the Ready Up workflow that uses it only runs on `schedule`, `workflow_dispatch` and `workflow_run`, never on `pull_request`: code from forks never reaches this host. The runner runs as the unprivileged CS2 user, not root, and the CI server is started with `+sv_lan 1`, so it doesn't advertise itself or accept Steam clients from the internet.
+
+## Plugin stack: Ready Up or legacy
+
+csm installs one of two plugin stacks on every server:
+
+- **Ready Up** (`readyup`): [Ready Up](https://github.com/Auto-Tournament/ready-up), a native CS2 plugin suite. No Metamod, no CounterStrikeSharp. This is what Auto Tournament 3.x talks to.
+- **Legacy** (`legacy`): Metamod:Source + CounterStrikeSharp + [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) 1.4.35, the MatchZy-era plugin (`matchzy_*` cvars) that Auto Tournament 2.x talks to.
+
+```bash
+csm plugins                          # what is chosen, what would be installed, what each server has
+csm plugins stack readyup            # or legacy
+csm plugins channel beta             # stable (default) or beta (pre-releases too)
+csm plugins version v0.1.0-beta.2    # pin a release; "latest" follows the channel again
+csm plugins bundle full              # essentials (default) or full (adds skins and the extras)
+csm plugins license noncommercial    # or commercial; asked once, then remembered
+csm plugins auto off                 # stop csm monitor from updating Ready Up (default on)
+csm update-plugins                   # install / update now (stops and restarts the servers)
+```
+
+**Which stack.** Nothing changes by itself on a host that already runs the legacy stack: it stays legacy until you switch. A fresh install gets Ready Up once Ready Up has a stable release, and the legacy stack until then (the install log says how to opt into a pre-release). The platform's **Update Ready Up** button (`host.update_plugins`) on a host that never chose a stack sets it to Ready Up. `CSM_PLUGIN_STACK=readyup|legacy` overrides the setting.
+
+**Channels.** `stable` installs the latest stable Ready Up release (GitHub's "latest"). `beta` installs the newest release including pre-releases (`vX.Y.Z-beta.N`, `-rc.N`). A pinned version wins over the channel. While Ready Up has only pre-releases, `stable` finds nothing and says so, naming the newest pre-release; use `csm plugins channel beta` or pin it. `CSM_READYUP_CHANNEL`, `CSM_READYUP_VERSION` and `CSM_READYUP_BUNDLE` override the settings.
+
+**How it installs.** csm downloads the bundle zip (`ready-up-essentials-*` or `ready-up-full-*`) and `SHA256SUMS` once, refuses a zip that is not listed or does not match, and runs the `install.sh` that ships inside the bundle on each server as the CS2 user: `install.sh <bundle> --dir server-N --yes --zip <zip> --accept-license=<answer>`. install.sh verifies the checksum again, lays out `game/csgo/readyup/`, keeps everything in `cfg/ReadyUp/` (including `fleet.cfg`) and `readyup.cfg`, and adds `Game csgo/readyup` to `gameinfo.gi`. After a CS2 update replaces `gameinfo.gi`, csm puts that line back on every server that has Ready Up. csm never passes the license key on the command line (it is in `cfg/readyup_license.cfg`, written by `csm license set` or taken from the platform) and never touches GSLT or `sv_setsteamaccount`. A server csm creates (`csm` add-server, or the platform's `server.create`) gets Ready Up before its first start.
+
+**License answer.** Ready Up is free for noncommercial use (PolyForm Noncommercial 1.0.0); commercial use needs a paid license. install.sh needs your answer before an unattended install, and csm never picks one for you. It is asked once: `csm update-plugins` asks in a terminal (answer `I AGREE`), or set it with `csm plugins license noncommercial|commercial`. `AT_ACCEPT_LICENSE=noncommercial|commercial` (the same variable as the platform) overrides it. When no answer is saved and the platform hands over a license key (see [License key](#license-key)), csm records `commercial`, since a key is a paid license; a platform that sends `license.use` in the update-hold answer sets it directly. An answer you gave is never replaced.
+
+**Automatic updates.** On the Ready Up stack every `csm monitor` cycle (cron, every 5 minutes) keeps Ready Up on its channel. It asks GitHub at most every 30 minutes. A server is updated only when updates are not on hold (`csm updates hold`, or the platform's update-hold while a tournament runs) and it is stopped, or Ready Up reports `update_safe: true` with nobody connected for the idle grace period (`csm updates grace`). Never mid-match. A failed update is retried after an hour. Each cycle logs what it did to `csm.log`.
+
+**Legacy stack version.** The legacy stack installs Auto Tournament CS2 **v1.4.35**, no longer "whatever is latest" (the plugin repo's next major is not what Auto Tournament 2.x expects). `CSM_LEGACY_PLUGIN_VERSION` picks another tag, or `latest`. When csm knows the platform (`csm updates platform`, or `csm link`) it asks it for its version first, and refuses the legacy stack for Auto Tournament 3.x with a message that points here; nothing on the servers changes. An unreachable platform does not block the install.
+
+### Moving to Ready Up
+
+csm does not migrate a legacy host by itself. To move one:
+
+1. `csm plugins stack readyup`, then `csm plugins channel beta` while Ready Up has only pre-releases, and `csm plugins license noncommercial` (or `commercial`).
+2. `csm update-plugins`. It installs Ready Up on every server and restarts them. The legacy `addons/` (Metamod, CounterStrikeSharp, MatchZy) stay where they are; Ready Up runs alongside Metamod.
+3. Check each server: `ru selftest` in its console should say PASS, and `csm status` shows the Ready Up version.
+4. Link the servers to the platform: `csm link` for the host agent, and `cfg/ReadyUp/fleet.cfg` (`url`, `enroll_key`) per server, which csm writes for servers the platform creates.
+5. When nothing uses the legacy plugin any more, remove the `Game csgo/addons/metamod` line from each `game/csgo/gameinfo.gi` (or run the install wizard with Metamod off) and delete `game/csgo/addons/`. MatchZy's database and configs are not used by Ready Up.
 
 ## Map thumbnails and maps.json
 
@@ -337,7 +376,7 @@ On newer distributions such as Debian 13 and Ubuntu 25.04+, CounterStrikeSharp c
 
 ## Metamod version
 
-CounterStrikeSharp and MatchZy install from their latest releases. Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `csm update-plugins` to get both at once.
+This is the legacy stack. CounterStrikeSharp installs from its latest release and Auto Tournament CS2 is pinned (see [Plugin stack](#plugin-stack-ready-up-or-legacy)). Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `csm update-plugins` to get both at once.
 
 `csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
 
@@ -426,5 +465,6 @@ PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial us
 - [Documentation](https://docs.sivert.io/docs/csm)
 - [Troubleshooting](https://docs.sivert.io/docs/csm/user/troubleshooting)
 - [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), a web app for running tournaments on these servers
-- [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin), the CS2 plugin csm installs (formerly MatchZy Enhanced)
+- [Ready Up](https://github.com/Auto-Tournament/ready-up), the plugin suite csm installs on the Ready Up stack
+- [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin), the plugin of the legacy stack (formerly MatchZy Enhanced)
 - [Issues](https://github.com/Auto-Tournament/cs2-server-manager/issues)

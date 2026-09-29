@@ -142,6 +142,9 @@ type PlatformLicense struct {
 	Key *string `json:"key"`
 	// Revision changes whenever the key is saved, replaced or cleared.
 	Revision string `json:"revision"`
+	// Use is the platform's license answer (noncommercial | commercial) when it
+	// sends one; csm adopts it for Ready Up when the operator gave none.
+	Use string `json:"use,omitempty"`
 }
 
 // maxHoldBody bounds what is read from the platform, so a wrong URL that

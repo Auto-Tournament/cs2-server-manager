@@ -845,6 +845,11 @@ func main() {
 			if mgr, merr := csm.NewTmuxManager(); merr == nil {
 				gateOrExit(mgr, "update-plugins", nil, pluginsForce)
 			}
+			if stack, why := csm.PluginStack(context.Background(), os.Stdout, csm.ConfiguredCS2User()); stack == csm.PluginStackReadyUp {
+				fmt.Printf("Plugin stack: Ready Up (%s)\n", why)
+				updateReadyUpCLI()
+				return
+			}
 			// For CLI convenience, perform both the download and deploy steps.
 			if out, err := csm.UpdatePlugins(); out != "" || err != nil {
 				csm.LogAction("cli", "update-plugins-download", out, err)
@@ -888,6 +893,9 @@ func main() {
 				printUpdatesUsage(os.Stderr)
 				os.Exit(1)
 			}
+			return
+		case "plugins":
+			pluginsCommand(args[1:])
 			return
 		case "license":
 			licenseCommand(args[1:])
@@ -1073,7 +1081,8 @@ func printUsage() {
 	fmt.Println("  unban <server> <ip>    Remove IP from banned RCON requests (use 0 for all servers)")
 	fmt.Println("  unban-all <server>     Clear all IPs banned for RCON attempts (use 0 for all servers)")
 	fmt.Println("  update-game            Update CS2 game files after a Valve update")
-	fmt.Println("  update-plugins         Update plugins and deploy to servers")
+	fmt.Println("  update-plugins         Install/update the plugin stack on every server (Ready Up or legacy; csm plugins)")
+	fmt.Println("  plugins [status]       Plugin stack, Ready Up channel/version/bundle/license (`csm plugins -h`)")
 	fmt.Println("  self-update            Update csm itself to the latest release")
 	fmt.Println("  dedupe-vpk [server]    Hardlink server VPKs to master-install to save disk (--dry-run, --verify, --undo)")
 	fmt.Println("  monitor                Update servers with a pending CS2 update once idle (cron runs this)")
