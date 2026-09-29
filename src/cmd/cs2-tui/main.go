@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,6 +21,11 @@ import (
 )
 
 func main() {
+	// Internal diagnostics (the standard logger) only show with CSM_VERBOSE=1;
+	// commands print their own results.
+	if os.Getenv("CSM_VERBOSE") == "" {
+		log.SetOutput(io.Discard)
+	}
 	// Global flags and CLI subcommands. We parse flags first so that
 	// "csm -d" and "csm -h" work, then interpret any remaining args as
 	// subcommands. If no recognised subcommand is given, we fall back
@@ -44,6 +51,17 @@ func main() {
 		return
 	}
 
+	// csm runs as the user whose servers it manages. Only the few host-level
+	// commands (system packages, linger, updating the csm binary) run as root.
+	if os.Geteuid() == 0 {
+		allowed := map[string]bool{"help": true, "setup-host": true, "install-deps": true, "self-update": true}
+		if len(args) == 0 || !allowed[args[0]] {
+			fmt.Fprintln(os.Stderr, "✗ Don't run csm as root or with sudo. Run it as the user whose servers it manages (for example: csm status).")
+			fmt.Fprintln(os.Stderr, "  Only `sudo csm setup-host`, `sudo csm install-deps` and `sudo csm self-update` need root.")
+			os.Exit(1)
+		}
+	}
+
 	if len(args) > 0 {
 		switch args[0] {
 		case "help":
@@ -56,7 +74,7 @@ func main() {
 			_ = hfs.Parse(args[1:])
 			var buf strings.Builder
 			err := csm.SetupHost(context.Background(), &buf, csm.SetupHostOptions{
-				CS2User:    getenvDefault("CS2_USER", csm.DefaultCS2User),
+				CS2User:    strings.TrimSpace(os.Getenv("SUDO_USER")),
 				SkipDeps:   *skipDeps,
 				SkipLinger: *skipLinger,
 			})
@@ -102,7 +120,7 @@ func main() {
 				// Prefer the same dedicated service user as the TUI install
 				// wizard so CLI bootstrap and interactive installs remain in
 				// sync by default.
-				CS2User:        getenvDefault("CS2_USER", csm.DefaultCS2User),
+				CS2User:        csm.DefaultCS2User,
 				NumServers:     intFromEnv("NUM_SERVERS", csm.DefaultNumServers),
 				BaseGamePort:   intFromEnv("BASE_GAME_PORT", csm.DefaultBaseGamePort),
 				BaseTVPort:     intFromEnv("BASE_TV_PORT", csm.DefaultBaseTVPort),
@@ -133,7 +151,7 @@ func main() {
 			return
 		case "cleanup-all":
 			cfg := csm.CleanupConfig{
-				CS2User:          getenvDefault("CS2_USER", csm.DefaultCS2User),
+				CS2User:          csm.DefaultCS2User,
 				MatchzyContainer: getenvDefault("MATCHZY_DB_CONTAINER", csm.DefaultMatchzyContainerName),
 				MatchzyVolume:    getenvDefault("MATCHZY_DB_VOLUME", csm.DefaultMatchzyVolumeName),
 			}
@@ -543,7 +561,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "csm doctor must be run as root or as the CS2 user so it can apply fixes.")
 				fmt.Fprintln(os.Stderr, "")
 				fmt.Fprintln(os.Stderr, "Run it as the CS2 user (after a one-time `sudo csm setup-host`):")
-				fmt.Fprintf(os.Stderr, "  sudo -iu %s csm doctor\n", getenvDefault("CS2_USER", csm.DefaultCS2User))
+				fmt.Fprintf(os.Stderr, "  sudo -iu %s csm doctor\n", csm.DefaultCS2User)
 				fmt.Fprintln(os.Stderr, "or as root:")
 				fmt.Fprintln(os.Stderr, "  sudo csm doctor")
 				os.Exit(1)
@@ -968,7 +986,7 @@ func main() {
 	// `sudo csm setup-host`) or as root. Anyone else would hit permission
 	// errors halfway through a flow.
 	if !csm.CanManageServers() {
-		cs2User := getenvDefault("CS2_USER", csm.DefaultCS2User)
+		cs2User := csm.DefaultCS2User
 		fmt.Fprintf(os.Stderr, "CSM TUI must be run as the CS2 user (%s) or as root so it can manage tmux, game files and cron jobs.\n", cs2User)
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "One-time host setup (installs dependencies, creates the user, hands it csm's files):")

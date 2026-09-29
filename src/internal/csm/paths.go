@@ -6,30 +6,34 @@ import (
 	"strings"
 )
 
-// ResolveRoot determines the base directory where CSM keeps its persistent
-// state (overrides/, game_files/, logs/, etc.).
-//
-// Priority:
-//  1. CSM_ROOT environment variable, if set.
-//  2. A local overrides/ directory next to the csm binary (for dev/git checkouts).
-//  3. DefaultRootDir (typically /opt/cs2-server-manager).
+// ResolveRoot is where csm keeps its state (overrides/, logs/, fleet/, …):
+// CSM_ROOT when set, else a git checkout's directory (an overrides/ folder
+// next to a csm binary outside the system bin dirs), else the home directory
+// of the user running csm.
 func ResolveRoot() string {
 	if v := strings.TrimSpace(os.Getenv("CSM_ROOT")); v != "" {
 		return v
 	}
-
-	// When running from a git checkout or local build, prefer the directory
-	// containing the binary if it already has an overrides/ folder. This keeps
-	// local/dev behaviour intuitive without requiring CSM_ROOT.
 	if exe, err := os.Executable(); err == nil && exe != "" {
-		if dir := filepath.Dir(exe); dir != "" {
+		dir := filepath.Dir(exe)
+		if !isSystemBinDir(dir) {
 			if _, err := os.Stat(filepath.Join(dir, "overrides")); err == nil {
 				return dir
 			}
 		}
 	}
-
-	// Fallback to the global default root. This will be created on demand by
-	// bootstrap/update flows as needed.
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return home
+	}
 	return DefaultRootDir
+}
+
+// isSystemBinDir reports whether dir is a shared binary directory, which is
+// never csm's state directory.
+func isSystemBinDir(dir string) bool {
+	switch filepath.Clean(dir) {
+	case "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/sbin", "/opt/bin":
+		return true
+	}
+	return false
 }

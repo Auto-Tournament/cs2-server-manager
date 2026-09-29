@@ -6,9 +6,6 @@ import "time"
 // these in one place helps avoid subtle drift between CLI, TUI and docs.
 
 const (
-	// DefaultCS2User is the dedicated system user CSM manages by default.
-	DefaultCS2User = "cs2servermanager"
-
 	// DefaultNumServers is the initial number of servers provisioned by the
 	// install wizard and CLI bootstrap when no explicit value is provided.
 	DefaultNumServers = 3

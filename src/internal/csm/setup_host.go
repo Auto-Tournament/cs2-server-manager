@@ -35,11 +35,8 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 		return fmt.Errorf("setup-host must be run as root: sudo csm setup-host")
 	}
 	cs2User := strings.TrimSpace(opts.CS2User)
-	if cs2User == "" {
-		cs2User = DefaultCS2User
-	}
-	if cs2User == "root" {
-		return fmt.Errorf("the CS2 user cannot be root")
+	if cs2User == "" || cs2User == "root" {
+		return fmt.Errorf("run it with sudo from the account that will run csm: sudo csm setup-host")
 	}
 
 	fmt.Fprintf(w, "=== csm setup-host (CS2 user: %s) ===\n", cs2User)
@@ -54,7 +51,7 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[2/5] CS2 user")
+	fmt.Fprintln(w, "[2/5] User")
 	var ubuf bytes.Buffer
 	err := createCS2User(&ubuf, cs2User)
 	_, _ = w.Write(ubuf.Bytes())

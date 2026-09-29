@@ -12,7 +12,7 @@ import (
 func VerifyMatchzyDB() (string, error) {
 	var buf bytes.Buffer
 
-	cs2User := getenvDefault("CS2_USER", DefaultCS2User)
+	cs2User := DefaultCS2User
 	cfg := BootstrapConfig{
 		CS2User:           cs2User,
 		OverridesDir:      filepath.Join("/home", cs2User, "overrides"),
