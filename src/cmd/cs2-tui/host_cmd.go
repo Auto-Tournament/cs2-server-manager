@@ -28,8 +28,9 @@ const linkUsage = `usage:
       Link this machine to an Auto Tournament platform as a host. <code> is the
       one-time code from Servers -> Machines -> Add machine (RUE-XXXX-...), <key> a
       fleet enrollment key (rfk_...). "-" reads it from stdin, so it stays out of
-      the shell history. --insecure allows http:// to a loopback / private dev
-      platform only.
+      the shell history. --insecure allows a platform served over plain
+      http:// (e.g. http://203.0.113.7:3069); the token then travels
+      unencrypted, so prefer https://.
   csm link status      Show the link (never the token)
   csm unlink           Forget the link (revoke the host on the platform too)
   csm fleet enroll <url> <code> | --key <rfk_...>   Same as csm link (FLEET.md wording)`
@@ -163,7 +164,7 @@ func linkStatus() string {
 			b.WriteString("Fleet key:   none (linked with a one-time code)\n")
 		}
 		if c.InsecureDev {
-			b.WriteString("Transport:   insecure dev mode (plain ws/http to a private host)\n")
+			b.WriteString("Transport:   insecure (plain ws/http; the token travels unencrypted)\n")
 		}
 		fmt.Fprintf(&b, "Credentials: %s\n", paths.Credentials())
 	}
