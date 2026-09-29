@@ -467,3 +467,35 @@ func abs(p string) string {
 func contextWithCancel() (context.Context, context.CancelFunc) {
 	return context.WithCancel(context.Background())
 }
+
+// firstCreator is a backend that can create its first server (csm instance mode).
+type firstCreator struct {
+	*fakeBackend
+	port int
+}
+
+func (f firstCreator) FirstServerGamePort() (int, bool) { return f.port, f.port > 0 }
+
+func TestCreateOnEmptyHost(t *testing.T) {
+	// A server-N host with no servers still needs the install wizard.
+	ta := startAgent(t, 0, testKey, nil)
+	id := ta.p.send(TypeServerCreate, map[string]any{"enroll": true})
+	if r := ta.p.result(id); r.Error == nil || r.Error.Code != CodeUnsupported {
+		t.Fatalf("create on an empty server-N host = %+v", r)
+	}
+
+	// An instance-mode host creates server-1 on the backend's first port.
+	ti := startAgent(t, 0, testKey, func(o *Options) { o.Backend = firstCreator{o.Backend.(*fakeBackend), 27015} })
+	id = ti.p.send(TypeServerCreate, map[string]any{"enroll": true, "game_port": 27025})
+	if r := ti.p.result(id); r.Error == nil || r.Error.Code != CodeUnsupported {
+		t.Fatalf("wrong first port = %+v", r)
+	}
+	id = ti.p.send(TypeServerCreate, map[string]any{"enroll": true, "game_port": 27015})
+	r := ti.p.result(id)
+	if r.Status != StatusOK || !strings.Contains(r.Output, "server-1") {
+		t.Fatalf("create = %+v", r)
+	}
+	if !strings.Contains(ti.b.cfgAtStart[1], "enroll_key = "+testKey) {
+		t.Fatalf("fleet.cfg at start = %q", ti.b.cfgAtStart[1])
+	}
+}

@@ -138,6 +138,24 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 		return buf.String(), fmt.Errorf("master install not found at %s", masterDir)
 	}
 
+	if mgr.NumServers <= 0 && InstancesExist() {
+		// Instance mode: one master update, a layer rebuild, and restarts of
+		// idle instances only (instance_update.go).
+		log("No server-N folders; updating for instances instead.")
+		im, ierr := NewInstanceManager()
+		if ierr == nil {
+			var ibuf bytes.Buffer
+			ierr = im.updateGameLocked(ctx, &ibuf)
+			if ierr == nil {
+				im.RestartIdleInstances(ctx, &ibuf, instanceHoldNow(ctx))
+			}
+			log("%s", ibuf.String())
+		}
+		logOut := buf.String()
+		AppendLog("update-game.log", logOut)
+		return logOut, ierr
+	}
+
 	if mgr.NumServers <= 0 {
 		log("No CS2 servers found for user %s (no /home/%s/server-* directories).", cs2User, cs2User)
 		log("Nothing to update. Run the install wizard from the TUI first.")

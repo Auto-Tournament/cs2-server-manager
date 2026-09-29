@@ -44,6 +44,13 @@ type Backend interface {
 	ChownToCS2User(path string) error
 }
 
+// FirstServerCreator is an optional Backend extension: a host that can create
+// its first server from the platform (csm instance mode) reports the game
+// port that server gets. ok=false keeps the "run the install wizard" answer.
+type FirstServerCreator interface {
+	FirstServerGamePort() (port int, ok bool)
+}
+
 // HostFacts are the machine parts of host.inventory.
 type HostFacts struct {
 	Hostname  string
