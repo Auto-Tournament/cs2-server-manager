@@ -75,7 +75,8 @@ func TestInstanceExecScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`mount -t overlay overlay -o "lowerdir=$LAYER:/home/cs2/master-install,upperdir=/home/cs2/instances/instance-2/upper,workdir=/home/cs2/instances/instance-2/work" '/home/cs2/instances/instance-2/merged'`,
+		`mount -t overlay overlay -o "lowerdir=$LAYER:$GAME,upperdir=/home/cs2/instances/instance-2/upper,workdir=/home/cs2/instances/instance-2/work" '/home/cs2/instances/instance-2/merged'`,
+		`GAME="${2:-/home/cs2/master-install}"`,
 		"mount -t tmpfs -o mode=1777,size=1g tmpfs /dev/shm",
 		"cd '/home/cs2/instances/instance-2/merged/game'",
 		"export HOME='/home/cs2/instances/instance-2/home'",
@@ -106,7 +107,10 @@ func TestInstanceRunScript(t *testing.T) {
 	for _, want := range []string{
 		"CURRENT='/home/cs2/instances/layers/current'",
 		`LAYER=$(readlink -f "$CURRENT")`,
-		`unshare --user --map-root-user --mount --propagation private /bin/bash "$EXEC" "$LAYER"`,
+		`unshare --user --map-root-user --mount --propagation private /bin/bash "$EXEC" "$LAYER" "$GAME"`,
+		`GAME=$(cat "$LAYER.game" 2>/dev/null) || GAME=""`,
+		`[ -n "$GAME" ] || GAME="$MASTER"`,
+		`printf '%s\n%s\n' "$LAYER" "$GAME" > "$INUSE"`,
 		`[ -e "$STOP" ] && { rm -f "$INUSE"; exit 0; }`,
 		"if (( ${#exits[@]} >= 5 )); then",
 		"sleep 10",
