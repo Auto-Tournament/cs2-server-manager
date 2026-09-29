@@ -246,7 +246,7 @@ func (b *HostBackend) instanceInstallReadyUp(ctx context.Context, n int, plan ho
 	}
 	src := LayerSource{Installer: plan.Installer, Zip: plan.Zip, Bundle: plan.Component, Version: plan.Version, AcceptLicense: plan.AcceptLicense}
 	if src.Bundle == "" {
-		src.Bundle = readyup.BundleEssentials
+		src.Bundle = readyup.BundleFull
 	}
 	_, err = m.BuildLayer(ctx, &out, src, "platform")
 	if err == nil {
@@ -269,6 +269,21 @@ func layerHasPlan(m *InstanceManager, dir string, plan hostagent.ReadyUpPlan) bo
 		return info.Core == want
 	}
 	return plan.Zip != "" && info.Zip != "" && sameFileContent(plan.Zip, filepath.Join(dir+".src", info.Zip))
+}
+
+// ReadyUpBundleFor (hostagent.ReadyUpBundleChooser): on an instance host the
+// shared layer is built with PluginSettings.LayerBundle (full unless the
+// operator chose one), whatever default the platform asks for; classic
+// servers get what was asked.
+func (b *HostBackend) ReadyUpBundleFor(requested string) string {
+	if !InstanceBackendOn() {
+		return requested
+	}
+	s, err := LoadPluginSettings()
+	if err != nil {
+		return requested
+	}
+	return s.LayerBundleFor(requested)
 }
 
 // ReadyUpCurrent (hostagent.ReadyUpCurrentChecker): on an instance host a

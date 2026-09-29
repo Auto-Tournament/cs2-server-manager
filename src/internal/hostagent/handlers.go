@@ -423,7 +423,11 @@ func (a *Agent) handleUpdatePlugins(ctx context.Context, ref string, c *UpdatePl
 		return failed(CodeFailed, err.Error(), "")
 	}
 	a.progress(ref, "resolving Ready Up "+c.ReadyUp.Version, 0)
-	plan, cleanup, err := a.opts.Fetcher.Prepare(ctx, cfg, c.ReadyUp.Version, c.ReadyUp.Bundle)
+	bundle := c.ReadyUp.Bundle
+	if bc, ok := a.opts.Backend.(ReadyUpBundleChooser); ok {
+		bundle = bc.ReadyUpBundleFor(bundle)
+	}
+	plan, cleanup, err := a.opts.Fetcher.Prepare(ctx, cfg, c.ReadyUp.Version, bundle)
 	defer cleanup()
 	if err != nil {
 		var pe *PlanError
