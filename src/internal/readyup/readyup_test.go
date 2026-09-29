@@ -252,3 +252,98 @@ func TestReadInstalled(t *testing.T) {
 		t.Fatalf("summary = %q %v", in.Summary(), err)
 	}
 }
+
+func TestCompareVersions(t *testing.T) {
+	// Each row is strictly lower than the next.
+	order := []string{
+		"v0.1.0-alpha", "v0.1.0-alpha.1", "v0.1.0-alpha.beta", "v0.1.0-beta",
+		"v0.1.0-beta.2", "v0.1.0-beta.10", "v0.1.0-rc.1", "v0.1.0",
+		"v0.1.1", "v0.2.0-beta.1", "v0.2.0", "v0.10.0", "v1.0.0",
+	}
+	for i := range order {
+		for j := range order {
+			want := 0
+			if i < j {
+				want = -1
+			} else if i > j {
+				want = 1
+			}
+			got, ok := CompareVersions(order[i], order[j])
+			if !ok || got != want {
+				t.Errorf("CompareVersions(%s, %s) = %d, %v; want %d", order[i], order[j], got, ok, want)
+			}
+		}
+	}
+	if c, ok := CompareVersions("0.1.0", "v0.1.0"); !ok || c != 0 {
+		t.Errorf("v prefix should not matter: %d %v", c, ok)
+	}
+	if c, ok := CompareVersions("v1.0.0+abc", "v1.0.0+def"); !ok || c != 0 {
+		t.Errorf("build metadata is ignored: %d %v", c, ok)
+	}
+	for _, bad := range []string{"", "latest", "v1", "v1.2", "v1.2.x", "v1.2.3-", "v1.2.3-a..b"} {
+		if _, ok := CompareVersions(bad, "v1.0.0"); ok {
+			t.Errorf("%q should not parse", bad)
+		}
+	}
+}
+
+func TestNewestIgnoresOrderAndTime(t *testing.T) {
+	mk := func(tag string, pre bool, at string) Release {
+		return Release{TagName: tag, Prerelease: pre, PublishedAt: at}
+	}
+	base := []Release{
+		mk("v0.1.0-beta.2", true, "2026-09-01T00:00:00Z"), // highest version, published first
+		mk("v0.1.0-beta.1", true, "2026-09-10T00:00:00Z"),
+		mk("v0.1.0-alpha", true, "2026-09-20T00:00:00Z"),
+	}
+	// Every permutation gives the same answer.
+	perms := [][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}}
+	for _, p := range perms {
+		rels := []Release{base[p[0]], base[p[1]], base[p[2]]}
+		if got, ok := Newest(rels, true); !ok || got.TagName != "v0.1.0-beta.2" {
+			t.Errorf("order %v: Newest = %q %v", p, got.TagName, ok)
+		}
+	}
+
+	// A backported patch created after a newer minor does not win.
+	rels := []Release{
+		mk("v0.1.5", false, "2026-10-09T00:00:00Z"),
+		mk("v0.2.0", false, "2026-10-01T00:00:00Z"),
+	}
+	if got, _ := Newest(rels, false); got.TagName != "v0.2.0" {
+		t.Errorf("backport: Newest = %q", got.TagName)
+	}
+	// beta.10 beats beta.2; a final beats its rc; pre-releases excluded when asked.
+	rels = []Release{mk("v1.0.0-beta.2", true, ""), mk("v1.0.0-beta.10", true, ""), mk("v0.9.0", false, "")}
+	if got, _ := Newest(rels, true); got.TagName != "v1.0.0-beta.10" {
+		t.Errorf("beta.10: Newest = %q", got.TagName)
+	}
+	if got, _ := Newest(rels, false); got.TagName != "v0.9.0" {
+		t.Errorf("stable only: Newest = %q", got.TagName)
+	}
+	rels = []Release{mk("v1.0.0", false, ""), mk("v1.0.0-rc.1", true, "")}
+	if got, _ := Newest(rels, true); got.TagName != "v1.0.0" {
+		t.Errorf("final vs rc: Newest = %q", got.TagName)
+	}
+	// Drafts and empty tags are skipped; nothing left means not found.
+	rels = []Release{{TagName: "v9.0.0", Draft: true}, {TagName: ""}}
+	if _, ok := Newest(rels, true); ok {
+		t.Error("drafts must be skipped")
+	}
+}
+
+func TestResolveIgnoresListOrder(t *testing.T) {
+	// Newest version was published first and listed last.
+	g := newFakeGitHub(t)
+	g.add(t, "v0.1.0-alpha", true, "2026-09-25T10:00:00Z")
+	g.add(t, "v0.1.0-beta.1", true, "2026-09-20T10:00:00Z")
+	g.add(t, "v0.1.0-beta.2", true, "2026-09-10T10:00:00Z")
+	ctx := context.Background()
+	_, err := g.client().Resolve(ctx, "stable", "")
+	if !IsNoRelease(err) || !strings.Contains(err.Error(), "newest: v0.1.0-beta.2") {
+		t.Fatalf("stable message = %v", err)
+	}
+	if rel, err := g.client().Resolve(ctx, "beta", ""); err != nil || rel.TagName != "v0.1.0-beta.2" {
+		t.Fatalf("beta = %+v %v", rel, err)
+	}
+}
