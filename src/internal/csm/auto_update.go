@@ -225,10 +225,20 @@ type serverUpdateState struct {
 	LogOffset int64 `json:"log_offset,omitempty"`
 	// LastUpdate is when the monitor last updated this server (unix seconds).
 	LastUpdate int64 `json:"last_update,omitempty"`
+	// ReadyUpIdleSince is when the Ready Up updater first saw the server idle.
+	ReadyUpIdleSince int64 `json:"readyup_idle_since,omitempty"`
+	// ReadyUpLastTry is when a Ready Up update of ReadyUpLastTarget last failed.
+	ReadyUpLastTry    int64  `json:"readyup_last_try,omitempty"`
+	ReadyUpLastTarget string `json:"readyup_last_target,omitempty"`
 }
 
 type autoUpdateState struct {
 	Servers map[string]*serverUpdateState `json:"servers"`
+	// ReadyUp is the Ready Up updater's memory (readyup_auto_update.go).
+	ReadyUp *readyUpAutoState `json:"readyup,omitempty"`
+	// Instances / InstanceLayer are the instance-mode memory (instance_update.go).
+	Instances     map[string]*instanceAutoState `json:"instances,omitempty"`
+	InstanceLayer *instanceLayerAutoState       `json:"instance_layer,omitempty"`
 }
 
 func autoUpdateStatePath() string {

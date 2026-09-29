@@ -25,7 +25,7 @@ func runStatusCommand(args []string) error {
 	noColor := fs.Bool("no-color", false, "no ANSI colours")
 	_ = fs.Parse(args)
 
-	mgr, err := csm.NewTmuxManager()
+	mgr, err := csm.OpenServerSet()
 	if err != nil {
 		return err
 	}
@@ -40,8 +40,13 @@ func runStatusCommand(args []string) error {
 		return printStatusJSON(os.Stdout, rows)
 	}
 	out := statusHeader(mgr) + csm.RenderFleetTable(rows, csm.FleetTableOptions{Color: color})
-	if mgr.NumServers > 0 {
+	if mgr.Count() > 0 {
 		out += "\nConsole: csm attach <n> • live view: csm status --watch\n"
+	} else if mgr.IsInstances() {
+		out += "\n" + mgr.EmptyHint() + "\n"
+	}
+	if notes := mgr.Notes(); notes != "" {
+		out += "\n" + notes
 	}
 	out += licenseStatusLine() + "\n"
 	csm.LogAction("cli", "status", out, nil)
@@ -49,13 +54,13 @@ func runStatusCommand(args []string) error {
 	return nil
 }
 
-func statusHeader(mgr *csm.TmuxManager) string {
-	return fmt.Sprintf("CS2 servers (%s, %d server(s)) — %s\n\n", mgr.CS2User, mgr.NumServers, time.Now().Format("15:04:05"))
+func statusHeader(mgr *csm.ServerSet) string {
+	return fmt.Sprintf("%s — %s\n\n", mgr.Header(), time.Now().Format("15:04:05"))
 }
 
 // watchStatus redraws the table whenever a server's state changes, until
 // Ctrl+C. Process state (tmux) is re-read every 10 s.
-func watchStatus(mgr *csm.TmuxManager, color bool) error {
+func watchStatus(mgr *csm.ServerSet, color bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
