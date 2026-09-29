@@ -349,3 +349,51 @@ func TestCheckLegacyPlatform(t *testing.T) {
 		t.Fatalf("no platform = %v", err)
 	}
 }
+
+// Instance mode builds its shared layer with the full bundle unless the
+// operator chose one; classic servers keep essentials as the default.
+func TestLayerBundle(t *testing.T) {
+	pluginTestEnv(t)
+	s := PluginSettings{}
+	if got := s.LayerBundle(); got != "full" {
+		t.Fatalf("default layer bundle = %q, want full", got)
+	}
+	if got := s.Resolved().ReadyUpBundle; got != "essentials" {
+		t.Fatalf("classic default = %q, want essentials", got)
+	}
+	for _, c := range []struct{ requested, want string }{{"default", "full"}, {"", "full"}, {"essentials", "full"}, {"skins", "full"}, {"full", "full"}} {
+		if got := s.LayerBundleFor(c.requested); got != c.want {
+			t.Fatalf("LayerBundleFor(%q) = %q, want %q", c.requested, got, c.want)
+		}
+	}
+	// An operator's choice wins, but the platform can still ask for full.
+	s.ReadyUpBundle = "essentials"
+	if got := s.LayerBundle(); got != "essentials" {
+		t.Fatalf("chosen essentials: layer bundle = %q", got)
+	}
+	if got := s.LayerBundleFor("default"); got != "essentials" {
+		t.Fatalf("chosen essentials, platform default: %q", got)
+	}
+	if got := s.LayerBundleFor("skins"); got != "full" {
+		t.Fatalf("chosen essentials, platform skins: %q", got)
+	}
+	t.Setenv(EnvReadyUpBundle, "full")
+	if got := s.LayerBundle(); got != "full" {
+		t.Fatalf("%s=full: %q", EnvReadyUpBundle, got)
+	}
+}
+
+// The host agent asks the backend which bundle to install: instance hosts
+// get the layer bundle, server-N hosts what the platform asked for.
+func TestHostBackendBundleFor(t *testing.T) {
+	pluginTestEnv(t)
+	b := &HostBackend{}
+	t.Setenv(EnvServerBackend, "servers")
+	if got := b.ReadyUpBundleFor("default"); got != "default" {
+		t.Fatalf("classic: %q, want default", got)
+	}
+	t.Setenv(EnvServerBackend, ServerBackendInstances)
+	if got := b.ReadyUpBundleFor("default"); got != "full" {
+		t.Fatalf("instances: %q, want full", got)
+	}
+}

@@ -225,8 +225,8 @@ func (m *InstanceManager) UpdateReadyUp(ctx context.Context, w io.Writer, hold U
 		r := s.Resolved()
 		if cur, err := m.CurrentLayer(); err == nil && r.AcceptLicense != "" {
 			if rel, err := readyUpClient().Resolve(ctx, r.ReadyUpChannel, r.ReadyUpVersion); err == nil &&
-				layerCore(cur) == strings.TrimPrefix(rel.TagName, "v") && m.ReadLayerInfo(cur).Bundle == r.ReadyUpBundle {
-				fmt.Fprintf(w, "[Ready Up layer] %s already has Ready Up %s (%s).\n", m.ReadLayerInfo(cur).ID, layerCore(cur), r.ReadyUpBundle)
+				layerCore(cur) == strings.TrimPrefix(rel.TagName, "v") && m.ReadLayerInfo(cur).Bundle == s.LayerBundle() {
+				fmt.Fprintf(w, "[Ready Up layer] %s already has Ready Up %s (%s).\n", m.ReadLayerInfo(cur).ID, layerCore(cur), s.LayerBundle())
 				m.RestartIdleInstances(ctx, w, hold)
 				return nil
 			}

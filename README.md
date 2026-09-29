@@ -233,7 +233,7 @@ journalctl -u csm-agent -f          # logs (journalctl --user -u csm-agent -f in
 | `server.create` | adds the next `server-N` like the TUI's add-server. With `enroll: true` csm writes `game/csgo/cfg/ReadyUp/fleet.cfg` (`url` + `enroll_key`, mode 0600) before the first start, so Ready Up enrolls itself (FLEET §4.1 B). On the Ready Up stack csm installs Ready Up on the new server before that first start, so it comes up enrolled with no further step |
 | `server.remove` | removes the highest-numbered server (csm keeps `server-N` contiguous) |
 | `host.update_game` | `csm update-game`, or `csm update-server N` for a list |
-| `host.update_plugins` | installs Ready Up like `csm update-plugins` does (bundle `default` → essentials, `skins` → full; version `latest` = the host's channel or pin), stopping and restarting running servers. The first one on a host without a stack choice sets it to Ready Up |
+| `host.update_plugins` | installs Ready Up like `csm update-plugins` does (bundle `default` → essentials, `skins` → full; an instance host builds its shared layer with the full bundle unless `csm plugins bundle` says otherwise; version `latest` = the host's channel or pin), stopping and restarting running servers. The first one on a host without a stack choice sets it to Ready Up |
 | `host.updates_hold` | `csm updates hold on\|off\|auto` |
 | `logs.tail` / `logs.stop` | tails a server console log, CS2's log (`readyup`), or `csm.log` (`csm`, `monitor`), optionally following it |
 
@@ -299,7 +299,7 @@ csm plugins                          # what is chosen, what would be installed, 
 csm plugins stack readyup            # or legacy
 csm plugins channel beta             # stable (default) or beta (pre-releases too)
 csm plugins version v0.1.0-beta.2    # pin a release; "latest" follows the channel again
-csm plugins bundle full              # essentials (default) or full (adds skins and the extras)
+csm plugins bundle full              # essentials (default; instance mode: full) or full (adds skins and the extras)
 csm plugins license noncommercial    # or commercial; asked once, then remembered
 csm plugins auto off                 # stop csm monitor from updating Ready Up (default on)
 csm update-plugins                   # install / update now (stops and restarts the servers)
@@ -384,6 +384,8 @@ Don't edit Ready Up's own files in an instance: a changed copy of a layer file h
 
 **Running.** Each instance runs in tmux session `cs2-inst-N` under a small supervisor script. If CS2 exits without `csm instance stop` (a crash, or `quit` in the console), the supervisor starts it again after 10 seconds. It gives up after 5 exits in 10 minutes. The console log is `~/instances/instance-N/console.log`.
 
+**Plugins.** All instances share one Ready Up layer, so csm builds it with the `full` bundle: every plugin (match, practice, essentials, skins, midas, whitelist, deathmatch, addons) is in it, and each server only turns plugins on or off. The platform does that per server with `cmd plugins.set`, which Ready Up keeps in the instance's own `plugins.json` (in its upper directory), so one instance can run a tournament and the next one practice or deathmatch. A platform request for the default bundle still builds `full`; `csm plugins bundle essentials` (or `CSM_READYUP_BUNDLE`) makes the layer essentials only. A layer built before this keeps its bundle until the next `csm instance update`. Classic `server-N` folders are unchanged: they get essentials unless you choose full.
+
 **Updates.** An update happens once for all instances:
 
 - **Ready Up**: `csm instance update` (or `csm monitor` following `csm plugins channel/version`) builds a new layer next to the old one and makes it current. Running instances keep the layer they started with.
@@ -403,7 +405,7 @@ A plain hardlinked copy is not enough on its own: SteamCMD replaces most changed
 
 Instances restart onto the new layer and version as above; until then they keep their old ones. An old version stays as long as a layer or a running instance uses it; csm removes it after that (`csm monitor`, the next update, or `csm instance gc`). `csm instance game` lists the versions. `~/master-install` is only the first version: instance mode never writes to it and never removes it. With `CSM_INSTANCE_MASTER_READONLY=1` csm makes no game versions, and whatever updates the master install does so under running instances.
 
-**Host agent.** With `csm instance config backend instances`, the host agent reports instances as the host's servers (instance N is `server-N` to the platform), and `server.create`, `start`, `stop`, `restart` and `remove` act on instances. A server the platform creates gets its own `fleet.cfg` (platform URL and enroll key) in its upper layer and enrolls itself; the platform links it. `host.update_plugins` updates the shared layer, and `host.update_game` makes a new game version once. An instance host can create its first server from the platform. The default backend stays `servers`, and nothing changes for existing `server-N` hosts.
+**Host agent.** With `csm instance config backend instances`, the host agent reports instances as the host's servers (instance N is `server-N` to the platform), and `server.create`, `start`, `stop`, `restart` and `remove` act on instances. A server the platform creates gets its own `fleet.cfg` (platform URL and enroll key) in its upper layer and enrolls itself; the platform links it. `host.update_plugins` updates the shared layer (with the layer bundle, see *Plugins* above), and `host.update_game` makes a new game version once. An instance host can create its first server from the platform. The default backend stays `servers`, and nothing changes for existing `server-N` hosts.
 
 **Other settings.** `csm instance config` shows and sets `base_port`, `map`, `max_players`, `private_shm on|off` and `nice` (the game's CPU priority). Environment overrides: `CSM_SERVER_BACKEND`, `CSM_INSTANCE_ROOT`, `CSM_MASTER_DIR`, `CSM_INSTANCE_BASE_PORT`, `CSM_INSTANCE_NICE`, `CSM_STEAMCLIENT`, and `CSM_INSTANCE_MASTER_READONLY=1` if something else keeps the master install updated. Instances never get a GSLT.
 
