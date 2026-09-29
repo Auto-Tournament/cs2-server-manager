@@ -331,7 +331,7 @@ It works with kernel overlayfs inside an unprivileged user namespace (`unshare -
 |---|---|---|
 | upper | `~/instances/instance-N/upper` | everything instance N writes: logs, demos, backups, Ready Up's `state.json` and `status.json`, `steam_appid.txt`, its `fleet.cfg` |
 | Ready Up layer | `~/instances/layers/<id>` | Ready Up, installed once by its own `install.sh`, plus the patched `gameinfo.gi` |
-| master | `~/master-install` | the CS2 install. Never written to |
+| game | `~/master-install`, then `~/instances/games/<id>` | the CS2 install the layer was built on. Never written to (see *CS2 updates* below) |
 
 Each instance also gets its own `HOME` (Steam writes to `$HOME/Steam`) and, by default, its own `/dev/shm`. Instance N uses game port `base + 10×N`, GOTV `+1`, client port `+2` and the Ready Up status port `+7`. The default base is 27005, so instance 1 plays on 27015 like `server-1` does.
 
@@ -347,22 +347,41 @@ csm instance stop 1
 csm instance remove 1                # deletes the instance and everything it wrote
 ```
 
-**Settings.** csm writes `cfg/instance.cfg` on every start (hostname, RCON password, `log on`, the license key). Put your own settings in `cfg/instance_custom.cfg` in the instance's `upper/game/csgo/cfg/`; it runs last. Don't edit Ready Up's own files in an instance: a changed copy of a layer file hides every later update of that file from that instance. `csm instance status` and every update warn about such copies.
+With `csm instance config backend instances`, the everyday commands act on instances too: `csm status` (and `--watch`, `--json`) lists them with the current layer, CS2 version and pending restarts; `csm start|stop|restart [N]`, `csm logs N` and `csm attach N` take an instance number; the TUI's dashboard and start/stop/restart-all use the instances. `csm stop` and `csm restart` refuse a busy instance unless you add `--force`, as they do for `server-N`.
+
+**Settings.** Each instance has two cfg files in its `upper/game/csgo/cfg/`:
+
+| File | Who writes it | What |
+|---|---|---|
+| `instance.cfg` | csm, on every start (your edits are lost) | hostname, RCON password, `sv_hibernate_when_empty 0`, `tv_enable 1`, `log on` (Ready Up reads the match log), the license key |
+| `instance_custom.cfg` | you; csm never touches it | your own settings. `instance.cfg` runs it last, so it wins |
+
+Don't edit Ready Up's own files in an instance: a changed copy of a layer file hides every later update of that file from that instance. `csm instance status` and every update warn about such copies.
 
 **Running.** Each instance runs in tmux session `cs2-inst-N` under a small supervisor script. If CS2 exits without `csm instance stop` (a crash, or `quit` in the console), the supervisor starts it again after 10 seconds. It gives up after 5 exits in 10 minutes. The console log is `~/instances/instance-N/console.log`.
 
 **Updates.** An update happens once for all instances:
 
 - **Ready Up**: `csm instance update` (or `csm monitor` following `csm plugins channel/version`) builds a new layer next to the old one and makes it current. Running instances keep the layer they started with.
-- **CS2**: `csm instance update-game` (or `csm update-game`, or `csm monitor` when an instance logs that an update is out) runs SteamCMD on the master install once, then rebuilds the Ready Up layer on the new build, because `gameinfo.gi` comes from the game.
+- **CS2**: `csm instance update-game` (or `csm update-game`, or `csm monitor` when an instance logs that an update is out) makes a new game version once, then rebuilds the Ready Up layer on it, because `gameinfo.gi` comes from the game.
 
-After either one, csm restarts only idle instances onto the new version. An instance is idle when Ready Up reports `update_safe: true` and nobody is connected. A busy instance keeps running and shows *restart pending*. `csm monitor` restarts it once it has been idle for the grace period (`csm updates grace`). Nothing restarts while updates are on hold (`csm updates hold`, or the platform's hold during a tournament), and never mid-match. `csm instance layer use <id>` switches back to an older layer; csm keeps the previous one.
+After either one, csm restarts only idle instances onto the new version. An instance is idle when Ready Up reports `update_safe: true` and nobody is connected. A busy instance keeps running and shows *restart pending*. `csm monitor` restarts it once it has been idle for the grace period (`csm updates grace`). Nothing restarts while updates are on hold (`csm updates hold`, or the platform's hold during a tournament), and never mid-match. `csm instance layer use <id>` switches back to an older layer; csm keeps the previous one on the same CS2 version.
 
-**Host agent.** With `csm instance config backend instances`, the host agent reports instances as the host's servers (instance N is `server-N` to the platform), and `server.create`, `start`, `stop`, `restart` and `remove` act on instances. A server the platform creates gets its own `fleet.cfg` (platform URL and enroll key) in its upper layer and enrolls itself; the platform links it. `host.update_plugins` updates the shared layer, and `host.update_game` updates the master once. An instance host can create its first server from the platform. The default backend stays `servers`, and nothing changes for existing `server-N` hosts.
+**CS2 updates.** A running instance has its CS2 install mounted, and changing files under a mounted overlay is undefined. So csm never runs SteamCMD on an install an instance may be using:
+
+1. SteamCMD runs against a temporary overlay: the current version below, an empty directory on top. Everything it writes, replaces, trims or deletes lands on top; the current version is not touched.
+2. The new version, `~/instances/games/<id>`, is a hardlinked copy of the current one (`cp -al`) with those changes applied: changed files replace their link, deleted ones go. Unchanged files are shared, so a version costs only the files the update changed (a few GB rather than ~70). Where hardlinks are not possible (another filesystem, or a master owned by another user with `fs.protected_hardlinks`), it is a full copy, reflinked where the filesystem can; csm checks the free space first.
+3. The Ready Up layer is rebuilt on the new version and records which version it sits on. `games/current` points at the newest.
+
+A plain hardlinked copy is not enough on its own: SteamCMD replaces most changed files with new ones, but it trims a file that only lost trailing bytes in place, which would change it for every version sharing that file. The overlay in step 1 catches that.
+
+Instances restart onto the new layer and version as above; until then they keep their old ones. An old version stays as long as a layer or a running instance uses it; csm removes it after that (`csm monitor`, the next update, or `csm instance gc`). `csm instance game` lists the versions. `~/master-install` is only the first version: instance mode never writes to it and never removes it. With `CSM_INSTANCE_MASTER_READONLY=1` csm makes no game versions, and whatever updates the master install does so under running instances.
+
+**Host agent.** With `csm instance config backend instances`, the host agent reports instances as the host's servers (instance N is `server-N` to the platform), and `server.create`, `start`, `stop`, `restart` and `remove` act on instances. A server the platform creates gets its own `fleet.cfg` (platform URL and enroll key) in its upper layer and enrolls itself; the platform links it. `host.update_plugins` updates the shared layer, and `host.update_game` makes a new game version once. An instance host can create its first server from the platform. The default backend stays `servers`, and nothing changes for existing `server-N` hosts.
 
 **Other settings.** `csm instance config` shows and sets `base_port`, `map`, `max_players`, `private_shm on|off` and `nice` (the game's CPU priority). Environment overrides: `CSM_SERVER_BACKEND`, `CSM_INSTANCE_ROOT`, `CSM_MASTER_DIR`, `CSM_INSTANCE_BASE_PORT`, `CSM_INSTANCE_NICE`, `CSM_STEAMCLIENT`, and `CSM_INSTANCE_MASTER_READONLY=1` if something else keeps the master install updated. Instances never get a GSLT.
 
-**Testing.** `scripts/instance-integration-test.sh` runs two real instances against a CS2 install and checks the isolation, the crash restart, the shadow warning, a Ready Up update with idle restarts, the update hold, and that the master install is left untouched. It needs two Ready Up bundle zips; the header has the details.
+**Testing.** `scripts/instance-integration-test.sh` runs two real instances against a test copy of a CS2 install and checks the isolation, the crash restart, the shadow warning, a Ready Up update with idle restarts, the update hold, two CS2 updates with a fake SteamCMD (hardlinked versions, nothing written through to the running version, held instances keeping theirs, old versions collected), the plain `csm status/stop/start/logs` commands, and that the master install is left untouched. It needs two Ready Up bundle zips; the header has the details.
 
 ## Map thumbnails and maps.json
 

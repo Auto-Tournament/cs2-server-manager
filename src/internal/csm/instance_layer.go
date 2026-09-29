@@ -24,19 +24,20 @@ import (
 // A layer is what Ready Up's install.sh adds to a CS2 install, captured once
 // and shared read-only by every instance:
 //
-//  1. A copy of the master install's directory skeleton, owned by the CS2
+//  1. A copy of the game version's directory skeleton, owned by the CS2
 //     user. Overlayfs copies a lower directory up (with its owner) the first
 //     time an instance writes below it; a directory owned by a uid the user
 //     namespace cannot map would fail that, so the layer provides a mapped
 //     copy of every directory.
-//  2. install.sh run against a temporary overlay (lower = master install,
+//  2. install.sh run against a temporary overlay (lower = the game version,
 //     upper = the new layer), so exactly what it writes lands in the layer:
 //     game/csgo/readyup/, cfg/ReadyUp/ and the patched gameinfo.gi.
 //
 // Layers live in instances/layers/<id>/ with <id>.json (what is in it) and
 // <id>.src/ (the install.sh + bundle it was built from, so a CS2 update can
-// rebuild the same Ready Up on the new gameinfo.gi). layers/current points
-// at the one new starts use.
+// rebuild the same Ready Up on the new gameinfo.gi) and <id>.game (the game
+// version it sits on, instance_game.go). layers/current points at the one
+// new starts use.
 
 // LayerSource is what a layer is built from: install.sh plus a bundle zip
 // (or a release tag install.sh downloads).
@@ -56,7 +57,8 @@ type LayerInfo struct {
 	Tag         string `json:"tag,omitempty"`
 	BuiltAt     string `json:"built_at"`
 	MasterBuild int64  `json:"master_build,omitempty"`
-	Zip         string `json:"zip,omitempty"` // file name inside <id>.src/
+	Game        string `json:"game,omitempty"` // the game version it sits on
+	Zip         string `json:"zip,omitempty"`  // file name inside <id>.src/
 	Installer   string `json:"installer,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 }
@@ -93,6 +95,9 @@ func (m *InstanceManager) ReadLayerInfo(dir string) LayerInfo {
 	}
 	if info.Core == "" {
 		info.Core = layerCore(dir)
+	}
+	if info.Game == "" {
+		info.Game = m.layerGame(dir)
 	}
 	return info
 }
@@ -227,8 +232,11 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 	if src.Bundle == "" {
 		src.Bundle = readyup.BundleEssentials
 	}
-	if _, err := os.Stat(filepath.Join(m.L.Master, "game", "csgo")); err != nil {
-		return "", fmt.Errorf("no CS2 install at %s: %w", m.L.Master, err)
+	// The layer sits on the current game version (the master install until
+	// the first CS2 update), and records it in <id>.game.
+	game := m.CurrentGame()
+	if _, err := os.Stat(filepath.Join(game, "game", "csgo")); err != nil {
+		return "", fmt.Errorf("no CS2 install at %s: %w", game, err)
 	}
 	unlock, err := m.lockLayerBuild()
 	if err != nil {
@@ -249,7 +257,7 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 
 	// Keep what the layer is built from, so a CS2 update can rebuild it.
 	info := LayerInfo{ID: id, Bundle: src.Bundle, Tag: src.Version, BuiltAt: time.Now().UTC().Format(time.RFC3339),
-		MasterBuild: m.MasterBuild(), Reason: reason, Installer: "install.sh"}
+		MasterBuild: gameBuild(game), Game: game, Reason: reason, Installer: "install.sh"}
 	if err := copyFile(src.Installer, filepath.Join(srcDir, "install.sh"), 0o755); err != nil {
 		return "", fmt.Errorf("copy install.sh: %w", err)
 	}
@@ -266,8 +274,8 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 		install.Version = ""
 	}
 
-	fmt.Fprintf(w, "[Ready Up layer] %s: copying the directory skeleton of %s...\n", id, m.L.Master)
-	nDirs, err := copySkeleton(m.L.Master, upper)
+	fmt.Fprintf(w, "[Ready Up layer] %s: copying the directory skeleton of %s...\n", id, game)
+	nDirs, err := copySkeleton(game, upper)
 	if err != nil {
 		return "", fmt.Errorf("skeleton: %w", err)
 	}
@@ -276,7 +284,7 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 	// owner; a master file owned by an unmapped uid would make that fail, so
 	// the layer starts with the user's own copies (patched on top).
 	for _, gi := range []string{"gameinfo.gi", "gameinfo_branchspecific.gi"} {
-		from := filepath.Join(m.L.Master, "game", "csgo", gi)
+		from := filepath.Join(game, "game", "csgo", gi)
 		fi, err := os.Stat(from)
 		if err != nil {
 			continue
@@ -293,7 +301,7 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 		}
 	}
 
-	cmdline, err := layerBuildCmdline(m.L.Master, upper, work, mnt, install)
+	cmdline, err := layerBuildCmdline(game, upper, work, mnt, install)
 	if err != nil {
 		return "", err
 	}
@@ -318,12 +326,15 @@ func (m *InstanceManager) BuildLayer(ctx context.Context, w io.Writer, src Layer
 	if err := writeJSONAtomic(final+".json", info); err != nil {
 		return "", err
 	}
-	m.own(final + ".json")
+	if err := writeFileAtomicMode(layerGameFile(final), []byte(game+"\n"), 0o644); err != nil {
+		return "", err
+	}
+	m.own(final+".json", layerGameFile(final))
 	if err := m.setCurrentLayer(id); err != nil {
 		return "", err
 	}
-	fmt.Fprintf(w, "[✓] Ready Up layer %s (core %s) is current. Instances pick it up when they restart.\n", id, info.Core)
-	m.gcLayers(w)
+	fmt.Fprintf(w, "[✓] Ready Up layer %s (core %s, CS2 build %d) is current. Instances pick it up when they restart.\n", id, info.Core, info.MasterBuild)
+	m.GC(w)
 	return final, nil
 }
 
@@ -366,24 +377,33 @@ func (m *InstanceManager) layersInUse() map[string]bool {
 }
 
 // gcLayers removes layers nothing uses: not current, not mounted by a
-// running instance, and not the newest previous one (kept for rollback).
+// running instance, and not the newest previous one on the same game
+// version (kept for a Ready Up rollback; a layer on an older CS2 build is no
+// rollback target, Steam turns old builds away).
 func (m *InstanceManager) gcLayers(w io.Writer) {
 	current, _ := m.CurrentLayer()
 	used := m.layersInUse()
 	all := m.ListLayers()
+	curGame := ""
+	if current != "" {
+		curGame = m.layerGame(current)
+	}
 	keptPrevious := false
 	for i := len(all) - 1; i >= 0; i-- {
 		d := filepath.Clean(all[i])
-		if d == filepath.Clean(current) || used[d] {
+		// A layer newer than current is one a build just finished (it becomes
+		// current next); never collect it.
+		if d == filepath.Clean(current) || used[d] || filepath.Base(d) > filepath.Base(current) {
 			continue
 		}
-		if !keptPrevious {
+		if !keptPrevious && m.layerGame(d) == curGame {
 			keptPrevious = true
 			continue
 		}
 		if err := removeTreeForce(d); err == nil {
 			_ = removeTreeForce(d + ".src")
 			_ = os.Remove(d + ".json")
+			_ = os.Remove(layerGameFile(d))
 			fmt.Fprintf(w, "[Ready Up layer] removed unused layer %s\n", filepath.Base(d))
 		}
 	}

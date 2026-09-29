@@ -139,7 +139,7 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	}
 
 	if mgr.NumServers <= 0 && InstancesExist() {
-		// Instance mode: one master update, a layer rebuild, and restarts of
+		// Instance mode: one new game version, a layer rebuild, and restarts of
 		// idle instances only (instance_update.go).
 		log("No server-N folders; updating for instances instead.")
 		im, ierr := NewInstanceManager()
@@ -148,6 +148,7 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 			ierr = im.updateGameLocked(ctx, &ibuf)
 			if ierr == nil {
 				im.RestartIdleInstances(ctx, &ibuf, instanceHoldNow(ctx))
+				im.GC(&ibuf)
 			}
 			log("%s", ibuf.String())
 		}

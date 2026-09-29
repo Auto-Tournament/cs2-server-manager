@@ -46,11 +46,14 @@ func runCommand(item menuItem) tea.Cmd {
 // any server. The TUI has no --force; the refusal says how to force it from a
 // shell.
 func gateTUI(action, forceCmd string) error {
-	mgr, err := csm.NewTmuxManager()
+	set, err := csm.OpenServerSet()
 	if err != nil {
 		return nil // the action itself reports this
 	}
-	if err := mgr.GateServers(context.Background(), action, nil, false, nil); err != nil {
+	if set.IsInstances() && action == "update-game" {
+		return nil // instances are only restarted onto an update once idle
+	}
+	if err := set.Gate(context.Background(), action, 0, false, nil); err != nil {
 		return fmt.Errorf("%w\n\nTo go ahead anyway, run from a shell: %s", err, forceCmd)
 	}
 	return nil
@@ -155,7 +158,7 @@ func runInstallMonitorGo() tea.Cmd {
 // runStartAllServers starts all servers via the Go tmux manager.
 func runStartAllServers() tea.Cmd {
 	return func() tea.Msg {
-		mgr, err := csm.NewTmuxManager()
+		mgr, err := csm.OpenServerSet()
 		if err != nil {
 			return commandFinishedMsg{
 				item:   menuItem{title: "Start all servers", kind: itemStartAllGo},
@@ -163,10 +166,10 @@ func runStartAllServers() tea.Cmd {
 				err:    err,
 			}
 		}
-		err = mgr.StartAll()
+		err = mgr.Start(context.Background(), 0)
 		out := ""
 		if err == nil {
-			out = fmt.Sprintf("Started %d server(s) via tmux.\n\nUse the Servers dashboard or `csm attach <n>` to inspect them.", mgr.NumServers)
+			out = fmt.Sprintf("Started %d %s(s) via tmux.\n\nUse the Servers dashboard or `csm attach <n>` to inspect them.", mgr.Count(), mgr.Noun())
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Start all servers", kind: itemStartAllGo},
@@ -179,7 +182,7 @@ func runStartAllServers() tea.Cmd {
 // runStopAllServers stops all servers via the Go tmux manager.
 func runStopAllServers() tea.Cmd {
 	return func() tea.Msg {
-		mgr, err := csm.NewTmuxManager()
+		mgr, err := csm.OpenServerSet()
 		if err != nil {
 			return commandFinishedMsg{
 				item:   menuItem{title: "Stop all servers", kind: itemStopAllGo},
@@ -190,10 +193,10 @@ func runStopAllServers() tea.Cmd {
 		if gerr := gateTUI("stop", "csm stop --force"); gerr != nil {
 			return commandFinishedMsg{item: menuItem{title: "Stop all servers", kind: itemStopAllGo}, err: gerr}
 		}
-		err = mgr.StopAll()
+		err = mgr.Stop(0)
 		out := ""
 		if err == nil {
-			out = fmt.Sprintf("Stopped %d server(s) via tmux.", mgr.NumServers)
+			out = fmt.Sprintf("Stopped %d %s(s) via tmux.", mgr.Count(), mgr.Noun())
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Stop all servers", kind: itemStopAllGo},
@@ -206,7 +209,7 @@ func runStopAllServers() tea.Cmd {
 // runRestartAllServers restarts all servers via the Go tmux manager.
 func runRestartAllServers() tea.Cmd {
 	return func() tea.Msg {
-		mgr, err := csm.NewTmuxManager()
+		mgr, err := csm.OpenServerSet()
 		if err != nil {
 			return commandFinishedMsg{
 				item:   menuItem{title: "Restart all servers", kind: itemRestartAllGo},
@@ -217,10 +220,10 @@ func runRestartAllServers() tea.Cmd {
 		if gerr := gateTUI("restart", "csm restart --force"); gerr != nil {
 			return commandFinishedMsg{item: menuItem{title: "Restart all servers", kind: itemRestartAllGo}, err: gerr}
 		}
-		err = mgr.RestartAll()
+		err = mgr.Restart(context.Background(), 0)
 		out := ""
 		if err == nil {
-			out = fmt.Sprintf("Restarted %d server(s) via tmux.", mgr.NumServers)
+			out = fmt.Sprintf("Restarted %d %s(s) via tmux.", mgr.Count(), mgr.Noun())
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Restart all servers", kind: itemRestartAllGo},

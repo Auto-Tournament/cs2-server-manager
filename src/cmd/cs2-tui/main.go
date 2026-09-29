@@ -190,6 +190,9 @@ func main() {
 			}
 			return
 		case "start":
+			if instanceBackendCommand("start", args[1:]) {
+				return
+			}
 			startFS := flag.NewFlagSet("start", flag.ExitOnError)
 			var startAlternate bool
 			var startBinary bool
@@ -235,6 +238,9 @@ func main() {
 			}
 			return
 		case "stop":
+			if instanceBackendCommand("stop", args[1:]) {
+				return
+			}
 			stopForce, stopArgs := extractForce(args[1:])
 			mgr, err := csm.NewTmuxManager()
 			if err != nil {
@@ -270,6 +276,9 @@ func main() {
 			}
 			return
 		case "restart":
+			if instanceBackendCommand("restart", args[1:]) {
+				return
+			}
 			restartFS := flag.NewFlagSet("restart", flag.ExitOnError)
 			var restartAlternate bool
 			var restartBinary bool
@@ -469,6 +478,9 @@ func main() {
 			fmt.Print(ips)
 			return
 		case "logs":
+			if instanceBackendCommand("logs", args[1:]) {
+				return
+			}
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm logs <server> [lines]")
 				os.Exit(1)
@@ -713,6 +725,9 @@ func main() {
 			}
 			return
 		case "attach":
+			if instanceBackendCommand("attach", args[1:]) {
+				return
+			}
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm attach <server>")
 				os.Exit(1)

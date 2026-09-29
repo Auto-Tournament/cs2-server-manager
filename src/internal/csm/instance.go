@@ -26,7 +26,9 @@ import (
 //
 //	upper  (instance-N/upper: everything this instance writes)
 //	layer  (instances/layers/<id>: Ready Up, installed once by its install.sh)
-//	master (master-install: never written)
+//	game   (the CS2 install the layer was built on: master-install, or a
+//	        game version in instances/games/<id> after a CS2 update; never
+//	        written, see instance_game.go)
 //
 // merged at instance-N/merged, visible only inside that instance's namespace.
 // What would collide between servers sharing one folder (Ready Up's
@@ -36,11 +38,12 @@ import (
 //
 // Ports: game = base + 10*N, GOTV +1, client +2, Ready Up status HTTP +7.
 //
-// The Ready Up layer is versioned: a new release (or a CS2 update, which
-// changes gameinfo.gi) builds a new layer next to the old one and points
-// layers/current at it. Running instances keep the layer they were mounted
-// with; csm restarts them onto the new one only when they are idle
-// (instance_update.go), never mid-match, and never while updates are on hold.
+// The Ready Up layer and the game are versioned: a new release builds a new
+// layer next to the old one, a CS2 update makes a new game version and a new
+// layer on it, and layers/current moves. Running instances keep the layer
+// and game version they were mounted with; csm restarts them onto the new
+// ones only when they are idle (instance_update.go), never mid-match, and
+// never while updates are on hold.
 
 const (
 	// ServerBackendServers is the default: full-copy server-N folders.
@@ -353,11 +356,14 @@ func instanceCS2Args(s instanceLaunch) []string {
 }
 
 // renderInstanceExecScript is exec.sh: run inside the namespace with the
-// layer directory as $1, it mounts the overlay (and a private /dev/shm) and
-// execs cs2 in the merged view.
+// layer directory as $1 and the game version it sits on as $2, it mounts the
+// overlay (and a private /dev/shm) and execs cs2 in the merged view.
 func renderInstanceExecScript(s instanceLaunch) (string, error) {
 	n := s.N
-	opts, err := overlayMountOptions([]string{"/@LAYER@", s.L.Master}, s.L.Upper(n), s.L.Work(n))
+	if err := overlayPathOK(s.L.Master); err != nil {
+		return "", err
+	}
+	opts, err := overlayMountOptions([]string{"/@LAYER@", "/@GAME@"}, s.L.Upper(n), s.L.Work(n))
 	if err != nil {
 		return "", err
 	}
@@ -365,13 +371,15 @@ func renderInstanceExecScript(s instanceLaunch) (string, error) {
 		return "", err
 	}
 	opts = strings.Replace(opts, "/@LAYER@", "$LAYER", 1)
+	opts = strings.Replace(opts, "/@GAME@", "$GAME", 1)
 	q := shellQuote
 	var b strings.Builder
 	b.WriteString("#!/usr/bin/env bash\n")
 	fmt.Fprintf(&b, "# csm instance %d: mount + exec cs2 (runs inside its user+mount namespace; written by csm on every start)\n", n)
 	b.WriteString("set -euo pipefail\n")
 	b.WriteString("LAYER=\"${1:?layer directory}\"\n")
-	b.WriteString("case \"$LAYER\" in *,*|*:*) echo \"[csm] bad layer path $LAYER\" >&2; exit 1 ;; esac\n")
+	fmt.Fprintf(&b, "GAME=\"${2:-%s}\"\n", s.L.Master)
+	b.WriteString("case \"$LAYER$GAME\" in *,*|*:*) echo \"[csm] bad layer or game path $LAYER $GAME\" >&2; exit 1 ;; esac\n")
 	fmt.Fprintf(&b, "mount -t overlay overlay -o \"%s\" %s\n", opts, q(s.L.Merged(n)))
 	if s.PrivateShm {
 		b.WriteString("mount -t tmpfs -o mode=1777,size=1g tmpfs /dev/shm || echo \"[csm] warning: no private /dev/shm (sharing the host's)\"\n")
@@ -379,7 +387,7 @@ func renderInstanceExecScript(s instanceLaunch) (string, error) {
 	fmt.Fprintf(&b, "cd %s\n", q(filepath.Join(s.L.Merged(n), "game")))
 	fmt.Fprintf(&b, "export HOME=%s\n", q(s.L.Home(n)))
 	fmt.Fprintf(&b, "export LD_LIBRARY_PATH=%s\"${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}\"\n", q(filepath.Join(s.L.Merged(n), "game", "bin", "linuxsteamrt64")))
-	b.WriteString("echo \"[csm] instance mounted on layer $(basename \"$LAYER\"): $(date -u +%FT%TZ)\"\n")
+	b.WriteString("echo \"[csm] instance mounted on layer $(basename \"$LAYER\"), game $GAME: $(date -u +%FT%TZ)\"\n")
 	args := instanceCS2Args(s)
 	for i, a := range args {
 		args[i] = q(a)
@@ -398,8 +406,8 @@ const (
 )
 
 // renderInstanceRunScript is run.sh, the supervisor tmux runs: it resolves
-// the current layer, records it, runs exec.sh in a fresh namespace and
-// restarts it after a crash.
+// the current layer and the game version it was built on, records both,
+// runs exec.sh in a fresh namespace and restarts it after a crash.
 func renderInstanceRunScript(s instanceLaunch) string {
 	n := s.N
 	q := shellQuote
@@ -407,12 +415,14 @@ func renderInstanceRunScript(s instanceLaunch) string {
 	b.WriteString("#!/usr/bin/env bash\n")
 	fmt.Fprintf(&b, "# csm instance %d supervisor (written by csm on every start; `csm instance stop %d` stops it)\n", n, n)
 	b.WriteString("set -u\n")
-	fmt.Fprintf(&b, "STOP=%s\nINUSE=%s\nCURRENT=%s\nEXEC=%s\n", q(s.L.StopFlag(n)), q(s.L.InUseFile(n)), q(s.L.CurrentLayerLink()), q(s.L.ExecScript(n)))
+	fmt.Fprintf(&b, "STOP=%s\nINUSE=%s\nCURRENT=%s\nEXEC=%s\nMASTER=%s\n", q(s.L.StopFlag(n)), q(s.L.InUseFile(n)), q(s.L.CurrentLayerLink()), q(s.L.ExecScript(n)), q(s.L.Master))
 	b.WriteString("exits=()\n")
 	b.WriteString("while :; do\n")
 	b.WriteString("  LAYER=$(readlink -f \"$CURRENT\") || { echo \"[csm] no Ready Up layer at $CURRENT (csm instance layer build)\"; exit 1; }\n")
-	b.WriteString("  printf '%s\\n' \"$LAYER\" > \"$INUSE\"\n")
-	fmt.Fprintf(&b, "  %s /bin/bash \"$EXEC\" \"$LAYER\"\n", strings.Join(unshareArgv(), " "))
+	b.WriteString("  GAME=$(cat \"$LAYER.game\" 2>/dev/null) || GAME=\"\"\n")
+	b.WriteString("  [ -n \"$GAME\" ] || GAME=\"$MASTER\"\n")
+	b.WriteString("  printf '%s\\n%s\\n' \"$LAYER\" \"$GAME\" > \"$INUSE\"\n")
+	fmt.Fprintf(&b, "  %s /bin/bash \"$EXEC\" \"$LAYER\" \"$GAME\"\n", strings.Join(unshareArgv(), " "))
 	b.WriteString("  code=$?\n")
 	fmt.Fprintf(&b, "  echo \"[csm] instance %d exited with code $code at $(date -u +%%FT%%TZ)\"\n", n)
 	b.WriteString("  [ -e \"$STOP\" ] && { rm -f \"$INUSE\"; exit 0; }\n")
@@ -614,8 +624,8 @@ func (m *InstanceManager) Create(w io.Writer, n int) (int, error) {
 			return 0, err
 		}
 	}
-	if fi, err := os.Stat(filepath.Join(m.L.Master, "game", "bin", "linuxsteamrt64", "cs2")); err != nil || fi.IsDir() {
-		return 0, fmt.Errorf("no CS2 install at %s (install it with the csm install wizard, or set %s)", m.L.Master, EnvInstanceMaster)
+	if fi, err := os.Stat(filepath.Join(m.CurrentGame(), "game", "bin", "linuxsteamrt64", "cs2")); err != nil || fi.IsDir() {
+		return 0, fmt.Errorf("no CS2 install at %s (install it with the csm install wizard, or set %s)", m.CurrentGame(), EnvInstanceMaster)
 	}
 	if err := m.mkdirs(m.L.Upper(n), m.L.Work(n), m.L.Merged(n), filepath.Join(m.L.Home(n), ".steam", "sdk64"), m.L.CfgDir(n)); err != nil {
 		return 0, err
@@ -723,7 +733,7 @@ func (m *InstanceManager) prepare(n int) (instanceLaunch, error) {
 		st.CreatedAt = time.Now().Unix()
 	}
 	st.StartedAt = time.Now().Unix()
-	st.MasterBuild = steamInfServerVersion(filepath.Join(m.L.Master, "game", "csgo", "steam.inf"))
+	st.MasterBuild = m.currentLayerBuild()
 	if err := writeJSONAtomic(m.L.StateFile(n), st); err != nil {
 		return s, err
 	}
@@ -883,7 +893,7 @@ func (m *InstanceManager) ShellCommand(n int) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts, err := overlayMountOptions([]string{layer, m.L.Master}, m.L.Upper(n), m.L.Work(n))
+	opts, err := overlayMountOptions([]string{layer, m.layerGame(layer)}, m.L.Upper(n), m.L.Work(n))
 	if err != nil {
 		return nil, err
 	}
@@ -905,12 +915,13 @@ func (m *InstanceManager) LayerInUse(n int) string {
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	first, _, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+	return strings.TrimSpace(first)
 }
 
 // restartPending says why a running instance should be restarted to pick
 // up an update: it runs an older Ready Up layer, or an older CS2 build than
-// the master install now has.
+// the current layer sits on.
 func restartPending(inUse, current string, startedBuild, masterBuild int64) (bool, string) {
 	var why []string
 	if inUse != "" && current != "" && filepath.Clean(inUse) != filepath.Clean(current) {
@@ -926,12 +937,20 @@ func restartPending(inUse, current string, startedBuild, masterBuild int64) (boo
 func (m *InstanceManager) RestartPending(n int) (bool, string) {
 	current, _ := m.CurrentLayer()
 	st, _ := readInstanceState(m.L.StateFile(n))
-	return restartPending(m.LayerInUse(n), current, st.MasterBuild, m.MasterBuild())
+	return restartPending(m.LayerInUse(n), current, st.MasterBuild, m.currentLayerBuild())
 }
 
-// MasterBuild is the master install's ServerVersion (0 = unknown).
-func (m *InstanceManager) MasterBuild() int64 {
-	return steamInfServerVersion(filepath.Join(m.L.Master, "game", "csgo", "steam.inf"))
+// MasterBuild is the ServerVersion of the current CS2 game version (the
+// master install until the first update; 0 = unknown).
+func (m *InstanceManager) MasterBuild() int64 { return gameBuild(m.CurrentGame()) }
+
+// currentLayerBuild is the CS2 build a start gets now: that of the game
+// version the current layer sits on (the current game version without one).
+func (m *InstanceManager) currentLayerBuild() int64 {
+	if cur, err := m.CurrentLayer(); err == nil {
+		return gameBuild(m.layerGame(cur))
+	}
+	return m.MasterBuild()
 }
 
 // FleetTarget is instance n as a fleet row: Dir is its upper directory,
