@@ -190,6 +190,9 @@ func main() {
 			}
 			return
 		case "start":
+			if instanceBackendCommand("start", args[1:]) {
+				return
+			}
 			startFS := flag.NewFlagSet("start", flag.ExitOnError)
 			var startAlternate bool
 			var startBinary bool
@@ -235,6 +238,9 @@ func main() {
 			}
 			return
 		case "stop":
+			if instanceBackendCommand("stop", args[1:]) {
+				return
+			}
 			stopForce, stopArgs := extractForce(args[1:])
 			mgr, err := csm.NewTmuxManager()
 			if err != nil {
@@ -270,6 +276,9 @@ func main() {
 			}
 			return
 		case "restart":
+			if instanceBackendCommand("restart", args[1:]) {
+				return
+			}
 			restartFS := flag.NewFlagSet("restart", flag.ExitOnError)
 			var restartAlternate bool
 			var restartBinary bool
@@ -469,6 +478,9 @@ func main() {
 			fmt.Print(ips)
 			return
 		case "logs":
+			if instanceBackendCommand("logs", args[1:]) {
+				return
+			}
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm logs <server> [lines]")
 				os.Exit(1)
@@ -713,6 +725,9 @@ func main() {
 			}
 			return
 		case "attach":
+			if instanceBackendCommand("attach", args[1:]) {
+				return
+			}
 			if len(args) < 2 {
 				fmt.Fprintln(os.Stderr, "usage: csm attach <server>")
 				os.Exit(1)
@@ -845,6 +860,11 @@ func main() {
 			if mgr, merr := csm.NewTmuxManager(); merr == nil {
 				gateOrExit(mgr, "update-plugins", nil, pluginsForce)
 			}
+			if stack, why := csm.PluginStack(context.Background(), os.Stdout, csm.ConfiguredCS2User()); stack == csm.PluginStackReadyUp {
+				fmt.Printf("Plugin stack: Ready Up (%s)\n", why)
+				updateReadyUpCLI()
+				return
+			}
 			// For CLI convenience, perform both the download and deploy steps.
 			if out, err := csm.UpdatePlugins(); out != "" || err != nil {
 				csm.LogAction("cli", "update-plugins-download", out, err)
@@ -889,8 +909,26 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "plugins":
+			pluginsCommand(args[1:])
+			return
+		case "instance", "instances":
+			instanceCommand(args[1:])
+			return
 		case "license":
 			licenseCommand(args[1:])
+			return
+		case "link":
+			linkCommand(args[1:])
+			return
+		case "unlink":
+			unlinkCommand(args[1:])
+			return
+		case "fleet":
+			fleetCommand(args[1:])
+			return
+		case "agent":
+			agentCommand(args[1:])
 			return
 		case "install-monitor-cron":
 			interval := ""
@@ -1061,7 +1099,9 @@ func printUsage() {
 	fmt.Println("  unban <server> <ip>    Remove IP from banned RCON requests (use 0 for all servers)")
 	fmt.Println("  unban-all <server>     Clear all IPs banned for RCON attempts (use 0 for all servers)")
 	fmt.Println("  update-game            Update CS2 game files after a Valve update")
-	fmt.Println("  update-plugins         Update plugins and deploy to servers")
+	fmt.Println("  update-plugins         Install/update the plugin stack on every server (Ready Up or legacy; csm plugins)")
+	fmt.Println("  plugins [status]       Plugin stack, Ready Up channel/version/bundle/license (`csm plugins -h`)")
+	fmt.Println("  instance ...           Instance mode: many servers from one read-only install (`csm instance -h`)")
 	fmt.Println("  self-update            Update csm itself to the latest release")
 	fmt.Println("  dedupe-vpk [server]    Hardlink server VPKs to master-install to save disk (--dry-run, --verify, --undo)")
 	fmt.Println("  monitor                Update servers with a pending CS2 update once idle (cron runs this)")
@@ -1072,6 +1112,9 @@ func printUsage() {
 	fmt.Println("  updates check          Ask the platform now whether updates are held")
 	fmt.Println("  license set <key>      Store an Auto Tournament license key; Ready Up on every server gets it too")
 	fmt.Println("  license status|clear   Check the key offline / remove it (never blocks anything)")
+	fmt.Println("  link <url> <code|key>  Link this machine to an Auto Tournament platform (host agent; `csm link -h`)")
+	fmt.Println("  link status | unlink   Show / forget the link")
+	fmt.Println("  agent [install|remove|status|config]  Run the host agent (foreground or systemd service)")
 	fmt.Println("  install-monitor-cron   Install auto-update monitor cronjob (in the crontab of the user running it)")
 	fmt.Println("  remove-monitor-cron    Remove auto-update monitor cronjob")
 	fmt.Println("  ci setup|status|update|remove  CI test host for Ready Up's live-server check: a separate CS2")

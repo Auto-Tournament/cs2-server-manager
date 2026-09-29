@@ -138,6 +138,25 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 		return buf.String(), fmt.Errorf("master install not found at %s", masterDir)
 	}
 
+	if mgr.NumServers <= 0 && InstancesExist() {
+		// Instance mode: one new game version, a layer rebuild, and restarts of
+		// idle instances only (instance_update.go).
+		log("No server-N folders; updating for instances instead.")
+		im, ierr := NewInstanceManager()
+		if ierr == nil {
+			var ibuf bytes.Buffer
+			ierr = im.updateGameLocked(ctx, &ibuf)
+			if ierr == nil {
+				im.RestartIdleInstances(ctx, &ibuf, instanceHoldNow(ctx))
+				im.GC(&ibuf)
+			}
+			log("%s", ibuf.String())
+		}
+		logOut := buf.String()
+		AppendLog("update-game.log", logOut)
+		return logOut, ierr
+	}
+
 	if mgr.NumServers <= 0 {
 		log("No CS2 servers found for user %s (no /home/%s/server-* directories).", cs2User, cs2User)
 		log("Nothing to update. Run the install wizard from the TUI first.")
@@ -552,6 +571,22 @@ func UpdateAndDeployPluginsWithContext(ctx context.Context) (string, error) {
 	if err := checkCtx(); err != nil {
 		return buf.String(), err
 	}
+
+	stack, why := PluginStack(ctx, w, configuredCS2User())
+	if stack == PluginStackReadyUp {
+		log("Plugin stack: Ready Up (%s)", why)
+		out, err := UpdateReadyUpOnServers(ctx, nil)
+		if out != "" {
+			log("%s", out)
+		}
+		if err != nil {
+			log("[ERROR] Ready Up update failed: %v", err)
+		}
+		all := buf.String()
+		AppendLog("update-and-deploy-plugins.log", all)
+		return all, err
+	}
+	log("Plugin stack: legacy Metamod + CounterStrikeSharp + Auto Tournament CS2 (%s)", why)
 
 	out, err := UpdatePlugins()
 	if out != "" {
