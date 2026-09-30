@@ -586,7 +586,7 @@ func UpdateAndDeployPluginsWithContext(ctx context.Context) (string, error) {
 		AppendLog("update-and-deploy-plugins.log", all)
 		return all, err
 	}
-	log("Plugin stack: legacy Metamod + CounterStrikeSharp + Auto Tournament CS2 (%s)", why)
+	log("Plugin stack: legacy Metamod + CounterStrikeSharp + MatchZy Enhanced (%s)", why)
 
 	out, err := UpdatePlugins()
 	if out != "" {

@@ -28,7 +28,7 @@ Using it for a business, paid events or hosting? That needs a commercial licence
 > organisation, together with Auto Tournament (formerly MatchZy Auto Tournament). Old links
 > redirect, and nothing changes for existing installs.
 
-csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, puts a plugin stack on every server ([Ready Up](https://github.com/Auto-Tournament/ready-up), or the legacy Metamod:Source + CounterStrikeSharp + [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin); see [Plugin stack](#plugin-stack-ready-up-or-legacy)), runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
+csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, puts a plugin stack on every server ([Ready Up](https://github.com/Auto-Tournament/ready-up), or the legacy Metamod:Source + CounterStrikeSharp + [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced); see [Plugin stack](#plugin-stack-ready-up-or-legacy)), runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
 
 It's for people running their own match servers: LAN organisers, small leagues, and anyone using [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) who needs servers for it to control. The default MatchZy database is MySQL in a Docker container, so Docker is needed for that setup.
 
@@ -195,7 +195,7 @@ The TUI dashboard and `csm status --watch` follow each server's `/stream` and up
 
 `SAFE` is Ready Up's `update_safe`: `NO` from the moment a match loads until the series is over and its demo is uploaded. While it says `NO`, `stop`, `restart`, `update-game`, `update-server` and `update-plugins` refuse to run and name the match that is in the way. The auto-update monitor skips that server too. Add `--force` to go ahead anyway; forced runs are written to `csm.log`. The TUI never forces; it tells you the command to run.
 
-Servers without Ready Up (for example with the Auto Tournament CS2 plugin) show `no Ready Up` and behave exactly as before.
+Servers without Ready Up (for example with MatchZy Enhanced) show `no Ready Up` and behave exactly as before.
 
 ### Host agent: control this machine from Auto Tournament (`csm link`)
 
@@ -292,7 +292,7 @@ Security: this is a self-hosted runner for a public repository, so the Ready Up 
 csm installs one of two plugin stacks on every server:
 
 - **Ready Up** (`readyup`): [Ready Up](https://github.com/Auto-Tournament/ready-up), a native CS2 plugin suite. No Metamod, no CounterStrikeSharp. This is what Auto Tournament 3.x talks to.
-- **Legacy** (`legacy`): Metamod:Source + CounterStrikeSharp + [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) 1.4.35, the MatchZy-era plugin (`matchzy_*` cvars) that Auto Tournament 2.x talks to.
+- **Legacy** (`legacy`): Metamod:Source + CounterStrikeSharp + [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced) 1.4.35, the MatchZy-era plugin (`matchzy_*` cvars) that Auto Tournament 2.x talks to.
 
 ```bash
 csm plugins                          # what is chosen, what would be installed, what each server has
@@ -315,7 +315,7 @@ csm update-plugins                   # install / update now (stops and restarts 
 
 **Automatic updates.** On the Ready Up stack every `csm monitor` cycle (cron, every 5 minutes) keeps Ready Up on its channel. It asks GitHub at most every 30 minutes. A server is updated only when updates are not on hold (`csm updates hold`, or the platform's update-hold while a tournament runs) and it is stopped, or Ready Up reports `update_safe: true` with nobody connected for the idle grace period (`csm updates grace`). Never mid-match. A failed update is retried after an hour. Each cycle logs what it did to `csm.log`.
 
-**Legacy stack version.** The legacy stack installs Auto Tournament CS2 **v1.4.35**, no longer "whatever is latest" (the plugin repo's next major is not what Auto Tournament 2.x expects). `CSM_LEGACY_PLUGIN_VERSION` picks another tag, or `latest`. When csm knows the platform (`csm updates platform`, or `csm link`) it asks it for its version first, and refuses the legacy stack for Auto Tournament 3.x with a message that points here; nothing on the servers changes. An unreachable platform does not block the install.
+**Legacy stack version.** The legacy stack installs MatchZy Enhanced **v1.4.35**, no longer "whatever is latest" (the plugin repo's next major is not what Auto Tournament 2.x expects). `CSM_LEGACY_PLUGIN_VERSION` picks another tag, or `latest`. When csm knows the platform (`csm updates platform`, or `csm link`) it asks it for its version first, and refuses the legacy stack for Auto Tournament 3.x with a message that points here; nothing on the servers changes. An unreachable platform does not block the install.
 
 ### Moving to Ready Up
 
@@ -466,7 +466,7 @@ On newer distributions such as Debian 13 and Ubuntu 25.04+, CounterStrikeSharp c
 
 ## Metamod version
 
-This is the legacy stack. CounterStrikeSharp installs from its latest release and Auto Tournament CS2 is pinned (see [Plugin stack](#plugin-stack-ready-up-or-legacy)). Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `csm update-plugins` to get both at once.
+This is the legacy stack. CounterStrikeSharp installs from its latest release and MatchZy Enhanced is pinned (see [Plugin stack](#plugin-stack-ready-up-or-legacy)). Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `csm update-plugins` to get both at once.
 
 `csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
 
@@ -500,7 +500,7 @@ MatchZy also stores per-server settings in that database: `matchzy_server_id`, t
 
 The fix has two parts:
 
-- [Auto Tournament CS2 1.4.28](https://github.com/Auto-Tournament/cs2-plugin/releases/tag/v1.4.28) and newer store those settings per server ([#17](https://github.com/Auto-Tournament/cs2-plugin/pull/17)). 1.4.26 added this but could not read `+matchzy_config_scope` ([#18](https://github.com/Auto-Tournament/cs2-plugin/pull/18), fixed in 1.4.27), and 1.4.27 could still load another server's `matchzy_server_id` ([#19](https://github.com/Auto-Tournament/cs2-plugin/pull/19), fixed in 1.4.28). It tells servers apart by bind address and port, but csm starts servers with `-ip 0.0.0.0`, so MatchZy would fall back to the machine name, which every server on the machine shares.
+- [MatchZy Enhanced 1.4.28](https://github.com/Auto-Tournament/matchzy-enhanced/releases/tag/v1.4.28) and newer store those settings per server ([#17](https://github.com/Auto-Tournament/matchzy-enhanced/pull/17)). 1.4.26 added this but could not read `+matchzy_config_scope` ([#18](https://github.com/Auto-Tournament/matchzy-enhanced/pull/18), fixed in 1.4.27), and 1.4.27 could still load another server's `matchzy_server_id` ([#19](https://github.com/Auto-Tournament/matchzy-enhanced/pull/19), fixed in 1.4.28). It tells servers apart by bind address and port, but csm starts servers with `-ip 0.0.0.0`, so MatchZy would fall back to the machine name, which every server on the machine shares.
 - csm therefore passes `+matchzy_config_scope <hostname>-server-<N>` (for example `cs2-server-1`) when it starts each server. The name comes from the server's directory, so it survives restarts, updates, reinstalls and port changes, and the hostname keeps two machines sharing one database apart. If you rename the machine, or several machines share a hostname, set `CSM_MATCHZY_SCOPE_PREFIX` (for example `eu-1`) wherever csm starts servers.
 
 The install wizard's **MatchZy storage** option picks between shared MySQL (the default; needs the CS2 plugin 1.4.28+ with 2 or more servers) and SQLite per server, where each server keeps its own `matchzy.db`. SQLite works on any MatchZy build but stats aren't shared. For a non-interactive install use `MATCHZY_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
@@ -550,7 +550,7 @@ Your logo here — [sponsor Auto Tournament](https://discord.gg/n7gHYau7aW) to b
 
 ## License
 
-PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial use; commercial use (paid hosting, selling it, paid-entry events, business use) needs a license — see [pricing](https://autotournament.gg/pricing) and [LICENSING.md](LICENSING.md). The [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin) plugin stays MIT.
+PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial use; commercial use (paid hosting, selling it, paid-entry events, business use) needs a license — see [pricing](https://autotournament.gg/pricing) and [LICENSING.md](LICENSING.md). The [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced) plugin stays MIT.
 
 ## Links
 
@@ -558,5 +558,5 @@ PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial us
 - [Troubleshooting](https://docs.sivert.io/docs/csm/user/troubleshooting)
 - [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), a web app for running tournaments on these servers
 - [Ready Up](https://github.com/Auto-Tournament/ready-up), the plugin suite csm installs on the Ready Up stack
-- [Auto Tournament CS2](https://github.com/Auto-Tournament/cs2-plugin), the plugin of the legacy stack (formerly MatchZy Enhanced)
+- [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced), the plugin of the legacy stack
 - [Issues](https://github.com/Auto-Tournament/cs2-server-manager/issues)

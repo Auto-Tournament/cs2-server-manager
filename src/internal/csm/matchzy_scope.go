@@ -10,7 +10,7 @@ import (
 //
 // MatchZy stores per-server settings (matchzy_server_id, bootstrap URL/token,
 // remote log URL, demo upload URL, ...) in its database. Before
-// Auto-Tournament/cs2-plugin#17 those rows were keyed by setting name only, so
+// Auto-Tournament/matchzy-enhanced#17 those rows were keyed by setting name only, so
 // several servers sharing one MySQL database overwrote each other and all
 // loaded the last writer's values on startup.
 //
@@ -32,7 +32,7 @@ const (
 
 	// MatchzyScopingPR is the MatchZy-Enhanced change that adds per-server
 	// config scoping.
-	MatchzyScopingPR = "https://github.com/Auto-Tournament/cs2-plugin/pull/17"
+	MatchzyScopingPR = "https://github.com/Auto-Tournament/matchzy-enhanced/pull/17"
 
 	// MatchzyScopingMinVersion is the first plugin release on which several
 	// servers can share one MySQL database:
@@ -40,9 +40,9 @@ const (
 	//   - v1.4.26 shipped MatchzyScopingPR but could not read the start
 	//     arguments inside the game process, so every server on a box resolved
 	//     the same scope and they still overwrote each other.
-	//   - v1.4.27 (cs2-plugin#18) is the first release that reads
+	//   - v1.4.27 (matchzy-enhanced#18) is the first release that reads
 	//     +matchzy_config_scope, from /proc/self/cmdline.
-	//   - v1.4.28 (cs2-plugin#19) stops a controller's URL/token update from
+	//   - v1.4.28 (matchzy-enhanced#19) stops a controller's URL/token update from
 	//     fetching another server's bootstrap payload, which on a shared
 	//     database still overwrote matchzy_server_id with another server's id.
 	//
@@ -61,7 +61,7 @@ const (
 // MatchzyScopingRequirement describes the plugin build shared MySQL needs, for
 // use in wizard text, doctor output and logs.
 func MatchzyScopingRequirement() string {
-	return fmt.Sprintf("Auto Tournament CS2 (formerly MatchZy Enhanced) %s or newer", MatchzyScopingMinVersion)
+	return fmt.Sprintf("MatchZy Enhanced %s or newer", MatchzyScopingMinVersion)
 }
 
 // MatchzyConfigScope returns the persistent config scope for server-N on this

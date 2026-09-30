@@ -16,7 +16,7 @@ import (
 const (
 	// Legacy AutoUpdater plugin: the server shuts itself down.
 	autoUpdaterShutdownMarker = "plugin:AutoUpdater Shutting the server down due to the new game update"
-	// Auto Tournament CS2 plugin (MatchZy): printed in warn_only mode, the
+	// MatchZy Enhanced: printed in warn_only mode, the
 	// server keeps running.
 	matchzyUpdateAvailableMarker = "[MATCHZY_UPDATE_AVAILABLE] required_version="
 )
