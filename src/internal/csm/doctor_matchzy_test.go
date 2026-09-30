@@ -39,7 +39,7 @@ func TestEvaluateMatchzyScope(t *testing.T) {
 			},
 			want:      DoctorFail,
 			detailHas: []string{`server-1, server-2, server-3 all report matchzy_server_id "s_3"`, "older than 1.4.28 (no per-server config scoping)"},
-			fixHas:    []string{"Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.28 or newer", "csm update-plugins", `"DatabaseType": "SQLite"`, "reconfigure every server", "csm doctor"},
+			fixHas:    []string{"MatchZy Enhanced 1.4.28 or newer", "csm update-plugins", `"DatabaseType": "SQLite"`, "reconfigure every server", "csm doctor"},
 		},
 		{
 			name: "fixed: shared MySQL, scoping plugin, scope args, distinct ids",
@@ -176,7 +176,7 @@ func TestEvaluateMatchzyScopeNamesPluginVersion(t *testing.T) {
 func TestMatchzyScopingRequirement(t *testing.T) {
 	t.Parallel()
 
-	if got, want := MatchzyScopingRequirement(), "Auto Tournament CS2 (formerly MatchZy Enhanced) 1.4.28 or newer"; got != want {
+	if got, want := MatchzyScopingRequirement(), "MatchZy Enhanced 1.4.28 or newer"; got != want {
 		t.Fatalf("MatchzyScopingRequirement() = %q, want %q", got, want)
 	}
 }
@@ -353,7 +353,7 @@ func TestMatchzyScopingMinVersion(t *testing.T) {
 
 	// 1.4.26 could not read +matchzy_config_scope, 1.4.27 could but still let
 	// a controller overwrite matchzy_server_id on a shared database (fixed in
-	// cs2-plugin#19, released as 1.4.28).
+	// matchzy-enhanced#19, released as 1.4.28).
 	if MatchzyScopingMinVersion != "1.4.28" {
 		t.Fatalf("MatchzyScopingMinVersion = %q, want 1.4.28", MatchzyScopingMinVersion)
 	}

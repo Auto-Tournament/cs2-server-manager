@@ -77,7 +77,7 @@ func CheckDiskSpaceForPluginUpdate(gameDir string) error {
 }
 
 // UpdatePlugins (the legacy stack) downloads and stages Metamod:Source (pinned, see
-// MetamodPinnedVersion), the latest CounterStrikeSharp and the Auto Tournament CS2
+// MetamodPinnedVersion), the latest CounterStrikeSharp and the MatchZy Enhanced
 // plugin (pinned, see LegacyPluginPinnedVersion) into
 // game_files/, then applies overrides.
 // This function is protected by a mutex to prevent concurrent updates.
@@ -474,7 +474,7 @@ func (up *PluginUpdater) downloadMatchZy(w io.Writer) error {
 		return err
 	}
 
-	fmt.Fprintf(w, "[MatchZy] Target: Auto Tournament CS2 %s\n", rel.TagName)
+	fmt.Fprintf(w, "[MatchZy] Target: MatchZy Enhanced %s\n", rel.TagName)
 	fmt.Fprintln(w, "[MatchZy] Downloading...")
 
 	resp, err := RetryHTTPGet(up.httpClient(), downloadURL, DefaultRetryConfig())
@@ -719,7 +719,7 @@ func (up *PluginUpdater) unzipTo(zipPath, dest string) error {
 	return nil
 }
 
-// LegacyPluginPinnedVersion is the Auto-Tournament/cs2-plugin release the
+// LegacyPluginPinnedVersion is the Auto-Tournament/matchzy-enhanced release the
 // legacy stack installs. It used to be releases/latest, which follows
 // whatever the plugin repo publishes next, including majors the platform a
 // host talks to does not speak. v1.4.35 is the last MatchZy-era release
@@ -742,29 +742,29 @@ type legacyPluginRelease struct {
 	} `json:"assets"`
 }
 
-// resolveLegacyPlugin picks the cs2-plugin release and its zip.
+// resolveLegacyPlugin picks the matchzy-enhanced release and its zip.
 func (up *PluginUpdater) resolveLegacyPlugin(w io.Writer) (legacyPluginRelease, string, error) {
 	var rel legacyPluginRelease
 	target := strings.TrimSpace(os.Getenv(legacyPluginVersionEnv))
-	base := githubAPI + "/repos/Auto-Tournament/cs2-plugin/releases"
+	base := githubAPI + "/repos/Auto-Tournament/matchzy-enhanced/releases"
 	switch {
 	case strings.EqualFold(target, "latest"):
-		fmt.Fprintf(w, "[MatchZy] %s=latest: fetching the latest Auto Tournament CS2 plugin release...\n", legacyPluginVersionEnv)
+		fmt.Fprintf(w, "[MatchZy] %s=latest: fetching the latest MatchZy Enhanced release...\n", legacyPluginVersionEnv)
 		if err := up.fetchJSON(base+"/latest", &rel); err != nil {
-			return rel, "", fmt.Errorf("failed to fetch Auto Tournament CS2 releases from Auto-Tournament/cs2-plugin: %w", err)
+			return rel, "", fmt.Errorf("failed to fetch MatchZy Enhanced releases from Auto-Tournament/matchzy-enhanced: %w", err)
 		}
 	default:
 		if target == "" {
 			target = LegacyPluginPinnedVersion
-			fmt.Fprintf(w, "[MatchZy] Using pinned Auto Tournament CS2 %s (override with %s)\n", target, legacyPluginVersionEnv)
+			fmt.Fprintf(w, "[MatchZy] Using pinned MatchZy Enhanced %s (override with %s)\n", target, legacyPluginVersionEnv)
 		} else {
 			if !strings.HasPrefix(target, "v") {
 				target = "v" + target
 			}
-			fmt.Fprintf(w, "[MatchZy] Using Auto Tournament CS2 %s from %s\n", target, legacyPluginVersionEnv)
+			fmt.Fprintf(w, "[MatchZy] Using MatchZy Enhanced %s from %s\n", target, legacyPluginVersionEnv)
 		}
 		if err := up.fetchJSON(base+"/tags/"+url.PathEscape(target), &rel); err != nil {
-			return rel, "", fmt.Errorf("failed to fetch Auto Tournament CS2 %s from Auto-Tournament/cs2-plugin: %w", target, err)
+			return rel, "", fmt.Errorf("failed to fetch MatchZy Enhanced %s from Auto-Tournament/matchzy-enhanced: %w", target, err)
 		}
 	}
 
@@ -784,7 +784,7 @@ func (up *PluginUpdater) resolveLegacyPlugin(w io.Writer) (legacyPluginRelease, 
 		}
 	}
 	if downloadURL == "" {
-		return rel, "", fmt.Errorf("no suitable MatchZy asset found in Auto Tournament CS2 %s", rel.TagName)
+		return rel, "", fmt.Errorf("no suitable MatchZy asset found in MatchZy Enhanced %s", rel.TagName)
 	}
 	return rel, downloadURL, nil
 }

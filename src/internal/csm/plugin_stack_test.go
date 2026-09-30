@@ -293,9 +293,9 @@ func TestLegacyPluginIsPinned(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		asked = append(asked, r.URL.Path)
 		switch r.URL.Path {
-		case "/repos/Auto-Tournament/cs2-plugin/releases/tags/v1.4.35":
+		case "/repos/Auto-Tournament/matchzy-enhanced/releases/tags/v1.4.35":
 			_, _ = w.Write([]byte(`{"tag_name":"v1.4.35","assets":[{"name":"MatchZy-1.4.35.zip","browser_download_url":"https://example.invalid/MatchZy-1.4.35.zip"}]}`))
-		case "/repos/Auto-Tournament/cs2-plugin/releases/latest":
+		case "/repos/Auto-Tournament/matchzy-enhanced/releases/latest":
 			_, _ = w.Write([]byte(`{"tag_name":"v2.0.0","assets":[{"name":"AutoTournamentCS2-2.0.0.zip","browser_download_url":"https://example.invalid/AutoTournamentCS2-2.0.0.zip"}]}`))
 		default:
 			http.NotFound(w, r)
