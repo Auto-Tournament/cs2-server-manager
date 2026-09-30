@@ -29,7 +29,7 @@ import (
 //
 // The port and a read-only token are in game/csgo/readyup/status.json, which
 // Ready Up writes on start. Without that file csm tries the default port, game
-// port + 7 (status_http_port=0). A server that runs the Auto Tournament CS2 plugin instead of Ready
+// port + 7 (status_http_port=0). A server that runs MatchZy Enhanced instead of Ready
 // Up has neither, and csm treats it exactly as before: no fleet data, no
 // gating.
 
@@ -218,7 +218,7 @@ const (
 	// ReadyUpOK: /status answered.
 	ReadyUpOK ReadyUpState = "ok"
 	// ReadyUpNone: no status.json and nothing on the default port. The server
-	// runs without Ready Up (for example with the Auto Tournament CS2 plugin).
+	// runs without Ready Up (for example with MatchZy Enhanced).
 	ReadyUpNone ReadyUpState = "none"
 	// ReadyUpNoResponse: Ready Up is installed (status.json exists) or the
 	// port answered, but /status did not give a usable answer.
