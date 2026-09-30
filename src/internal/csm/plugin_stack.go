@@ -24,7 +24,7 @@ import (
 //   - readyup: Ready Up (github.com/Auto-Tournament/ready-up), a native CS2
 //     plugin suite. No Metamod, no CounterStrikeSharp. What the Auto
 //     Tournament platform 3.x talks to.
-//   - legacy: Metamod:Source + CounterStrikeSharp + the Auto Tournament CS2
+//   - legacy: Metamod:Source + CounterStrikeSharp + the MatchZy Enhanced
 //     plugin (MatchZy-era, matchzy_* cvars). What platform 2.x talks to.
 //
 // The choice is <csm root>/plugins.json (`csm plugins stack ...`), or
