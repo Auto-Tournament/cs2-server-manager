@@ -16,6 +16,11 @@ import (
 // thumbnailVPKFolder is where pak01_dir.vpk keeps the 1080p map screenshots.
 const thumbnailVPKFolder = "panorama/images/map_icons/screenshots/1080p/"
 
+// mapIconVPKPrefix is the start of the map badges' paths in pak01_dir.vpk:
+// panorama/images/map_icons/map_icon_de_dust2.vsvg_c, a compiled resource
+// with the SVG source inside it.
+const mapIconVPKPrefix = "panorama/images/map_icons/map_icon_"
+
 // MapDataOptions configures ExtractMapData.
 type MapDataOptions struct {
 	// Progress, when set, receives every log line as soon as it is written
@@ -209,6 +214,12 @@ func ExtractMapData(ctx context.Context, opts MapDataOptions) (string, *MapDataR
 		log("[3/4] No thumbnails to convert; writing maps.json from the map VPKs only")
 	}
 
+	if n, err := writeMapIcons(extractPath, thumbsDir); err != nil {
+		log("      [!] Map icons: %v", err)
+	} else if n > 0 {
+		log("      %d map icons updated", n)
+	}
+
 	log("[4/4] Writing %s ...", MapsManifestFile)
 	in, warnings := readMapsManifestInput(masterDir, csgoDir, filepath.Join(extractPath, "gamemodes.txt"), thumbsDir)
 	for _, w := range warnings {
@@ -237,6 +248,57 @@ func ExtractMapData(ctx context.Context, opts MapDataOptions) (string, *MapDataR
 		Maps:         len(manifest.Maps),
 		ActiveDuty:   manifest.ActiveDuty,
 	}, nil
+}
+
+// writeMapIcons copies the SVG source out of each extracted map badge
+// (map_icon_<id>.vsvg_c) into thumbsDir as <id>_icon.svg, when it changed.
+// It returns how many it wrote.
+func writeMapIcons(extractPath, thumbsDir string) (int, error) {
+	dir := filepath.Join(extractPath, filepath.FromSlash(filepath.Dir(mapIconVPKPrefix)))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	written := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasPrefix(name, "map_icon_") || !strings.HasSuffix(name, ".vsvg_c") {
+			continue
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(name, "map_icon_"), ".vsvg_c")
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return written, err
+		}
+		svg := svgFromCompiled(data)
+		if svg == nil {
+			continue
+		}
+		dst := filepath.Join(thumbsDir, id+MapIconSuffix)
+		if old, err := os.ReadFile(dst); err == nil && bytes.Equal(old, svg) {
+			continue
+		}
+		if err := os.WriteFile(dst, svg, 0o644); err != nil {
+			return written, err
+		}
+		written++
+	}
+	return written, nil
+}
+
+// svgFromCompiled returns the SVG document inside a compiled .vsvg_c
+// resource: from "<svg" through the last "</svg>", or nil when there is none.
+func svgFromCompiled(data []byte) []byte {
+	start := bytes.Index(data, []byte("<svg"))
+	end := bytes.LastIndex(data, []byte("</svg>"))
+	if start < 0 || end < start {
+		return nil
+	}
+	out := append([]byte{}, data[start:end+len("</svg>")]...)
+	return append(out, '\n')
 }
 
 func orUnknown(s string) string {
@@ -296,7 +358,7 @@ import os
 import sys
 import vpk
 
-vpk_file, output_path, folder = sys.argv[1], sys.argv[2], sys.argv[3]
+vpk_file, output_path, folder, icons = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 name = os.path.basename(vpk_file)
 
 print(f"      Reading the {name} index ...", flush=True)
@@ -306,7 +368,7 @@ entries = 0
 for path in pak:
     entries += 1
     p = path.replace("\\", "/")
-    if (folder in p and p.endswith(".vtex_c")) or p.lower() == "gamemodes.txt":
+    if (folder in p and p.endswith(".vtex_c")) or p.lower() == "gamemodes.txt" or (p.startswith(icons) and p.endswith(".vsvg_c")):
         wanted.append(path)
 print(f"      {name}: {entries} entries, {len(wanted)} to extract", flush=True)
 
@@ -323,7 +385,7 @@ for i, path in enumerate(wanted, 1):
 // extractVPKWithPython streams the Python child's stdout/stderr into w line
 // by line as it runs.
 func extractVPKWithPython(ctx context.Context, py, vpkFile, outDir string, w io.Writer) error {
-	cmd := exec.CommandContext(ctx, py, "-u", "-c", extractVPKScript, vpkFile, outDir, thumbnailVPKFolder)
+	cmd := exec.CommandContext(ctx, py, "-u", "-c", extractVPKScript, vpkFile, outDir, thumbnailVPKFolder, mapIconVPKPrefix)
 	cmd.Stdout = w
 	cmd.Stderr = w
 	if err := cmd.Run(); err != nil {

@@ -128,7 +128,7 @@ Instances restart onto the new layer and version as above; until then they keep 
 
 ## Map thumbnails and maps.json
 
-`csm extract-map-data` reads the map screenshots out of the master install's `pak01_dir.vpk` and writes them to `map_thumbnails/` in the current directory: a PNG, a full-size WEBP and a 1280px `_thumb.webp` per map. Next to them it writes `maps.json`, which the Auto Tournament platform can read to learn which maps exist and which are in the current Active Duty pool:
+`csm extract-map-data` reads the map screenshots out of the master install's `pak01_dir.vpk` and writes them to `map_thumbnails/` in the current directory: a PNG, a full-size WEBP and a 1280px `_thumb.webp` per map, plus the game's small map badge as `<map>_icon.svg`. Next to them it writes `maps.json`, which the Auto Tournament platform can read to learn which maps exist and which are in the current Active Duty pool:
 
 ```json
 {
@@ -140,7 +140,7 @@ Instances restart onto the new layer and version as above; until then they keep 
       "id": "de_dust2",
       "name": "Dust II",
       "mode": "defusal",
-      "images": { "full": "de_dust2.webp", "thumb": "de_dust2_thumb.webp" },
+      "images": { "full": "de_dust2.webp", "thumb": "de_dust2_thumb.webp", "icon": "de_dust2_icon.svg" },
       "variants": ["de_dust2_1_thumb.webp"]
     }
   ],
@@ -148,7 +148,7 @@ Instances restart onto the new layer and version as above; until then they keep 
 }
 ```
 
-- `maps` holds every map VPK in `game/csgo/maps` (vanity scenes, `graphics_settings` and the like are skipped) plus every map with a screenshot. `mode` is `defusal`, `hostage`, `armsrace` or `other`; `images` is left out when the game ships no screenshot for that map.
+- `maps` holds every map VPK in `game/csgo/maps` (vanity scenes, `graphics_settings` and the like are skipped) plus every map with a screenshot. `mode` is `defusal`, `hostage`, `armsrace` or `other`; `images` is left out when the game ships neither a screenshot nor an icon for that map.
 - `activeDuty` is the `mg_active` map group from `gamemodes.txt` inside `pak01_dir.vpk`.
 - `patchVersion` comes from `game/csgo/steam.inf` and `buildId` from `steamapps/appmanifest_730.acf`.
 - If nothing but `generatedAt` would change, `maps.json` is left as it is.
@@ -162,6 +162,32 @@ csm extract-map-data --publish --repo ~/cs2-server-manager
 ```
 
 csm copies `map_thumbnails/` into the checkout, commits it on a new `maps/update-<timestamp>` branch and checks with `git push --dry-run` that you can push. It does not push or open the PR itself; it prints the `git push` and `gh pr create` commands to run. The checkout must have no uncommitted changes. csm uses your existing git setup for the commit author and push access, and never stores tokens.
+
+## Skin images and skins.json
+
+`csm extract-skin-data` reads the weapon skin previews out of `pak01_dir.vpk` and writes them to `skin_images/` in the current directory: one WEBP per weapon and paint kit, at most 512 px wide, from the game's "light" wear preview. Next to them it writes `skins.json`, with the names from `scripts/items/items_game.txt` and `resource/csgo_english.txt`:
+
+```json
+{
+  "skins": [
+    {
+      "weapon": "weapon_ak47",
+      "weaponName": "AK-47",
+      "paintKit": 180,
+      "paintKitName": "cu_fireserpent_ak47_bravo",
+      "name": "Fire Serpent",
+      "rarity": "ancient",
+      "image": "weapon_ak47_cu_fireserpent_ak47_bravo.webp"
+    }
+  ]
+}
+```
+
+- `paintKit` is the id a skin plugin sets; `rarity` is the paint kit's rarity (`common` … `ancient`).
+- Previews with no matching paint kit (pets, a few odd names) are skipped and counted at the end.
+- An image whose bytes did not change is left as it is, so a rerun after a CS2 update only rewrites what changed.
+
+The previews are LZ4-compressed textures, not PNGs: csm decodes them itself, with the `lz4` Python module when it is installed and its own decoder when not. A full run takes a few minutes.
 
 ## Launch modes
 
