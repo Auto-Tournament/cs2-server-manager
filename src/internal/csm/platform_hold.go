@@ -3,6 +3,7 @@ package csm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/sivert-io/cs2-server-manager/src/internal/hostagent"
 )
 
 // Asking Auto Tournament whether to hold updates
@@ -170,10 +173,16 @@ func FetchPlatformHold(ctx context.Context, p PlatformSettings) (PlatformHoldAns
 	if err != nil {
 		return answer, err
 	}
-	// The platform reads X-Auto-Tournament-Token; platforms from before the
-	// rename read X-MatchZy-Token. Same token, so send both.
-	req.Header.Set("X-Auto-Tournament-Token", p.Token)
-	req.Header.Set("X-MatchZy-Token", p.Token)
+	if strings.HasPrefix(p.Token, hostTokenPrefix) {
+		// The host link's own token (hostLinkPlatform): the platform checks it
+		// as a csm host, not as the fleet-wide server token.
+		req.Header.Set("Authorization", "Bearer "+p.Token)
+	} else {
+		// The platform reads X-Auto-Tournament-Token; platforms from before the
+		// rename read X-MatchZy-Token. Same token, so send both.
+		req.Header.Set("X-Auto-Tournament-Token", p.Token)
+		req.Header.Set("X-MatchZy-Token", p.Token)
+	}
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := (&http.Client{Timeout: platformHoldTimeout}).Do(req)
@@ -189,9 +198,15 @@ func FetchPlatformHold(ctx context.Context, p PlatformSettings) (PlatformHoldAns
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusUnauthorized, http.StatusForbidden:
+		if strings.HasPrefix(p.Token, hostTokenPrefix) {
+			return answer, &hostTokenRefused{endpoint: endpoint, status: resp.StatusCode}
+		}
 		return answer, fmt.Errorf("%s: the platform rejected the server token (HTTP %d); "+
 			"check it matches SERVER_TOKEN on the platform", endpoint, resp.StatusCode)
 	case http.StatusNotFound:
+		if strings.HasPrefix(p.Token, hostTokenPrefix) {
+			return answer, &hostTokenRefused{endpoint: endpoint, status: resp.StatusCode}
+		}
 		return answer, fmt.Errorf("%s: no such endpoint (HTTP 404); "+
 			"the platform is older than the update hold, or the URL is wrong", endpoint)
 	default:
@@ -262,12 +277,25 @@ func ResolveUpdateHold(ctx context.Context, s AutoUpdateSettings) UpdateHold {
 	}
 
 	platform := s.Platform.Resolved()
+	viaHostLink := false
 	if !platform.Configured() {
-		return UpdateHold{On: false, Source: HoldSourceNone,
-			Reason: "no platform is configured (csm updates platform <url> <token>)"}
+		hl, ok := hostLinkPlatform()
+		if !ok {
+			return UpdateHold{On: false, Source: HoldSourceNone,
+				Reason: "no platform is configured (csm updates platform <url> <token>) and this host is not linked"}
+		}
+		platform, viaHostLink = hl, true
 	}
 
 	answer, err := FetchPlatformHold(ctx, platform)
+	var refused *hostTokenRefused
+	if viaHostLink && errors.As(err, &refused) {
+		// A platform from before host tokens were accepted here: behave as
+		// without a platform (the old default) rather than hold forever.
+		return UpdateHold{On: false, Source: HoldSourceNone,
+			Reason: fmt.Sprintf("the platform does not take the host token for the hold yet (%v); "+
+				"set it with csm updates platform <url> <token>", err)}
+	}
 	if err != nil {
 		// Fail safe: not knowing is not permission to restart a server.
 		return UpdateHold{On: true, Source: HoldSourceUnreachable,
@@ -278,4 +306,38 @@ func ResolveUpdateHold(ctx context.Context, s AutoUpdateSettings) UpdateHold {
 		reason = "the platform gave no reason"
 	}
 	return UpdateHold{On: answer.Hold, Source: HoldSourcePlatform, Reason: reason, License: answer.License}
+}
+
+// hostTokenPrefix starts a csm host token (the host link's, credentials.json).
+const hostTokenPrefix = "rhs_"
+
+// hostTokenRefused: the platform did not take the host token for the hold
+// (401 / 403 / 404): a platform older than that, or a revoked host.
+type hostTokenRefused struct {
+	endpoint string
+	status   int
+}
+
+func (e *hostTokenRefused) Error() string {
+	return fmt.Sprintf("%s: the host token was not accepted (HTTP %d)", e.endpoint, e.status)
+}
+
+// hostLinkPlatform: the platform this host is linked to (host agent
+// credentials: its URL and the host's own token), for asking the hold when
+// nobody ran `csm updates platform`. The platform accepts a host token there.
+var hostLinkPlatform = func() (PlatformSettings, bool) {
+	c, err := hostagent.LoadCredentials(HostAgentPaths())
+	if err != nil || c == nil || strings.TrimSpace(c.PlatformURL) == "" || !strings.HasPrefix(c.Token, hostTokenPrefix) {
+		return PlatformSettings{}, false
+	}
+	return PlatformSettings{BaseURL: strings.TrimRight(strings.TrimSpace(c.PlatformURL), "/"), Token: c.Token}, true
+}
+
+// HostLinkPlatformURL is the platform the hold is asked through the host link
+// ("" when this host is not linked), for `csm updates status`.
+func HostLinkPlatformURL() string {
+	if p, ok := hostLinkPlatform(); ok {
+		return p.BaseURL
+	}
+	return ""
 }
