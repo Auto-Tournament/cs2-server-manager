@@ -189,6 +189,10 @@ csm copies `map_thumbnails/` into the checkout, commits it on a new `maps/update
 
 The previews are LZ4-compressed textures, not PNGs: csm decodes them itself, with the `lz4` Python module when it is installed and its own decoder when not. A full run takes a few minutes.
 
+## Keeping the published assets current
+
+The `Game assets` workflow (`.github/workflows/game-assets.yml`) runs every six hours on a self-hosted runner labelled `cs2-assets`, on a host whose csm master install stays up to date. When the master install's Steam build id differs from the one in `map_thumbnails/maps.json`, it runs `csm extract-map-data` and `csm extract-skin-data` and opens a pull request (`assets/cs2-<patch>`) with whatever changed. Opening it needs "Allow GitHub Actions to create and approve pull requests" in the organisation's Actions settings. Run it by hand from the Actions tab (`force` extracts even when the build is unchanged).
+
 ## Launch modes
 
 By default csm starts servers with Valve's `game/cs2.sh`, unchanged. It also installs `game/csm.sh`, which sets `LD_LIBRARY_PATH` to prefer the libraries bundled with CS2. That helps with `libserver.so` and `libv8` mismatches. You can also run the `cs2` binary directly, which is only meant for troubleshooting.
