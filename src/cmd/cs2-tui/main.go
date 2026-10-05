@@ -1182,11 +1182,13 @@ func runUpdatesCommand(args []string) (string, error) {
 			if csm.PlainHTTPToRemoteHost(platform.BaseURL) {
 				out.WriteString("                        warning: plain http to a remote host sends the token unencrypted\n")
 			}
+		} else if link := csm.HostLinkPlatformURL(); link != "" {
+			fmt.Fprintf(&out, "Platform:               %s (the host link, with the host token)\n", link)
 		} else {
 			out.WriteString("Platform:               not configured (csm updates platform <url> <token>)\n")
 		}
 		fmt.Fprintf(&out, "Idle grace period:      %s\n", st.IdleGrace())
-		if mode == csm.HoldModeAuto && platform.Configured() {
+		if mode == csm.HoldModeAuto && (platform.Configured() || csm.HostLinkPlatformURL() != "") {
 			out.WriteString("\nRun `csm updates check` to ask the platform now.\n")
 		}
 		return out.String()
