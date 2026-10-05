@@ -94,10 +94,13 @@ type InstanceSettings struct {
 	PrivateShm *bool `json:"private_shm,omitempty"`
 	// Nice is the CPU niceness of the game process (0..19).
 	Nice int `json:"nice,omitempty"`
+	// Insecure starts cs2 with -insecure (no VAC): for test servers, e.g. a
+	// LAN test with a VAC-banned account. Off by default.
+	Insecure bool `json:"insecure,omitempty"`
 }
 
 // InstanceSettingKeys are the keys `csm instance config` accepts.
-var InstanceSettingKeys = []string{"backend", "base_port", "map", "max_players", "private_shm", "nice"}
+var InstanceSettingKeys = []string{"backend", "base_port", "map", "max_players", "private_shm", "nice", "insecure"}
 
 func instanceSettingsPath() string { return filepath.Join(ResolveRoot(), "instances.json") }
 
@@ -195,6 +198,12 @@ func SetInstanceSetting(key, value string) (InstanceSettings, error) {
 			return s, err
 		}
 		s.PrivateShm = &on
+	case "insecure":
+		on, err := parseOnOff(value)
+		if err != nil {
+			return s, err
+		}
+		s.Insecure = on
 	case "nice":
 		n, err := atoi(0, 19)
 		if err != nil {
@@ -339,12 +348,16 @@ type instanceLaunch struct {
 	PrivateShm  bool
 	Nice        int
 	SteamClient string
+	Insecure    bool
 }
 
 // instanceCS2Args is the cs2 command line (relative to merged/game).
 func instanceCS2Args(s instanceLaunch) []string {
-	return []string{
-		"./bin/linuxsteamrt64/cs2", "-dedicated", "-ip", "0.0.0.0", "-usercon",
+	args := []string{"./bin/linuxsteamrt64/cs2", "-dedicated", "-ip", "0.0.0.0", "-usercon"}
+	if s.Insecure {
+		args = append(args, "-insecure") // instances.json insecure: no VAC (test servers)
+	}
+	return append(args,
 		"-port", strconv.Itoa(s.Ports.Game),
 		"+tv_port", strconv.Itoa(s.Ports.TV),
 		"+clientport", strconv.Itoa(s.Ports.Client),
@@ -352,7 +365,7 @@ func instanceCS2Args(s instanceLaunch) []string {
 		"+game_type", "0", "+game_mode", "1",
 		"+exec", instanceCfgName,
 		"+map", s.Map,
-	}
+	)
 }
 
 // renderInstanceExecScript is exec.sh: run inside the namespace with the
@@ -699,7 +712,7 @@ func (m *InstanceManager) launch(n int) (instanceLaunch, error) {
 	}
 	return instanceLaunch{
 		N: n, L: m.L, Ports: ports, Map: m.S.Map, MaxPlayers: m.maxPlayers(),
-		PrivateShm: m.S.PrivateShmOn(), Nice: m.S.Nice, SteamClient: m.steamClientPath(),
+		PrivateShm: m.S.PrivateShmOn(), Nice: m.S.Nice, SteamClient: m.steamClientPath(), Insecure: m.S.Insecure,
 	}, nil
 }
 

@@ -434,3 +434,31 @@ func TestRemoveTreeForce(t *testing.T) {
 		t.Fatal("not removed")
 	}
 }
+
+func TestInstanceInsecureLaunchArg(t *testing.T) {
+	base := instanceLaunch{Ports: InstancePorts{Game: 27015, TV: 27020, Client: 27005}, Map: "de_dust2", MaxPlayers: 10}
+	has := func(args []string) bool {
+		for _, a := range args {
+			if a == "-insecure" {
+				return true
+			}
+		}
+		return false
+	}
+	if has(instanceCS2Args(base)) {
+		t.Fatal("-insecure must be off by default")
+	}
+	base.Insecure = true
+	args := instanceCS2Args(base)
+	if !has(args) || args[len(args)-1] != "de_dust2" {
+		t.Fatalf("args = %v", args)
+	}
+	t.Setenv("CSM_ROOT", t.TempDir())
+	s, err := SetInstanceSetting("insecure", "on")
+	if err != nil || !s.Insecure {
+		t.Fatalf("set insecure on: %+v %v", s, err)
+	}
+	if _, err := SetInstanceSetting("insecure", "maybe"); err == nil {
+		t.Fatal("a bad value must be refused")
+	}
+}

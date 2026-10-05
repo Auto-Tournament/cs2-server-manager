@@ -49,7 +49,8 @@ Ready Up status +7; base 27005 = 27015 for instance 1).
   csm instance gc                  remove layers and game versions nothing uses
   csm instance config [<key> <value>]
                                    backend servers|instances, base_port, map, max_players,
-                                   private_shm on|off, nice 0..19
+                                   private_shm on|off, nice 0..19,
+                                   insecure on|off (-insecure: no VAC, test servers only)
 
 Busy instances (a match on, players connected, or updates on hold) are never
 restarted for an update; csm monitor restarts them once idle.`
@@ -482,8 +483,8 @@ func runInstanceCommand(args []string) (string, error) {
 				return "", err
 			}
 			r := s.Resolved()
-			return fmt.Sprintf("backend %s\nbase_port %d\nmap %s\nmax_players %d (0 = shared config)\nprivate_shm %v\nnice %d\n",
-				r.Backend, r.BasePort, r.Map, r.MaxPlayers, r.PrivateShmOn(), r.Nice), nil
+			return fmt.Sprintf("backend %s\nbase_port %d\nmap %s\nmax_players %d (0 = shared config)\nprivate_shm %v\nnice %d\ninsecure %v\n",
+				r.Backend, r.BasePort, r.Map, r.MaxPlayers, r.PrivateShmOn(), r.Nice, r.Insecure), nil
 		}
 		if len(args) != 3 {
 			return "", errors.New("usage: csm instance config <key> <value>")

@@ -59,7 +59,7 @@ func (b *HostBackend) instanceServers(ctx context.Context) ([]hostagent.ServerSt
 			if s.CS2Build == 0 {
 				s.CS2Build = master
 			}
-			s.LaunchArgs = instanceCS2Args(instanceLaunch{Ports: p, Map: m.S.Map, MaxPlayers: m.maxPlayers()})
+			s.LaunchArgs = instanceCS2Args(instanceLaunch{Ports: p, Map: m.S.Map, MaxPlayers: m.maxPlayers(), Insecure: m.S.Insecure})
 			out[i] = s
 		}(i, r)
 	}
