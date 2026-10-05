@@ -68,7 +68,7 @@ func TestBuildMapsManifest(t *testing.T) {
 	m := buildMapsManifest(mapManifestInput{
 		MapVPKs: []string{"de_poseidon.vpk", "de_dust2.vpk", "de_dust2_vanity.vpk", "graphics_settings.vpk"},
 		ImageFiles: []string{
-			"de_dust2.png", "de_dust2.webp", "de_dust2_thumb.webp",
+			"de_dust2.png", "de_dust2.webp", "de_dust2_thumb.webp", "de_dust2_icon.svg",
 			"de_dust2_2_thumb.webp", "de_dust2_10_thumb.webp", "de_dust2_1_thumb.webp", "de_dust2_1.webp",
 			"de_ancient.webp", "de_ancient_thumb.webp",
 			"de_ancient_night.webp", "de_ancient_night_1_thumb.webp",
@@ -100,7 +100,7 @@ func TestBuildMapsManifest(t *testing.T) {
 	if dust.Name != "Dust II" || dust.Mode != "defusal" {
 		t.Fatalf("dust2 = %+v", dust)
 	}
-	if dust.Images == nil || dust.Images.Full != "de_dust2.webp" || dust.Images.Thumb != "de_dust2_thumb.webp" {
+	if dust.Images == nil || dust.Images.Full != "de_dust2.webp" || dust.Images.Thumb != "de_dust2_thumb.webp" || dust.Images.Icon != "de_dust2_icon.svg" {
 		t.Fatalf("dust2 images = %+v", dust.Images)
 	}
 	if want := []string{"de_dust2_1_thumb.webp", "de_dust2_2_thumb.webp", "de_dust2_10_thumb.webp"}; !reflect.DeepEqual(dust.Variants, want) {
@@ -210,5 +210,40 @@ func TestReadMapsManifestInput(t *testing.T) {
 	_, warnings = readMapsManifestInput(master, csgo, filepath.Join(t.TempDir(), "missing.txt"), thumbs)
 	if len(warnings) != 1 {
 		t.Fatalf("warnings = %v", warnings)
+	}
+}
+
+func TestSvgFromCompiled(t *testing.T) {
+	compiled := []byte("\x0cRED2junk<svg width=\"32\" viewBox=\"0 0 32 32\"><path d=\"M0 0\"/></svg>\x00\x00tail")
+	if got, want := string(svgFromCompiled(compiled)), "<svg width=\"32\" viewBox=\"0 0 32 32\"><path d=\"M0 0\"/></svg>\n"; got != want {
+		t.Fatalf("svgFromCompiled = %q, want %q", got, want)
+	}
+	if svgFromCompiled([]byte("no svg here")) != nil {
+		t.Fatal("expected nil without an <svg> element")
+	}
+}
+
+func TestWriteMapIcons(t *testing.T) {
+	extract := t.TempDir()
+	thumbs := t.TempDir()
+	dir := filepath.Join(extract, "panorama", "images", "map_icons")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	svg := "<svg><path/></svg>"
+	_ = os.WriteFile(filepath.Join(dir, "map_icon_de_dust2.vsvg_c"), []byte("hdr"+svg+"trailer"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "map_icon_none_png.vtex_c"), []byte("not an svg"), 0o644)
+
+	n, err := writeMapIcons(extract, thumbs)
+	if err != nil || n != 1 {
+		t.Fatalf("writeMapIcons = %d, %v", n, err)
+	}
+	got, _ := os.ReadFile(filepath.Join(thumbs, "de_dust2_icon.svg"))
+	if string(got) != svg+"\n" {
+		t.Fatalf("icon = %q", got)
+	}
+	// Unchanged on a second run.
+	if n, _ := writeMapIcons(extract, thumbs); n != 0 {
+		t.Fatalf("second run wrote %d", n)
 	}
 }
