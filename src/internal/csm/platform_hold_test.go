@@ -270,6 +270,7 @@ func TestResolveUpdateHold(t *testing.T) {
 	})
 
 	t.Run("auto with no platform does not hold", func(t *testing.T) {
+		stubHostLink(t, PlatformSettings{}, false)
 		h := ResolveUpdateHold(ctx, AutoUpdateSettings{HoldMode: HoldModeAuto})
 		if h.On || h.Source != HoldSourceNone {
 			t.Fatalf("hold = %+v; an unconfigured csm must behave as it did before", h)
@@ -319,4 +320,75 @@ func TestUpdateHoldDescribe(t *testing.T) {
 	if got := off.Describe(); got != "off (none)" {
 		t.Fatalf("Describe() = %q", got)
 	}
+}
+
+// stubHostLink replaces the host agent credentials lookup for one test.
+func stubHostLink(t *testing.T, p PlatformSettings, ok bool) {
+	t.Helper()
+	prev := hostLinkPlatform
+	hostLinkPlatform = func() (PlatformSettings, bool) { return p, ok }
+	t.Cleanup(func() { hostLinkPlatform = prev })
+}
+
+// hostLinkServer answers the hold endpoint for a Bearer host token only.
+func hostLinkServer(t *testing.T, status int, body any) (url string, auth *string) {
+	t.Helper()
+	var seen string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("Authorization")
+		if r.Header.Get("X-Auto-Tournament-Token") != "" {
+			t.Error("the host token must not be sent as the server token")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL, &seen
+}
+
+func TestResolveUpdateHoldViaHostLink(t *testing.T) {
+	t.Setenv(EnvPlatformURL, "")
+	t.Setenv(EnvPlatformToken, "")
+	ctx := context.Background()
+
+	t.Run("no csm updates platform: the linked host asks with its own token", func(t *testing.T) {
+		url, auth := hostLinkServer(t, http.StatusOK, map[string]any{
+			"success": true, "hold": true, "reason": "tournament in progress",
+		})
+		stubHostLink(t, PlatformSettings{BaseURL: url, Token: "rhs_abc.def"}, true)
+		h := ResolveUpdateHold(ctx, AutoUpdateSettings{HoldMode: HoldModeAuto})
+		if !h.On || h.Source != HoldSourcePlatform {
+			t.Fatalf("hold = %+v", h)
+		}
+		if *auth != "Bearer rhs_abc.def" {
+			t.Fatalf("Authorization = %q", *auth)
+		}
+	})
+
+	t.Run("a platform that refuses the host token: no hold, as before", func(t *testing.T) {
+		url, _ := hostLinkServer(t, http.StatusUnauthorized, map[string]any{"success": false})
+		stubHostLink(t, PlatformSettings{BaseURL: url, Token: "rhs_abc.def"}, true)
+		h := ResolveUpdateHold(ctx, AutoUpdateSettings{HoldMode: HoldModeAuto})
+		if h.On || h.Source != HoldSourceNone {
+			t.Fatalf("hold = %+v; an older platform must not hold updates forever", h)
+		}
+	})
+
+	t.Run("an unreachable linked platform holds", func(t *testing.T) {
+		stubHostLink(t, PlatformSettings{BaseURL: "http://127.0.0.1:1", Token: "rhs_abc.def"}, true)
+		h := ResolveUpdateHold(ctx, AutoUpdateSettings{HoldMode: HoldModeAuto})
+		if !h.On || h.Source != HoldSourceUnreachable {
+			t.Fatalf("hold = %+v", h)
+		}
+	})
+
+	t.Run("csm updates platform wins over the host link", func(t *testing.T) {
+		url, token := holdServer(t, http.StatusOK, map[string]any{"success": true, "hold": false})
+		stubHostLink(t, PlatformSettings{BaseURL: "http://127.0.0.1:1", Token: "rhs_x"}, true)
+		h := ResolveUpdateHold(ctx, AutoUpdateSettings{Platform: PlatformSettings{BaseURL: url, Token: "s3cret"}})
+		if h.On || *token != "s3cret" {
+			t.Fatalf("hold = %+v, token %q", h, *token)
+		}
+	})
 }
