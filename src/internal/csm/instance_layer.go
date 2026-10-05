@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"syscall"
@@ -88,6 +89,27 @@ func layerCore(dir string) string {
 	}
 	return in.Components["core"]
 }
+
+// layerLicense is the license choice recorded in a layer (cfg/ReadyUp/license.cfg,
+// readyup_license_accepted, written by install.sh), "" when there is none. A rebuild reuses
+// it: a fresh layer has no license.cfg, and install.sh refuses to run unattended without a
+// choice (a CS2 update failed that way when the plugin settings had none).
+func layerLicense(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "game", "csgo", "cfg", "ReadyUp", "license.cfg"))
+	if err != nil {
+		return ""
+	}
+	use := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		m := layerLicenseRe.FindStringSubmatch(line)
+		if m != nil {
+			use = strings.ToLower(m[1]) // last one wins, like exec
+		}
+	}
+	return use
+}
+
+var layerLicenseRe = regexp.MustCompile(`^\s*readyup_license_accepted\s+"?(noncommercial|commercial)"?\s*(;|//|$)`)
 
 // ReadLayerInfo reads layers/<id>.json (falling back to installed.json).
 func (m *InstanceManager) ReadLayerInfo(dir string) LayerInfo {
@@ -476,6 +498,9 @@ func (m *InstanceManager) RebuildLayer(ctx context.Context, w io.Writer, reason 
 	if s, err := LoadPluginSettings(); err == nil {
 		src.AcceptLicense = s.Resolved().AcceptLicense
 	}
+	if src.AcceptLicense == "" {
+		src.AcceptLicense = layerLicense(cur)
+	}
 	return m.BuildLayer(ctx, w, src, reason)
 }
 
@@ -493,7 +518,13 @@ func (m *InstanceManager) BuildLayerFromRelease(ctx context.Context, w io.Writer
 		return "", err
 	}
 	defer os.RemoveAll(b.Dir)
-	return m.BuildLayer(ctx, w, LayerSource{Installer: b.Installer, Zip: b.Zip, Bundle: b.Name, AcceptLicense: s.Resolved().AcceptLicense}, reason+" "+b.Tag)
+	license := s.Resolved().AcceptLicense
+	if license == "" {
+		if cur, err := m.CurrentLayer(); err == nil {
+			license = layerLicense(cur)
+		}
+	}
+	return m.BuildLayer(ctx, w, LayerSource{Installer: b.Installer, Zip: b.Zip, Bundle: b.Name, AcceptLicense: license}, reason+" "+b.Tag)
 }
 
 func fileExists(p string) bool {
