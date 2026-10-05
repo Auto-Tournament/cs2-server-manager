@@ -19,6 +19,9 @@ import (
 // platform knows which maps exist and which are in the Active Duty pool.
 const MapsManifestFile = "maps.json"
 
+// MapIconSuffix names a map's badge in map_thumbnails/: de_dust2_icon.svg.
+const MapIconSuffix = "_icon.svg"
+
 // MapsManifest is the content of map_thumbnails/maps.json.
 type MapsManifest struct {
 	GeneratedAt  string     `json:"generatedAt"`
@@ -43,6 +46,8 @@ type MapEntry struct {
 type MapImages struct {
 	Full  string `json:"full,omitempty"`
 	Thumb string `json:"thumb,omitempty"`
+	// Icon is the game's small map badge, an SVG (<id>_icon.svg).
+	Icon string `json:"icon,omitempty"`
 }
 
 var mapIDPrefixes = []string{"de_", "cs_", "ar_"}
@@ -199,7 +204,10 @@ func buildMapsManifest(in mapManifestInput) MapsManifest {
 		if images[id+"_thumb.webp"] {
 			img.Thumb = id + "_thumb.webp"
 		}
-		if img.Full != "" || img.Thumb != "" {
+		if images[id+MapIconSuffix] {
+			img.Icon = id + MapIconSuffix
+		}
+		if img.Full != "" || img.Thumb != "" || img.Icon != "" {
 			e.Images = &img
 		}
 		m.Maps = append(m.Maps, e)

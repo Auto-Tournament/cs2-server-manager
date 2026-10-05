@@ -49,7 +49,8 @@ csm dedupe-vpk [server]    # hardlink server VPKs to master-install
 csm unban <server> <ip>    # remove an IP banned for RCON attempts (0 = all servers)
 csm unban-all <server>     # clear all RCON bans (0 = all servers)
 csm list-bans <server>
-csm extract-map-data       # map thumbnails + maps.json into ./map_thumbnails
+csm extract-map-data       # map thumbnails, map icons + maps.json into ./map_thumbnails
+csm extract-skin-data      # weapon skin images + skins.json into ./skin_images
 
 # Logs and debugging
 csm attach 1               # attach to server 1's console (tmux)

@@ -190,6 +190,14 @@ func main() {
 				}
 			}
 			return
+		case "extract-skin-data":
+			out, err := csm.ExtractSkinData(context.Background(), csm.SkinDataOptions{Progress: os.Stdout})
+			csm.LogAction("cli", "extract-skin-data", out, err)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "skin extraction failed: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		case "public-ip":
 			ip, err := csm.PublicIP()
 			if ip != "" || err != nil {
@@ -1095,7 +1103,8 @@ func printUsage() {
 	fmt.Println("  attach                 Attach to a server tmux session")
 	fmt.Println("  list-sessions          List tmux sessions")
 	fmt.Println("  debug                  Run a server in foreground debug mode")
-	fmt.Println("  extract-map-data       Extract map thumbnails (PNG + WEBP) and maps.json (map list + Active Duty) into map_thumbnails/")
+	fmt.Println("  extract-map-data       Extract map thumbnails (PNG + WEBP), map icons (SVG) and maps.json (map list + Active Duty) into map_thumbnails/")
+	fmt.Println("  extract-skin-data      Extract weapon skin images (WEBP) and skins.json (weapon, paint kit, name, rarity) into skin_images/")
 	fmt.Println("                         --publish --repo <dir>: commit them on a new branch in a cs2-server-manager checkout")
 	fmt.Println("  list-bans <server>     List banned IP addresses for a server")
 	fmt.Println()
