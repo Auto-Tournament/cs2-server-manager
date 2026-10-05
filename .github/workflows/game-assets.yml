@@ -1,0 +1,93 @@
+name: Game assets
+
+# Keeps map_thumbnails/ (screenshots, icons, maps.json with the Active Duty
+# pool) and skin_images/ (skin previews, skins.json) in step with CS2.
+#
+# Runs on the self-hosted runner labelled cs2-assets: a host whose csm master
+# install is kept up to date, so nothing has to download CS2 here. Every six
+# hours it compares the master install's Steam build id with the one in
+# maps.json and extracts only when CS2 changed (or when run by hand), then
+# opens (or updates) a pull request with the changed files.
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Extract even when the CS2 build has not changed
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: game-assets
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: [self-hosted, cs2-assets]
+    timeout-minutes: 45
+    env:
+      MASTER: /home/${{ vars.CS2_USER || 'cs2servermanager' }}/master-install
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Compare CS2 builds
+        id: build
+        run: |
+          installed=$(sed -n 's/.*"buildid"[[:space:]]*"\([0-9]*\)".*/\1/p' "$MASTER/steamapps/appmanifest_730.acf" | head -1)
+          published=$(sed -n 's/.*"buildId": "\([0-9]*\)".*/\1/p' map_thumbnails/maps.json | head -1)
+          echo "Installed CS2 build: ${installed:-unknown}; maps.json: ${published:-none}"
+          if [ -z "$installed" ]; then
+            echo "::error::No CS2 build id in $MASTER/steamapps/appmanifest_730.acf"
+            exit 1
+          fi
+          if [ "$installed" = "$published" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build csm
+        if: steps.build.outputs.run == 'true'
+        working-directory: src
+        run: go build -o "$RUNNER_TEMP/csm" ./cmd/cs2-tui
+
+      - name: Extract maps
+        if: steps.build.outputs.run == 'true'
+        run: '"$RUNNER_TEMP/csm" extract-map-data'
+
+      - name: Extract skins
+        if: steps.build.outputs.run == 'true'
+        run: '"$RUNNER_TEMP/csm" extract-skin-data'
+
+      - name: Open a pull request
+        if: steps.build.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add map_thumbnails skin_images
+          if git diff --cached --quiet; then
+            echo "Nothing changed."
+            exit 0
+          fi
+          patch=$(sed -n 's/.*"patchVersion": "\([^"]*\)".*/\1/p' map_thumbnails/maps.json | head -1)
+          branch="assets/cs2-${patch:-update}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -q -m "assets: maps and skins for CS2 ${patch:-update}"
+          git push -f origin "$branch"
+          summary=$(git show --stat --format= HEAD | tail -1)
+          if gh pr view "$branch" --json state -q .state 2>/dev/null | grep -q OPEN; then
+            echo "Updated the open pull request for $branch."
+          else
+            gh pr create --base master --head "$branch" \
+              --title "assets: maps and skins for CS2 ${patch:-update}" \
+              --body "Extracted by the Game assets workflow from the master install on the cs2-assets runner after a CS2 update. ${summary}"
+          fi
