@@ -462,3 +462,21 @@ func TestInstanceInsecureLaunchArg(t *testing.T) {
 		t.Fatal("a bad value must be refused")
 	}
 }
+
+func TestLayerLicenseFromCfg(t *testing.T) {
+	dir := t.TempDir()
+	if got := layerLicense(dir); got != "" {
+		t.Fatalf("no license.cfg: got %q", got)
+	}
+	cfg := filepath.Join(dir, "game", "csgo", "cfg", "ReadyUp")
+	if err := os.MkdirAll(cfg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "// written by install.sh\nreadyup_license_accepted \"noncommercial\"\nreadyup_license_accepted_at \"2026-10-05T16:40:00Z\"\n"
+	if err := os.WriteFile(filepath.Join(cfg, "license.cfg"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := layerLicense(dir); got != "noncommercial" {
+		t.Fatalf("got %q, want noncommercial", got)
+	}
+}
