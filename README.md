@@ -1,32 +1,29 @@
 <div align="center">
-  <img src="assets/logo/csm-banner.png" alt="CS2 Server Manager (csm)" width="100%">
-
+  <img src="assets/logo/csm-banner.png" alt="CS2 Server Manager (csm)" width="100%" />
+  <p><strong>Command-line tool that installs and runs several CS2 servers on one Linux machine</strong></p>
+  <p>
+    <a href="https://github.com/Auto-Tournament/cs2-server-manager/releases/latest"><img src="https://img.shields.io/github/v/release/Auto-Tournament/cs2-server-manager?cacheSeconds=3600" alt="GitHub Release" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue.svg" alt="License: PolyForm Noncommercial" /></a>
+    <a href="https://docs.autotournament.gg/cs2/server-manager"><img src="https://img.shields.io/badge/docs-docs.autotournament.gg-blue" alt="Docs" /></a>
+    <a href="https://discord.gg/n7gHYau7aW"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
+  </p>
 </div>
 
-<div align="center">
+<br />
 
-### Sponsor Auto Tournament
+csm installs CS2 with SteamCMD, puts a plugin stack on every server ([Ready Up](https://github.com/Auto-Tournament/ready-up), or the legacy Metamod + CounterStrikeSharp + [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced)), runs each server in its own tmux session and keeps the game and plugins updated. It's for LAN organisers, small leagues and anyone running [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), which can then start, stop, create and update the servers itself.
 
-Running tournaments or LANs with Auto Tournament? Your organisation can keep it growing.
-Auto Tournament is built and maintained by one person — sponsorships pay for development, test servers and infrastructure.
+## Features
 
-[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/sivert-io)
-[![Support on Ko-fi](https://img.shields.io/badge/Support-Ko--fi-ff5e5b?logo=kofi&logoColor=white)](https://ko-fi.com/sivert)
-[![Become a sponsor](https://img.shields.io/badge/Become%20a%20sponsor-Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/n7gHYau7aW)
-
-Using it for a business, paid events or hosting? That needs a commercial licence → [Licensing](https://docs.autotournament.gg/reference/licensing)
-
-</div>
-
-> **Moved:** this repository is now part of the [Auto-Tournament](https://github.com/Auto-Tournament)
-> organisation, together with Auto Tournament (formerly MatchZy Auto Tournament). Old links
-> redirect, and nothing changes for existing installs.
-
-csm is a command-line tool with an interactive terminal UI that installs and runs several Counter-Strike 2 dedicated servers on one Linux machine. It installs the game with SteamCMD, puts a plugin stack on every server ([Ready Up](https://github.com/Auto-Tournament/ready-up), or the legacy Metamod:Source + CounterStrikeSharp + [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced); see [Plugin stack](#plugin-stack-ready-up-or-legacy)), runs each server in its own tmux session, and keeps game and plugin updates going through a cron-driven monitor.
-
-It's for people running their own match servers: LAN organisers, small leagues, and anyone using [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) who needs servers for it to control. The default MatchZy database is MySQL in a Docker container, so Docker is needed for that setup.
-
-Full documentation lives at [docs.sivert.io/docs/csm](https://docs.sivert.io/docs/csm).
+- Interactive terminal UI and a plain CLI (`csm help`)
+- Several CS2 servers on one machine, each in its own tmux session
+- Instance mode: every server runs one shared install, so ten servers take about the disk space of one
+- Ready Up installed and kept on its release channel on every server, or the legacy MatchZy Enhanced stack
+- Automatic game and plugin updates from cron, never in the middle of a match
+- Update hold while a tournament runs, set by you or by Auto Tournament
+- `csm status`: process, map, phase, score and players of every server
+- Host agent (`csm link`): Auto Tournament starts, stops, creates and updates servers on this machine
+- Runs as its own user without sudo after a one-time `sudo csm setup-host`
 
 ## Install
 
@@ -46,511 +43,42 @@ rm "$tmp" && \
 sudo csm          # launches the interactive TUI installer
 ```
 
-csm keeps its data (overrides, game files, logs) under `/opt/cs2-server-manager` and creates it when needed. The log is `/opt/cs2-server-manager/logs/csm.log`. The install wizard sets up 3 servers by default. Configs you put in `overrides/` survive game and plugin updates.
-
-See the [Quick Start](https://docs.sivert.io/docs/csm/quick-start) for the full first run.
-
-### Run csm without sudo (user mode)
-
-csm can run as its service user (`cs2servermanager` by default, or `CS2_USER`) instead of root. Set the host up once as root:
-
-```bash
-sudo csm setup-host
-```
-
-It installs the system dependencies, creates the user if needed, runs `loginctl enable-linger` for it, gives it the state directory (`/opt/cs2-server-manager`) and the csm files root runs left in `/tmp`, and moves the auto-update monitor from root's crontab into the user's crontab. It is safe to run again, and it never starts, stops, restarts or updates a server. From then on, run csm as that user, without sudo:
-
-```bash
-sudo -iu cs2servermanager   # or log in as that user
-csm status
-csm                         # TUI
-```
-
-Servers that are already running keep running: csm finds them in the same tmux server as before. A few things still need root and say so when you try them as the user: `sudo csm install-deps`, `sudo csm cleanup-all`, and creating the MatchZy MySQL Docker container (`sudo csm bootstrap`; as the user, bootstrap leaves an existing container alone). On a host that already runs servers, use `sudo csm setup-host --skip-deps`: `apt-get install` can upgrade tmux, and a newer tmux client can't talk to the tmux server the running servers live in. `--skip-linger` skips `loginctl`.
-
-`csm self-update` run as the user can't replace `/usr/local/bin/csm`, so it installs the new binary into `~/.local/bin/csm`, which login shells put first in `PATH`. Run `csm install-monitor-cron` afterwards so cron uses it too.
-
-### If `steamcmd` can't be installed (Debian/Ubuntu)
-
-`E: Unable to locate package steamcmd` means your apt sources don't include the component that ships SteamCMD. `sudo csm install-deps` (or the same step in the TUI) tries to fix this itself: it enables the component in `/etc/apt/sources.list`, writes a timestamped backup (for example `/etc/apt/sources.list.csm.bak-YYYYMMDD-HHMMSS`), runs `apt-get update` and retries. If that doesn't work, or you'd rather do it by hand:
-
-Debian (Bookworm): add `contrib` and `non-free` (often also `non-free-firmware`) to your apt sources, then:
-
-```bash
-sudo apt-get update
-sudo apt-get install steamcmd
-```
-
-Ubuntu: enable `multiverse`, then:
-
-```bash
-sudo add-apt-repository multiverse
-sudo apt-get update
-sudo apt-get install steamcmd
-```
+csm keeps its data under `/opt/cs2-server-manager` and logs to `/opt/cs2-server-manager/logs/csm.log`. Configs you put in `overrides/` survive game and plugin updates. Running without sudo, and what to do when `steamcmd` can't be installed: [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Usage
 
-Run these as the CS2 user after `sudo csm setup-host` (see above), or with `sudo` as before.
-
 ```bash
-csm                        # interactive TUI for installs, updates, status and so on
-csm help                   # CLI help
+csm                  # interactive TUI
+csm status           # every server: process, map, phase, score, players
+csm start [server]   # start all servers, or one
+csm stop [server]    # refuses while a Ready Up match is live
+csm update-game      # update CS2
+csm update-plugins   # install or update the plugin stack on every server
+csm link <url> <code> # let Auto Tournament control this machine
 ```
 
-```bash
-# Servers
-csm status                 # fleet table: process, map, phase, score, players, Ready Up
-csm status --watch         # the same table, updated live
-csm start [server]         # start all servers, or one
-csm stop [server]          # refuses while a Ready Up match is live; --force overrides
-csm restart [server]
+Every command, update holds and the host agent: [docs/USAGE.md](docs/USAGE.md).
 
-# Updates
-csm update-game            # update CS2 game files
-csm update-plugins         # install/update the plugin stack on every server (Ready Up or legacy)
-csm plugins                # plugin stack, Ready Up channel/version/bundle/license, what each server has
-csm monitor                # run the auto-update monitor once
-csm updates hold on        # no automatic restarts; "off" to resume, "auto" to let the platform decide
-csm updates platform <url> <token> # let Auto Tournament hold updates while a tournament runs
-csm updates check          # ask the platform now whether updates are held
-csm install-monitor-cron   # run the monitor from cron (the crontab of the user running it)
-csm remove-monitor-cron
+## Documentation
 
-# Auto Tournament host agent (the platform starts, stops, creates and updates servers)
-csm link <url> <code|key>  # link this machine to the platform (code from Servers → Machines → Add machine)
-csm link status            # show the link (never the token)
-csm agent install          # run the host agent as a systemd service (csm agent = foreground)
-csm unlink                 # forget the link
+Full docs at **[docs.autotournament.gg](https://docs.autotournament.gg/cs2/server-manager)**. In this repo:
 
-# License (commercial use only; never blocks anything)
-csm license set <key>      # store an Auto Tournament license key; Ready Up on every server gets it
-csm license status         # check it offline
-csm license clear
+- [Install: user mode and SteamCMD](docs/INSTALL.md)
+- [Usage: every command, update holds, host agent, CI host](docs/USAGE.md)
+- [Reference: plugin stacks, instance mode, maps, disk, database, license keys](docs/REFERENCE.md)
+- [Releasing](docs/RELEASING.md)
 
-# Setup and maintenance
-sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger)
-sudo csm install-deps      # install system dependencies
-csm bootstrap              # install or redeploy servers without the TUI
-csm doctor                 # diagnose common problems and offer fixes
-csm reinstall <server>     # rebuild one server from master-install
-csm update-config <server> # regenerate server configs without reinstalling
-csm dedupe-vpk [server]    # hardlink server VPKs to master-install
-csm unban <server> <ip>    # remove an IP banned for RCON attempts (0 = all servers)
-csm unban-all <server>     # clear all RCON bans (0 = all servers)
-csm list-bans <server>
-csm extract-map-data       # map thumbnails + maps.json into ./map_thumbnails
+## Contributing
 
-# Logs and debugging
-csm attach 1               # attach to server 1's console (tmux)
-csm debug 1                # run server 1 in the foreground
-csm logs 1 100             # last 100 log lines for server 1
-csm logs-file 1            # path to server 1's log file
-
-# Removes all CS2 data and the CS2 user
-sudo csm cleanup-all
-```
-
-### Holding updates during a tournament
-
-The monitor restarts a server for a CS2 update once it has been idle for the grace period: nobody connected, no match loaded. That is a local judgement, and it stays right only until [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) gives that server the next match of a running tournament.
-
-Point csm at the platform and it asks before every restart:
-
-```bash
-csm updates platform https://cs.example.io "$SERVER_TOKEN"
-csm updates check
-```
-
-The token is the platform's `SERVER_TOKEN` — the same fleet-wide token the plugin already uses for event webhooks and demo uploads, not a new secret. csm polls the platform, so the game server needs no inbound port. `CSM_PLATFORM_URL` and `CSM_PLATFORM_TOKEN` override the stored values for hosts that keep secrets out of files; the settings file is written owner-only either way.
-
-Updates are then held while a tournament is in progress or any match is loaded or live. **If the platform cannot be reached, updates stay held** — csm will not restart a server while it cannot tell whether a tournament is running. Every skipped update says which of these it was in `auto_update_monitor.log`.
-
-The same answer carries the platform's license key, so a key an admin saves or clears in the platform (Settings → License) reaches Ready Up on every server without anyone running `csm license set` — see [License key](#license-key). The poll contract: `GET /api/servers/update-hold` with `X-Auto-Tournament-Token: <SERVER_TOKEN>` answers `{"success":true,"hold":…,"reason":"…","license":{"key":"ATL1…"|null,"revision":"sha256:…"|"none"}}`; `license` is missing on older platforms and null when the platform could not read its key, and both mean "change nothing".
-
-`csm updates hold on` and `off` are overrides that win over the platform; `csm updates hold auto` goes back to asking it. `csm update-game` and `csm update-server` run whatever the hold says; the only thing that stops them is a live match on a Ready Up server (next section).
-
-Day-to-day operation, configuration and the update monitor are covered in [Managing Servers](https://docs.sivert.io/docs/csm/user/managing-servers), [Configuration & Overrides](https://docs.sivert.io/docs/csm/user/configuration) and [Auto Updates](https://docs.sivert.io/docs/csm/user/auto-updates).
-
-### Ready Up servers: live status and match protection
-
-Servers that run [Ready Up](https://github.com/Auto-Tournament/ready-up) publish their state on a small local HTTP endpoint (`/status` and a live `/stream`). csm reads the port and a read-only token from `server-N/game/csgo/readyup/status.json`, or tries the game port + 7 (Ready Up's default `status_http_port`) when that file is missing.
-
-`csm status` (and **Servers → Servers dashboard** in the TUI) shows one row per server:
-
-```
-#  PORT   PROC     MAP            PHASE        SCORE      PLAYERS  MATCH           PLATFORM    READY UP  CS2    SAFE
-1  27015  running  de_mirage 2/3  live R14     8-5 (1-0)  10/10    412 NAVI vs G2  online      0.9.0     14090  NO
-2  27025  running  de_dust2       idle         -          2        -               standalone  0.9.0     14090  yes
-3  27035  running  -              no Ready Up  -          -        -               -           -         -      -
-```
-
-The TUI dashboard and `csm status --watch` follow each server's `/stream` and update as rounds are played; a Ready Up without `/stream` is polled instead. `csm status --json` prints the same data for scripts.
-
-`SAFE` is Ready Up's `update_safe`: `NO` from the moment a match loads until the series is over and its demo is uploaded. While it says `NO`, `stop`, `restart`, `update-game`, `update-server` and `update-plugins` refuse to run and name the match that is in the way. The auto-update monitor skips that server too. Add `--force` to go ahead anyway; forced runs are written to `csm.log`. The TUI never forces; it tells you the command to run.
-
-Servers without Ready Up (for example with MatchZy Enhanced) show `no Ready Up` and behave exactly as before.
-
-### Host agent: control this machine from Auto Tournament (`csm link`)
-
-With the host agent, admins add a machine once and then start, stop, restart, create and update its servers from the [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament) web UI. No SSH, and no inbound port: csm keeps one outbound WebSocket to the platform (`wss://<platform>/api/fleet/host`). This is the hosts channel of Ready Up's [fleet protocol](https://github.com/Auto-Tournament/ready-up/blob/master/docs/FLEET.md) (§18); Ready Up's own connection per server stays for the match itself.
-
-**1. Link the machine.** On the platform, open **Servers → Machines → Add machine** and copy the one-time code (valid 15 minutes). On the machine, as the CS2 user (or root):
-
-```bash
-csm link https://cs.example.io RUE-7F3K-9QX2-LM4D-P8TW
-# or with a reusable fleet enrollment key, for scripted installs:
-csm link https://cs.example.io rfk_…
-# "-" reads the code or key from stdin, so it stays out of the shell history:
-csm link https://cs.example.io - < key.txt
-```
-
-csm enrolls the machine (`POST /api/fleet/enroll` with `kind: "host"`) and stores the host id and host token in `<csm root>/fleet/credentials.json` (mode 0600; `/opt/cs2-server-manager/fleet/` by default). The token is never printed or logged. The machine is identified by a hash of `/etc/machine-id`, so linking the same machine again gives back the same host.
-
-**2. Run the agent.**
-
-```bash
-csm agent install   # systemd unit csm-agent.service: a system unit as root,
-                    # a systemd --user unit as the CS2 user (needs lingering: sudo csm setup-host)
-csm agent status    # link + service state
-journalctl -u csm-agent -f          # logs (journalctl --user -u csm-agent -f in user mode)
-```
-
-`csm agent` runs it in the foreground instead. Its lines also go to `csm.log`, prefixed `[agent]`.
-
-**What the platform can do** (every command gets exactly one answer; long jobs report progress):
-
-| Platform message | csm does |
-|---|---|
-| `host.servers.list` | sends the inventory: every `server-N` with ports, process state, and Ready Up's version, `install_id`, phase and `update_safe` |
-| `server.start` / `server.stop` / `server.restart` | `csm start` / `stop` (console `quit`, then kill after the grace time) / `restart` |
-| `server.create` | adds the next `server-N` like the TUI's add-server. With `enroll: true` csm writes `game/csgo/cfg/ReadyUp/fleet.cfg` (`url` + `enroll_key`, mode 0600) before the first start, so Ready Up enrolls itself (FLEET §4.1 B). On the Ready Up stack csm installs Ready Up on the new server before that first start, so it comes up enrolled with no further step |
-| `server.remove` | removes the highest-numbered server (csm keeps `server-N` contiguous) |
-| `host.update_game` | `csm update-game`, or `csm update-server N` for a list |
-| `host.update_plugins` | installs Ready Up like `csm update-plugins` does (bundle `default` → essentials, `skins` → full; an instance host builds its shared layer with the full bundle unless `csm plugins bundle` says otherwise; version `latest` = the host's channel or pin), stopping and restarting running servers. The first one on a host without a stack choice sets it to Ready Up |
-| `host.updates_hold` | `csm updates hold on\|off\|auto` |
-| `logs.tail` / `logs.stop` | tails a server console log, CS2's log (`readyup`), or `csm.log` (`csm`, `monitor`), optionally following it |
-
-The agent also reports **health**: `exited` when a server process stops without csm stopping it, `hung` when Ready Up's `/health` has not answered for 30 s, `recovered` and `restarted`. It never restarts anything on its own during a match; the platform (an admin) decides.
-
-**Live matches.** `server.stop`, `server.restart`, `server.remove`, `host.update_game` and `host.update_plugins` are refused with `match_in_progress` for any server whose Ready Up says `update_safe: false`, exactly like the local `--force` gate. The platform can send `force` (root admins only, audited on the platform); csm then logs `FORCED …` with who and why.
-
-**Where Ready Up comes from.** The same place as `csm update-plugins`: the GitHub release on the host's channel (`csm plugins channel`) or its pinned version (`csm plugins version`), checked against the release's `SHA256SUMS`, installed with the `install.sh` inside the bundle. A `version` other than `latest` from the platform wins over the pin. If there is no such release the platform gets `failed / no_release` with the reason (for example "no stable release yet, only pre-releases") and nothing is touched; csm never reports an install that did not happen. The license answer is `csm plugins license` (or `AT_ACCEPT_LICENSE`); without one the platform gets `license_not_accepted`. To install a zip that is not on GitHub, point the agent at it (a path, or an https URL with `{version}` / `{bundle}` placeholders):
-
-```bash
-csm agent config readyup_bundle /opt/readyup/ready-up-{bundle}.zip
-csm agent config readyup_accept_license commercial   # overrides csm plugins license for the agent
-csm agent config                                     # show all settings
-```
-
-**Security.** `https://` and `wss://` by default; `csm link --insecure` allows `http://` and `ws://` for a platform served over plain `http://ip:port` (the token then travels unencrypted, so prefer https). When you link over `https://` and the platform answers with a `ws://` URL for the same host (a TLS proxy that does not pass `X-Forwarded-Proto`), csm uses `wss://` instead. Certificates are always verified (`--ca-file` adds a private CA). The host token goes only in the `Authorization` header, is rotated by the platform every 90 days (`auth.rotate`, written atomically), and a revoked token makes the agent back off (and re-enroll by itself when it was linked with a fleet key). Tokens, keys and codes are redacted from logs and from everything sent back. Every inbound message is validated and frames are capped at 1 MiB. Commands older than 5 minutes (a replay after an outage) are refused, not run.
-
-`csm unlink` forgets the link (revoke the host on the platform too). The message formats are JSON Schemas in [`protocol/host-v1/`](protocol/host-v1); the tests check every frame the agent sends against them.
-
-### Ready Up CI test host (`csm ci`)
-
-`csm ci` turns a csm host into the test host for [Ready Up](https://github.com/Auto-Tournament/ready-up)'s real-server compatibility check: a CI server plus a GitHub Actions self-hosted runner labelled `readyup-live`. Run it as the CS2 user after the one-time `sudo csm setup-host` (it refuses root, so the runner never runs as root):
-
-```bash
-sudo -iu cs2servermanager
-csm ci setup --instance 9 --token <registration token>   # the CI server is instance 9 (port 27095)
-csm ci status
-csm ci remove --token <removal token>       # [--purge] also deletes the runner files and the CI server
-```
-
-The registration token comes from the repository's **Settings → Actions → Runners → New self-hosted runner** and lasts an hour; it is only needed while the runner is not registered yet. The removal token comes from the runner's page there. csm only hands a token to the runner's `config.sh`: it is never written to disk, and it is redacted from csm's output and log.
-
-**On a csm instance (`--instance N`, recommended).** The CI server is instance N (game port `base + 10×N`: 27095 for 9), so it costs no CS2 copy, only the few MB each run writes. `setup` creates the instance if needed and makes it private: it is not one of the host's servers (the host agent, the fleet, `start all` and `csm monitor`'s restarts leave it alone). It writes `CS2_CI_INSTANCE=N`, `CS2_CI_DIR=<the instance's merged view>`, `CS2_CI_PORT` and `CS2_CI_CSM=<this csm>` into the runner's `.env`. Every CI run then:
-
-1. empties the instance (`csm instance reset N`) and builds the freshly built bundle into a layer of its own (`csm instance layer build --for N --zip <bundle> --installer install.sh --bundle full`). That layer never becomes current, no other instance ever mounts it, and the previous run's layer is removed;
-2. runs its own `cs2.sh` launch and the live tests inside `csm instance exec N -- <command>`: a namespace with the instance's view mounted at `CS2_CI_DIR`. Only one exec (or start) can use an instance at a time.
-
-The CS2 build is the shared game version: csm keeps it updated for every instance (`csm monitor`, `csm instance update-game`); `csm ci update` only applies to a `--dir` install.
-
-**On a CS2 install of its own (`--dir`, no `--instance`).** `setup` checks linger, downloads and registers the runner, writes `CS2_CI_DIR` and `CS2_CI_PORT` (`--port`, 27095 by default) into `.env`, copies the master install into `--dir` (default `~/ru-ci`, about 70 GB) and updates it with SteamCMD; `csm ci update` updates it later. In detail, `setup`:
-
-1. checks that lingering is on for the user (`setup-host` enables it; otherwise `sudo loginctl enable-linger cs2servermanager`), since `systemd --user` services stop at logout without it;
-2. downloads the latest `linux-x64` runner from [actions/runner](https://github.com/actions/runner/releases), checks the SHA256 published with the release, unpacks it into `~/actions-runner-readyup` and registers it as `<hostname>-readyup-live` with the label `readyup-live`;
-3. writes `CS2_CI_DIR=<dir>` and `CS2_CI_PORT=<port>` into the runner's `.env`, so every job sees them;
-4. installs CS2 into `--dir` with SteamCMD (`app_update 730 validate`, anonymous);
-5. writes the user unit `~/.config/systemd/user/actions.runner.readyup.service` (it runs `run.sh`) and enables and starts it with `systemctl --user`.
-
-It is safe to run again: an unpacked or registered runner is kept, the install is updated, and the service is restarted to pick up a new `--dir` or `--port`. If `config.sh` reports missing .NET dependencies, run `sudo ~cs2servermanager/actions-runner-readyup/bin/installdependencies.sh` once.
-
-The CI server is **not one of the numbered servers**. A `--dir` install does not live in a `server-N` directory, so it is not in the server list or `csm status`, and `csm monitor`, auto-update, `update-game` and start/stop/restart never touch it; a CI instance is private (above). `csm ci` never starts, stops, restarts or updates a numbered server or another instance. The Ready Up workflow starts and stops the CI server itself. Give it a port that the numbered servers don't use (27095 by default). `--dir` must not be a server directory, the master install or the home directory, and `--purge` only deletes a directory that `csm ci setup` created.
-
-Security: this is a self-hosted runner for a public repository, so the Ready Up workflow that uses it only runs on `schedule`, `workflow_dispatch` and `workflow_run`, never on `pull_request`: code from forks never reaches this host. The runner runs as the unprivileged CS2 user, not root, and the CI server is started with `+sv_lan 1`, so it doesn't advertise itself or accept Steam clients from the internet.
-
-## Plugin stack: Ready Up or legacy
-
-csm installs one of two plugin stacks on every server:
-
-- **Ready Up** (`readyup`): [Ready Up](https://github.com/Auto-Tournament/ready-up), a native CS2 plugin suite. No Metamod, no CounterStrikeSharp. This is what Auto Tournament 3.x talks to.
-- **Legacy** (`legacy`): Metamod:Source + CounterStrikeSharp + [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced) 1.4.35, the MatchZy-era plugin (`matchzy_*` cvars) that Auto Tournament 2.x talks to.
-
-```bash
-csm plugins                          # what is chosen, what would be installed, what each server has
-csm plugins stack readyup            # or legacy
-csm plugins channel beta             # stable (default) or beta (pre-releases too)
-csm plugins version v0.1.0-beta.2    # pin a release; "latest" follows the channel again
-csm plugins bundle full              # essentials (default; instance mode: full) or full (adds skins and the extras)
-csm plugins license noncommercial    # or commercial; asked once, then remembered
-csm plugins auto off                 # stop csm monitor from updating Ready Up (default on)
-csm update-plugins                   # install / update now (stops and restarts the servers)
-```
-
-**Which stack.** Nothing changes by itself on a host that already runs the legacy stack: it stays legacy until you switch. A fresh install gets Ready Up once Ready Up has a stable release, and the legacy stack until then (the install log says how to opt into a pre-release). The platform's **Update Ready Up** button (`host.update_plugins`) on a host that never chose a stack sets it to Ready Up. `CSM_PLUGIN_STACK=readyup|legacy` overrides the setting.
-
-**Channels.** `stable` installs the latest stable Ready Up release (GitHub's "latest"). `beta` installs the newest release including pre-releases (`vX.Y.Z-beta.N`, `-rc.N`). A pinned version wins over the channel. While Ready Up has only pre-releases, `stable` finds nothing and says so, naming the newest pre-release; use `csm plugins channel beta` or pin it. `CSM_READYUP_CHANNEL`, `CSM_READYUP_VERSION` and `CSM_READYUP_BUNDLE` override the settings.
-
-**How it installs.** csm downloads the bundle zip (`ready-up-essentials-*` or `ready-up-full-*`) and `SHA256SUMS` once, refuses a zip that is not listed or does not match, and runs the `install.sh` that ships inside the bundle on each server as the CS2 user: `install.sh <bundle> --dir server-N --yes --zip <zip> --accept-license=<answer>`. install.sh verifies the checksum again, lays out `game/csgo/readyup/`, keeps everything in `cfg/ReadyUp/` (including `fleet.cfg`) and `readyup.cfg`, and adds `Game csgo/readyup` to `gameinfo.gi`. After a CS2 update replaces `gameinfo.gi`, csm puts that line back on every server that has Ready Up. csm never passes the license key on the command line (it is in `cfg/readyup_license.cfg`, written by `csm license set` or taken from the platform) and never touches GSLT or `sv_setsteamaccount`. A server csm creates (`csm` add-server, or the platform's `server.create`) gets Ready Up before its first start.
-
-**License answer.** Ready Up is free for noncommercial use (PolyForm Noncommercial 1.0.0); commercial use needs a license. install.sh needs your answer before an unattended install, and csm never picks one for you. It is asked once: `csm update-plugins` asks in a terminal (answer `I AGREE`), or set it with `csm plugins license noncommercial|commercial`. `AT_ACCEPT_LICENSE=noncommercial|commercial` (the same variable as the platform) overrides it. When no answer is saved and the platform hands over a license key (see [License key](#license-key)), csm records `commercial`, since a key is a commercial license; a platform that sends `license.use` in the update-hold answer sets it directly. An answer you gave is never replaced.
-
-**Automatic updates.** On the Ready Up stack every `csm monitor` cycle (cron, every 5 minutes) keeps Ready Up on its channel. It asks GitHub at most every 30 minutes. A server is updated only when updates are not on hold (`csm updates hold`, or the platform's update-hold while a tournament runs) and it is stopped, or Ready Up reports `update_safe: true` with nobody connected for the idle grace period (`csm updates grace`). Never mid-match. A failed update is retried after an hour. Each cycle logs what it did to `csm.log`.
-
-**Legacy stack version.** The legacy stack installs MatchZy Enhanced **v1.4.35**, no longer "whatever is latest" (the plugin repo's next major is not what Auto Tournament 2.x expects). `CSM_LEGACY_PLUGIN_VERSION` picks another tag, or `latest`. When csm knows the platform (`csm updates platform`, or `csm link`) it asks it for its version first, and refuses the legacy stack for Auto Tournament 3.x with a message that points here; nothing on the servers changes. An unreachable platform does not block the install.
-
-### Moving to Ready Up
-
-csm does not migrate a legacy host by itself. To move one:
-
-1. `csm plugins stack readyup`, then `csm plugins channel beta` while Ready Up has only pre-releases, and `csm plugins license noncommercial` (or `commercial`).
-2. `csm update-plugins`. It installs Ready Up on every server and restarts them. The legacy `addons/` (Metamod, CounterStrikeSharp, MatchZy) stay where they are; Ready Up runs alongside Metamod.
-3. Check each server: `ru selftest` in its console should say PASS, and `csm status` shows the Ready Up version.
-4. Link the servers to the platform: `csm link` for the host agent, and `cfg/ReadyUp/fleet.cfg` (`url`, `enroll_key`) per server, which csm writes for servers the platform creates.
-5. When nothing uses the legacy plugin any more, remove the `Game csgo/addons/metamod` line from each `game/csgo/gameinfo.gi` (or run the install wizard with Metamod off) and delete `game/csgo/addons/`. MatchZy's database and configs are not used by Ready Up.
-
-## Instance mode (one install, many servers)
-
-A `server-N` folder is a full copy of the CS2 install. Instance mode doesn't copy anything: every instance runs the one `master-install` read-only, and only stores the files it writes itself. Ten servers cost about as much disk as one.
-
-### How much disk?
-
-| Servers | Instance mode | Classic mode (full copy per server) |
-|---|---|---|
-| 1 | ≈ 69 GB | ≈ 138 GB (master + copy) |
-| 10 | ≈ 69.1 GB | ≈ 760 GB |
-
-- The CS2 install (`master-install`) is about 69 GB. In instance mode all servers run that one install read-only.
-- Each instance's own writable files are about 10 MB (6.7 to 14 MB, mostly its demo) plus about 1 MB of Steam home. The Ready Up layer, shared by all instances, is about 9 MB.
-- Classic mode is less than the table shows if `csm dedupe-vpk` hardlinks the VPKs (see *Disk usage: hardlinked VPKs*).
-- Start time is about 5 to 7 seconds per instance until "server started" (4.6 to 7.1 s measured).
-- RAM is not shared in any meaningful way: each server still uses about 1 to 2 GB.
-- Demos (kept 24 h) and round backups (72 h) add to this over time.
-
-CS2's size changes with updates, so treat these as a snapshot. Measured on one CS2 host in September 2026 with CS2 1.41.8.5, using `du` with hardlinks counted once.
-
-It works with kernel overlayfs inside an unprivileged user namespace (`unshare --user --map-root-user --mount`). No root, no sudo, no fuse-overlayfs; it needs Linux 5.11 or newer. Each instance sees three layers merged together, and only it can see the result:
-
-| Layer | Where | What |
-|---|---|---|
-| upper | `~/instances/instance-N/upper` | everything instance N writes: logs, demos, backups, Ready Up's `state.json` and `status.json`, `steam_appid.txt`, its `fleet.cfg` |
-| Ready Up layer | `~/instances/layers/<id>` | Ready Up, installed once by its own `install.sh`, plus the patched `gameinfo.gi` |
-| game | `~/master-install`, then `~/instances/games/<id>` | the CS2 install the layer was built on. Never written to (see *CS2 updates* below) |
-
-Each instance also gets its own `HOME` (Steam writes to `$HOME/Steam`) and, by default, its own `/dev/shm`. Instance N uses game port `base + 10×N`, GOTV `+1`, client port `+2` and the Ready Up status port `+7`. The default base is 27005, so instance 1 plays on 27015 like `server-1` does.
-
-```bash
-csm instance layer build             # install the configured Ready Up release into a shared layer
-csm instance create                  # instance 1 (then 2, 3, ...)
-csm instance start all
-csm instance status                  # state, ports, Ready Up phase, layer, pending restarts
-csm instance attach 1                # the server console (Ctrl-b d to leave)
-csm instance logs 1                  # console log tail
-csm instance shell 1                 # a shell in a stopped instance's merged view
-csm instance exec 1 -- ls game/csgo  # a command in a stopped instance's merged view
-csm instance reset 1                 # empty a stopped instance (delete what it wrote)
-csm instance stop 1
-csm instance remove 1                # deletes the instance and everything it wrote
-```
-
-With `csm instance config backend instances`, the everyday commands act on instances too: `csm status` (and `--watch`, `--json`) lists them with the current layer, CS2 version and pending restarts; `csm start|stop|restart [N]`, `csm logs N` and `csm attach N` take an instance number; the TUI's dashboard and start/stop/restart-all use the instances. `csm stop` and `csm restart` refuse a busy instance unless you add `--force`, as they do for `server-N`.
-
-**Settings.** Each instance has two cfg files in its `upper/game/csgo/cfg/`:
-
-| File | Who writes it | What |
-|---|---|---|
-| `instance.cfg` | csm, on every start (your edits are lost) | hostname, RCON password, `sv_hibernate_when_empty 0`, `tv_enable 1`, `log on` (Ready Up reads the match log), the license key |
-| `instance_custom.cfg` | you; csm never touches it | your own settings. `instance.cfg` runs it last, so it wins |
-
-Don't edit Ready Up's own files in an instance: a changed copy of a layer file hides every later update of that file from that instance. `csm instance status` and every update warn about such copies.
-
-**Running.** Each instance runs in tmux session `cs2-inst-N` under a small supervisor script. If CS2 exits without `csm instance stop` (a crash, or `quit` in the console), the supervisor starts it again after 10 seconds. It gives up after 5 exits in 10 minutes. The console log is `~/instances/instance-N/console.log`.
-
-**Plugins.** All instances share one Ready Up layer, so csm builds it with the `full` bundle: every plugin (match, practice, essentials, skins, midas, whitelist, deathmatch, addons) is in it, and each server only turns plugins on or off. The platform does that per server with `cmd plugins.set`, which Ready Up keeps in the instance's own `plugins.json` (in its upper directory), so one instance can run a tournament and the next one practice or deathmatch. A platform request for the default bundle still builds `full`; `csm plugins bundle essentials` (or `CSM_READYUP_BUNDLE`) makes the layer essentials only. A layer built before this keeps its bundle until the next `csm instance update`. Classic `server-N` folders are unchanged: they get essentials unless you choose full.
-
-**Updates.** An update happens once for all instances:
-
-- **Ready Up**: `csm instance update` (or `csm monitor` following `csm plugins channel/version`) builds a new layer next to the old one and makes it current. Running instances keep the layer they started with.
-- **CS2**: `csm instance update-game` (or `csm update-game`, or `csm monitor` when an instance logs that an update is out) makes a new game version once, then rebuilds the Ready Up layer on it, because `gameinfo.gi` comes from the game.
-
-After either one, csm restarts only idle instances onto the new version. An instance is idle when Ready Up reports `update_safe: true` and nobody is connected. A busy instance keeps running and shows *restart pending*. `csm monitor` restarts it once it has been idle for the grace period (`csm updates grace`). Nothing restarts while updates are on hold (`csm updates hold`, or the platform's hold during a tournament), and never mid-match. `csm instance layer use <id>` switches back to an older layer; csm keeps the previous one on the same CS2 version.
-
-**Private layers.** `csm instance layer build --for N --zip Z --installer I` builds a layer for instance N alone: `layers/current` does not move, N mounts it through its pin (`instance-N/layer.pin`) from its next start or `csm instance exec`, and no other instance ever does. N's previous private layer is removed. A pinned instance is not one of the host's servers (host agent, fleet and `start all` skip it). `csm instance layer unpin N` puts it back on the shared layer. Ready Up's CI uses this (`csm ci setup --instance N`).
-
-**CS2 updates.** A running instance has its CS2 install mounted, and changing files under a mounted overlay is undefined. So csm never runs SteamCMD on an install an instance may be using:
-
-1. SteamCMD runs against a temporary overlay: the current version below, an empty directory on top. Everything it writes, replaces, trims or deletes lands on top; the current version is not touched.
-2. The new version, `~/instances/games/<id>`, is a hardlinked copy of the current one (`cp -al`) with those changes applied: changed files replace their link, deleted ones go. Unchanged files are shared, so a version costs only the files the update changed (a few GB rather than ~70). Where hardlinks are not possible (another filesystem, or a master owned by another user with `fs.protected_hardlinks`), it is a full copy, reflinked where the filesystem can; csm checks the free space first.
-3. The Ready Up layer is rebuilt on the new version and records which version it sits on. `games/current` points at the newest.
-
-A plain hardlinked copy is not enough on its own: SteamCMD replaces most changed files with new ones, but it trims a file that only lost trailing bytes in place, which would change it for every version sharing that file. The overlay in step 1 catches that.
-
-Instances restart onto the new layer and version as above; until then they keep their old ones. An old version stays as long as a layer or a running instance uses it; csm removes it after that (`csm monitor`, the next update, or `csm instance gc`). `csm instance game` lists the versions. `~/master-install` is only the first version: instance mode never writes to it and never removes it. With `CSM_INSTANCE_MASTER_READONLY=1` csm makes no game versions, and whatever updates the master install does so under running instances.
-
-**Host agent.** With `csm instance config backend instances`, the host agent reports instances as the host's servers (instance N is `server-N` to the platform), and `server.create`, `start`, `stop`, `restart` and `remove` act on instances. A server the platform creates gets its own `fleet.cfg` (platform URL and enroll key) in its upper layer and enrolls itself; the platform links it. `host.update_plugins` updates the shared layer (with the layer bundle, see *Plugins* above), and `host.update_game` makes a new game version once. An instance host can create its first server from the platform. The default backend stays `servers`, and nothing changes for existing `server-N` hosts.
-
-**Other settings.** `csm instance config` shows and sets `base_port`, `map`, `max_players`, `private_shm on|off` and `nice` (the game's CPU priority). Environment overrides: `CSM_SERVER_BACKEND`, `CSM_INSTANCE_ROOT`, `CSM_MASTER_DIR`, `CSM_INSTANCE_BASE_PORT`, `CSM_INSTANCE_NICE`, `CSM_STEAMCLIENT`, and `CSM_INSTANCE_MASTER_READONLY=1` if something else keeps the master install updated. Instances never get a GSLT.
-
-**Testing.** `scripts/instance-integration-test.sh` runs two real instances against a test copy of a CS2 install and checks the isolation, the crash restart, the shadow warning, a Ready Up update with idle restarts, the update hold, two CS2 updates with a fake SteamCMD (hardlinked versions, nothing written through to the running version, held instances keeping theirs, old versions collected), the plain `csm status/stop/start/logs` commands, and that the master install is left untouched. It needs two Ready Up bundle zips; the header has the details.
-
-## Map thumbnails and maps.json
-
-`csm extract-map-data` reads the map screenshots out of the master install's `pak01_dir.vpk` and writes them to `map_thumbnails/` in the current directory: a PNG, a full-size WEBP and a 1280px `_thumb.webp` per map. Next to them it writes `maps.json`, which the Auto Tournament platform can read to learn which maps exist and which are in the current Active Duty pool:
-
-```json
-{
-  "generatedAt": "2026-09-25T08:55:32Z",
-  "patchVersion": "1.41.1.4",
-  "buildId": "20123456",
-  "maps": [
-    {
-      "id": "de_dust2",
-      "name": "Dust II",
-      "mode": "defusal",
-      "images": { "full": "de_dust2.webp", "thumb": "de_dust2_thumb.webp" },
-      "variants": ["de_dust2_1_thumb.webp"]
-    }
-  ],
-  "activeDuty": ["de_ancient", "de_dust2", "de_inferno"]
-}
-```
-
-- `maps` holds every map VPK in `game/csgo/maps` (vanity scenes, `graphics_settings` and the like are skipped) plus every map with a screenshot. `mode` is `defusal`, `hostage`, `armsrace` or `other`; `images` is left out when the game ships no screenshot for that map.
-- `activeDuty` is the `mg_active` map group from `gamemodes.txt` inside `pak01_dir.vpk`.
-- `patchVersion` comes from `game/csgo/steam.inf` and `buildId` from `steamapps/appmanifest_730.acf`.
-- If nothing but `generatedAt` would change, `maps.json` is left as it is.
-
-The command prints each step as it goes, then one line per map (`[12/40] de_dust2 … updated`), and a summary at the end. It needs Python with the `vpk` and `Pillow` modules; run it once with sudo and csm sets them up in its own virtualenv.
-
-To send the result to this repository, point `--publish` at a git checkout of it:
-
-```bash
-csm extract-map-data --publish --repo ~/cs2-server-manager
-```
-
-csm copies `map_thumbnails/` into the checkout, commits it on a new `maps/update-<timestamp>` branch and checks with `git push --dry-run` that you can push. It does not push or open the PR itself; it prints the `git push` and `gh pr create` commands to run. The checkout must have no uncommitted changes. csm uses your existing git setup for the commit author and push access, and never stores tokens.
-
-## Launch modes
-
-By default csm starts servers with Valve's `game/cs2.sh`, unchanged. It also installs `game/csm.sh`, which sets `LD_LIBRARY_PATH` to prefer the libraries bundled with CS2. That helps with `libserver.so` and `libv8` mismatches. You can also run the `cs2` binary directly, which is only meant for troubleshooting.
-
-```bash
-csm start --alternate      # use csm.sh
-csm start --alternate 1    # just server 1
-csm start --binary         # run the cs2 binary directly
-```
-
-`--alternate` and `--binary` work on `start`, `restart` and `debug`, and only apply to that one command. To use a launcher everywhere csm starts servers (including `update-plugins`, `update-game` and the monitor), set `CSM_LAUNCH_MODE=alternate` or `CSM_LAUNCH_MODE=binary`, for example `CSM_LAUNCH_MODE=alternate csm restart`. A flag overrides the variable. Every launcher gets the same `+matchzy_config_scope` argument (see below).
-
-### Newer distros and Steam Runtime
-
-On newer distributions such as Debian 13 and Ubuntu 25.04+, CounterStrikeSharp can fail to load under the system runtime ([CounterStrikeSharp #1024](https://github.com/roflmuffin/CounterStrikeSharp/issues/1024)). On those versions csm installs Steam Runtime (SteamRT3, app `1628350`) into `/home/<cs2user>/steamrt` and starts servers through its wrapper. Set `CSM_STEAMRT=1` to force this on, or `CSM_STEAMRT=0` to force it off.
-
-## Metamod version
-
-This is the legacy stack. CounterStrikeSharp installs from its latest release and MatchZy Enhanced is pinned (see [Plugin stack](#plugin-stack-ready-up-or-legacy)). Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `csm update-plugins` to get both at once.
-
-`csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
-
-## Disk usage: hardlinked VPKs
-
-A full copy of `master-install` is about 67 GB, and nearly all of it is `*.vpk` archives that CS2 only reads. csm hardlinks the VPKs from `/home/<cs2user>/master-install/game` into each `server-N/game`, so each extra server costs about 1.2 GB on disk instead of 67 GB. The install wizard estimates about 71 GB for `master-install` plus about 2 GB per server.
-
-- Only VPKs are shared. `cfg/`, `addons/`, `gameinfo.gi`, MatchZy data, demos and logs stay separate per server. Hardlinks are used instead of symlinks because symlinked game directories broke demo recording and per-server configs.
-- `master-install` and the servers must be on the same filesystem (the default layout under `/home/<cs2user>` is). If linking fails, csm logs it once and copies instead.
-- SteamCMD only updates `master-install` and writes changed files as new files, so the servers' links aren't modified. `update-game` then syncs each server: it rsyncs everything except `*.vpk` and `csgo/addons/`, deletes VPKs removed from master, and re-links every VPK atomically. A running server keeps reading the old file until it restarts.
-- `CSM_VPK_HARDLINK=0` turns this off, and new syncs make full copies again.
-
-To convert existing servers (`update-game` also re-links servers as it syncs them):
-
-```bash
-csm dedupe-vpk --dry-run   # what would be linked, and the estimated savings
-csm stop
-csm dedupe-vpk             # link VPKs whose size and mtime match master; prints disk usage before and after
-csm start
-```
-
-`csm dedupe-vpk 2` handles only server-2. `--verify` byte-compares each file before linking, which is slow. Running it twice does nothing the second time, and VPKs that differ from master are reported and left alone. It refuses to run while target servers are running unless you pass `--allow-running`.
-
-To undo it: `csm stop && csm dedupe-vpk --undo && csm start`. This needs about 70 GB free per server and checks first. Also set `CSM_VPK_HARDLINK=0` wherever csm runs (for example `CSM_VPK_HARDLINK=0 csm update-game`, and the monitor cron), or the next sync links them again.
-
-## Several servers and the MatchZy database
-
-By default every server on the machine uses one MySQL database (`matchzy` in the `matchzy-mysql` container), so match stats end up in one place.
-
-MatchZy also stores per-server settings in that database: `matchzy_server_id`, the bootstrap URL and token, the remote log URL, the demo upload URL and so on. Older MatchZy builds key those rows by setting name only, so the last server to save wins and every server loads its values on start. A tournament manager like MAT then sees one server several times, matches get loaded twice, and results overwrite each other. This affects any install with 2 or more servers on shared MySQL.
-
-The fix has two parts:
-
-- [MatchZy Enhanced 1.4.28](https://github.com/Auto-Tournament/matchzy-enhanced/releases/tag/v1.4.28) and newer store those settings per server ([#17](https://github.com/Auto-Tournament/matchzy-enhanced/pull/17)). 1.4.26 added this but could not read `+matchzy_config_scope` ([#18](https://github.com/Auto-Tournament/matchzy-enhanced/pull/18), fixed in 1.4.27), and 1.4.27 could still load another server's `matchzy_server_id` ([#19](https://github.com/Auto-Tournament/matchzy-enhanced/pull/19), fixed in 1.4.28). It tells servers apart by bind address and port, but csm starts servers with `-ip 0.0.0.0`, so MatchZy would fall back to the machine name, which every server on the machine shares.
-- csm therefore passes `+matchzy_config_scope <hostname>-server-<N>` (for example `cs2-server-1`) when it starts each server. The name comes from the server's directory, so it survives restarts, updates, reinstalls and port changes, and the hostname keeps two machines sharing one database apart. If you rename the machine, or several machines share a hostname, set `CSM_MATCHZY_SCOPE_PREFIX` (for example `eu-1`) wherever csm starts servers.
-
-The install wizard's **MatchZy storage** option picks between shared MySQL (the default; needs the CS2 plugin 1.4.28+ with 2 or more servers) and SQLite per server, where each server keeps its own `matchzy.db`. SQLite works on any MatchZy build but stats aren't shared. For a non-interactive install use `MATCHZY_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
-
-`csm doctor` checks this under "MatchZy per-server config (shared database)". It fails when 2 or more servers report the same `matchzy_server_id`, or when servers share MySQL and run MatchZy older than 1.4.28 or without `+matchzy_config_scope`, and it prints how to fix it.
-
-To migrate an existing install:
-
-1. Update csm.
-2. Run `csm update-plugins`. It installs the latest CS2 plugin, redeploys and restarts every server, which also picks up the new start argument. If you're already on 1.4.28 or newer, `csm restart` is enough. If you can't update MatchZy, set `"DatabaseType": "SQLite"` in `/home/<cs2user>/overrides/game/csgo/cfg/MatchZy/database.json` and `/home/<cs2user>/cs2-config/game/csgo/cfg/MatchZy/database.json`, then run `csm update-plugins`.
-3. Reconfigure each server once from your tournament manager (in MAT, re-save or re-bootstrap each server). Until a server saves its own values it still reads the old shared ones.
-4. Run `csm doctor` to confirm.
-
-Match stats already in the shared database stay where they are.
-
-## License key
-
-csm is free for non-commercial use, with no key. For commercial use, paste your [Auto Tournament license](https://autotournament.gg/pricing) key once:
-
-```bash
-csm license set ATL1.xxxxx.yyyyy     # or pipe it in: csm license set < key.txt
-csm license status
-```
-
-```
-Licensed to NTLAN · Servers S (6 servers) · event 2026-10-16 · valid
-License id: L-3kq8Zx0bQ1aR
-Check it:   https://autotournament.gg/verify/L-3kq8Zx0bQ1aR
-```
-
-- csm checks the key offline (Ed25519 signature, no network). `csm status` shows the same line under the fleet table; without a key it says so in one line.
-- The key is stored in `/opt/cs2-server-manager/license.json` (mode 600). csm never prints the whole key, only the license id.
-- csm hands the key to Ready Up on every server: it writes `game/csgo/cfg/readyup_license.cfg` (mode 600, setting `readyup_license_key`) and adds `exec readyup_license.cfg` to each `server.cfg`. `update-config`, `bootstrap` and `reinstall` keep it there. Servers pick it up at the next map load or restart. `csm license clear` removes both again.
-- **From the platform.** When csm is pointed at Auto Tournament (`csm updates platform <url> <token>`), the update monitor applies the key saved in the platform, the same way `csm license set` / `csm license clear` would, whenever it changes (the answer's `revision`). Precedence: a key from the platform wins, and replaces one set with `csm license set`; when the platform has no key, csm clears only a key it got from the platform and leaves one set by hand alone; when the platform can't be asked, nothing changes. A failed hand-off is a warning in `auto_update_monitor.log` and is tried again at the next poll. `csm license status` shows when the key came from the platform. The log names the license id, never the key.
-- **Nothing is ever blocked.** A key that doesn't match, an event window that has ended, a release line newer than the license's updates, or more servers than the license covers are warnings only. csm counts every `server-N` it set up, spares and test servers included, and the server warning says so.
-- Both a Servers and a Platform license cover csm. A release is covered when its version line (the release date of its `x.y.0`) is on or before the license's `updates_until`; founder licenses cover every line.
-
-## Releasing
-
-Releases run from **Actions → Release → Run workflow**, with `mode` set to `patch`, `minor`, `major` or `explicit` (and `version` as `X.Y.Z` or `vX.Y.Z` when `mode=explicit`). The workflow runs `scripts/release.sh`, the same script used for local releases, and uploads `csm-linux-amd64` and `csm-linux-arm64`. It bakes the version line date (the release date of the tag's `x.y.0`, from `scripts/line-date.sh`) into the binary with `-ldflags` for license coverage; dev builds use their build date. It uses the repository's `GITHUB_TOKEN`. Set the `DISCORD_WEBHOOK_URL` secret for Discord notifications.
-
-Release notes go in the GitHub release; the [docs changelog](https://docs.autotournament.gg/reference/changelog/csm) is generated from them, and [CHANGELOG.md](CHANGELOG.md) only links there.
+See the [contributing guide](.github/CONTRIBUTING.md). Bug reports go in [Issues](https://github.com/Auto-Tournament/cs2-server-manager/issues), questions on [Discord](https://discord.gg/n7gHYau7aW).
 
 ## Sponsors
 
-Your logo here — [sponsor Auto Tournament](https://discord.gg/n7gHYau7aW) to be listed.
+csm is part of Auto Tournament, built by one person. If your organisation runs servers with it, a sponsorship pays for development and test servers: [GitHub Sponsors](https://github.com/sponsors/sivert-io) or [Ko-fi](https://ko-fi.com/sivert).
+
+<!-- sponsors:start -->
+<!-- sponsors:end -->
 
 ## License
 
-PolyForm Noncommercial 1.0.0, see [LICENSE](LICENSE). Free for non-commercial use; commercial use (paid hosting, selling it, paid-entry events, business use) needs a license — see [pricing](https://autotournament.gg/pricing) and [LICENSING.md](LICENSING.md). The [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced) plugin stays MIT.
-
-## Links
-
-- [Documentation](https://docs.sivert.io/docs/csm)
-- [Troubleshooting](https://docs.sivert.io/docs/csm/user/troubleshooting)
-- [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), a web app for running tournaments on these servers
-- [Ready Up](https://github.com/Auto-Tournament/ready-up), the plugin suite csm installs on the Ready Up stack
-- [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced), the plugin of the legacy stack
-- [Issues](https://github.com/Auto-Tournament/cs2-server-manager/issues)
+csm is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). Copyright (c) 2025-2026 Sivert Gullberg Hansen. Free for non-commercial use; commercial use needs a license, see [pricing](https://autotournament.gg/pricing) and [LICENSING.md](LICENSING.md).
