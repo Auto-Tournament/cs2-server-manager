@@ -535,7 +535,7 @@ func buildItemsForTab(t tab) []menuItem {
 				kind:        itemCLIHelp,
 			},
 			{
-				title:       "Danger zone: wipe all servers and CS2 user",
+				title:       "Danger zone: wipe all servers",
 				description: "",
 				kind:        itemCleanupAllGo,
 			},
@@ -1262,9 +1262,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = viewActionResult
 				m.lastOutput = ""
 			case itemCleanupAllGo:
-				// Enter a dedicated confirmation view before running the
-				// irreversible cleanup operation.
-				m.view = viewCleanupConfirm
+				// The wipe needs root and csm never runs as root in the TUI,
+				// so this page says how to run it from the shell.
+				m.detailTitle = "Wipe all servers"
+				m.detailContent = strings.Join([]string{
+					"Wiping needs root, so it runs from the shell, not from this menu.",
+					"Quit csm and run, as the account that runs csm:",
+					"",
+					"  sudo csm cleanup-all",
+					"",
+					"It stops your servers and deletes them, the master install,",
+					"cs2-config, game_files, overrides and the MatchZy MySQL container",
+					"and its data. Your account and the rest of your home stay.",
+					"",
+					"A dedicated service account (such as cs2servermanager from older",
+					"installs) can be deleted with it, home and all:",
+					"",
+					"  sudo csm cleanup-all --user cs2servermanager --delete-user",
+				}, "\n")
+				m.view = viewActionResult
 				m.status = ""
 				m.lastOutput = ""
 			case itemRunCommand:
@@ -1995,7 +2011,7 @@ func (m model) View() string {
 		case itemViewRecentLogsGo:
 			desc = "Show a list of the 20 most recent command logs with quick error/success status for debugging."
 		case itemCleanupAllGo:
-			desc = "Wipe all servers and the dedicated CS2 user; use only when you want a full reset."
+			desc = "How to wipe all servers and their data (sudo csm cleanup-all); use only when you want a full reset."
 		case itemCLIHelp:
 			desc = "Cheatsheet of CLI-only commands like csm attach, debug, logs, and more."
 		case itemDoctorViewport:

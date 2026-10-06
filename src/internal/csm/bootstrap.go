@@ -77,6 +77,10 @@ type BootstrapConfig struct {
 	ExternalDBName     string
 	ExternalDBUser     string
 	ExternalDBPassword string
+
+	// Progress, when set, receives every log line as it is written (the CLI
+	// passes os.Stdout). The returned log has the same lines.
+	Progress io.Writer
 }
 
 // Bootstrap installs or redeploys the CS2 servers, performing roughly the
@@ -107,10 +111,17 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 		}
 	}
 
+	// out is where every step writes: the returned log, and the caller's
+	// Progress writer (the CLI's stdout) as it happens.
+	out := io.Writer(&buf)
+	if cfg.Progress != nil {
+		out = io.MultiWriter(out, cfg.Progress)
+	}
+
 	log := func(format string, args ...any) {
-		fmt.Fprintf(&buf, format, args...)
+		fmt.Fprintf(out, format, args...)
 		if !strings.HasSuffix(format, "\n") {
-			buf.WriteByte('\n')
+			_, _ = out.Write([]byte{'\n'})
 		}
 		if logFile != nil {
 			fmt.Fprintf(logFile, format, args...)
@@ -213,7 +224,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("")
 
 	log("[1/5] Creating CS2 user...")
-	if err := createCS2User(&buf, cfg.CS2User); err != nil {
+	if err := createCS2User(out, cfg.CS2User); err != nil {
 		log("  [!] Failed to create CS2 user: %v", err)
 		return buf.String(), err
 	}
@@ -224,7 +235,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	steamCtx, steamCancel := contextWithTimeout(ctx, TimeoutSteamCMD)
 	defer steamCancel()
 
-	if err := installMasterViaSteamCMD(steamCtx, &buf, cfg); err != nil {
+	if err := installMasterViaSteamCMD(steamCtx, out, cfg); err != nil {
 		if steamCtx.Err() == context.DeadlineExceeded {
 			log("  [!] SteamCMD operation timed out after %v", TimeoutSteamCMD)
 			log("  [*] This may indicate network issues or a very slow connection")
@@ -238,7 +249,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("")
 
 	log("[3/5] Setting up Steam SDK symlinks...")
-	if err := setupSteamSDKLinksGo(&buf, cfg.CS2User); err != nil {
+	if err := setupSteamSDKLinksGo(out, cfg.CS2User); err != nil {
 		log("  [!] Failed to set up Steam SDK links: %v", err)
 		// Non-fatal; continue.
 	}
@@ -246,14 +257,14 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 
 	log("[4/5] Provisioning MatchZy database (Docker)...")
 
-	if err := setupMatchZyDatabaseGo(&buf, cfg); err != nil {
+	if err := setupMatchZyDatabaseGo(out, cfg); err != nil {
 		log("  [!] MatchZy database provisioning skipped or failed: %v", err)
-		log("      Install Docker and rerun bootstrap if you need the built-in database.")
+		log("      Fix that and run bootstrap again, or choose SQLite (MATCHZY_DB_ENGINE=sqlite) or your own MySQL server.")
 	}
 	log("")
 
 	log("[5/5] Setting up shared configuration...")
-	if err := setupSharedConfigGo(&buf, cfg); err != nil {
+	if err := setupSharedConfigGo(out, cfg); err != nil {
 		log("  [!] Failed to set up shared config: %v", err)
 		return buf.String(), err
 	}
@@ -294,44 +305,44 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 
 		log("[%d/%d] Setting up server-%d...", i, cfg.NumServers, i)
 
-		if err := stopTmuxServerGo(&buf, cfg.CS2User, i); err != nil {
+		if err := stopTmuxServerGo(out, cfg.CS2User, i); err != nil {
 			log("  [i] Could not stop tmux session for server-%d: %v", i, err)
 		}
 
-		if err := copyMasterToServerGo(ctx, &buf, cfg.CS2User, i, cfg.FreshInstall); err != nil {
+		if err := copyMasterToServerGo(ctx, out, cfg.CS2User, i, cfg.FreshInstall); err != nil {
 			log("  [!] Copy master to server-%d failed: %v", i, err)
 		}
 
 		// A cut-short copy used to leave libserver.so / libv8.so missing and
 		// the server "ready" but unable to boot. Check and repair here.
 		serverGame := filepath.Join("/home", cfg.CS2User, fmt.Sprintf("server-%d", i), "game")
-		if err := libRepair.ensure(ctx, &buf, fmt.Sprintf("server-%d", i), serverGame); err != nil {
+		if err := libRepair.ensure(ctx, out, fmt.Sprintf("server-%d", i), serverGame); err != nil {
 			log("  [!] server-%d game files are incomplete and it will not boot: %v", i, err)
 			brokenServers = append(brokenServers, fmt.Sprintf("server-%d", i))
 		}
 
-		if err := overlayConfigToServerGo(ctx, &buf, cfg.CS2User, i); err != nil {
+		if err := overlayConfigToServerGo(ctx, out, cfg.CS2User, i); err != nil {
 			log("  [!] Overlay config to server-%d failed: %v", i, err)
 		}
 
 		// Install an alternate launcher (csm.sh) after the master->server sync.
 		// Keep Valve's cs2.sh intact; users can opt into csm.sh when needed.
 		serverGameDir := filepath.Join("/home", cfg.CS2User, fmt.Sprintf("server-%d", i), "game")
-		if err := ensureCSMLauncherSh(ctx, &buf, cfg.CS2User, serverGameDir); err != nil {
+		if err := ensureCSMLauncherSh(ctx, out, cfg.CS2User, serverGameDir); err != nil {
 			log("  [!] Ensure csm.sh for server-%d failed: %v", i, err)
 		}
 
-		if err := configureMetamodGo(&buf, cfg.CS2User, i, cfg.EnableMetamod); err != nil {
+		if err := configureMetamodGo(out, cfg.CS2User, i, cfg.EnableMetamod); err != nil {
 			log("  [!] Configure Metamod for server-%d failed: %v", i, err)
 		}
 
-		if err := customizeServerCfgGo(&buf, cfg.CS2User, i, cfg.RCONPassword, cfg.HostnamePrefix, gamePort, tvPort, cfg.MaxPlayers); err != nil {
+		if err := customizeServerCfgGo(out, cfg.CS2User, i, cfg.RCONPassword, cfg.HostnamePrefix, gamePort, tvPort, cfg.MaxPlayers); err != nil {
 			log("  [!] Customize server.cfg for server-%d failed: %v", i, err)
 		}
 
 		// Store GSLT token if provided
 		if cfg.GSLT != "" {
-			if err := storeGSLTGo(&buf, cfg.CS2User, cfg.GSLT); err != nil {
+			if err := storeGSLTGo(out, cfg.CS2User, cfg.GSLT); err != nil {
 				log("  [!] Failed to store GSLT for server-%d: %v", i, err)
 			}
 		}
@@ -665,6 +676,15 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 		return err
 	}
 
+	// The steamcmd package asks for the Steam license in its pre-install
+	// script. apt-get run without a terminal answers "declined" and the
+	// install fails, so give debconf the answer first. Installing csm to run
+	// CS2 servers through SteamCMD is agreeing to it.
+	fmt.Fprintln(w, "[deps] Accepting the Steam license for the steamcmd package (debconf)")
+	if err := preseedSteamLicense(ctx); err != nil {
+		fmt.Fprintf(w, "[deps] [!] Could not preseed the Steam license: %v\n", err)
+	}
+
 	pkgs := []string{
 		"curl", "wget", "file", "tar", "bzip2", "xz-utils", "unzip",
 		"ca-certificates", "lib32gcc-s1", "lib32stdc++6", "libc6-i386",
@@ -793,7 +813,7 @@ func ensureBootstrapDependenciesContext(ctx context.Context, w io.Writer) error 
 
 // setupSteamSDKLinksGo is now in steam.go
 
-func setupSharedConfigGo(w *bytes.Buffer, cfg BootstrapConfig) error {
+func setupSharedConfigGo(w io.Writer, cfg BootstrapConfig) error {
 	configDir := filepath.Join("/home", cfg.CS2User, "cs2-config")
 	fmt.Fprintf(w, "  [*] Setting up shared config directory at %s\n", configDir)
 	if err := os.MkdirAll(filepath.Join(configDir, "game"), 0o755); err != nil {
@@ -1396,7 +1416,7 @@ type matchzyDBConfig struct {
 	MySQLPassword string `json:"MySqlPassword"`
 }
 
-func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
+func setupMatchZyDatabaseGo(w io.Writer, cfg BootstrapConfig) error {
 	matchzyCfgPath := filepath.Join(cfg.OverridesDir, "game", "csgo", "cfg", "MatchZy", "database.json")
 
 	// When the install wizard (or MATCHZY_DB_ENGINE) provides an explicit DB
@@ -1654,7 +1674,7 @@ func setupMatchZyDatabaseGo(w *bytes.Buffer, cfg BootstrapConfig) error {
 	return nil
 }
 
-func ensureMatchZyDatabaseExistsGo(w *bytes.Buffer, containerName string, cfg matchzyDBConfig, rootPass string) error {
+func ensureMatchZyDatabaseExistsGo(w io.Writer, containerName string, cfg matchzyDBConfig, rootPass string) error {
 	// Check if DB exists
 	dbExistsCmd := exec.Command("docker", "exec", containerName, "mysql", "-uroot", "-p"+rootPass,
 		"-e", "SHOW DATABASES LIKE '"+cfg.MySQLDatabase+"';", "-sN")
@@ -1725,20 +1745,40 @@ func (t *teeWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func ensureDockerGo(w *bytes.Buffer) error {
-	// Creating and managing the MySQL container (and starting the Docker
-	// service) needs root. In user mode an existing container keeps running;
-	// run `sudo csm bootstrap` to (re)provision it.
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(w, "  [i] Not running as root: leaving the MatchZy MySQL container as it is. Run `sudo csm bootstrap` to (re)provision it.")
-		return RootRequiredError("provisioning the MatchZy MySQL container")
+// steamLicenseSelections answers the steamcmd package's license questions.
+// Debian and Ubuntu name the question's owner differently, so both are set.
+const steamLicenseSelections = `steam steam/question select I AGREE
+steam steam/license note
+steamcmd steam/question select I AGREE
+steamcmd steam/license note
+`
+
+func preseedSteamLicense(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "debconf-set-selections")
+	cmd.Stdin = strings.NewReader(steamLicenseSelections)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
+	return nil
+}
+
+func ensureDockerGo(w io.Writer) error {
 	if _, err := exec.LookPath("docker"); err != nil {
 		fmt.Fprintln(w, "  [!] Docker is required for the MatchZy database. Please install Docker Engine.")
 		return fmt.Errorf("docker is required")
 	}
-	_ = exec.Command("systemctl", "enable", "docker").Run()
-	_ = exec.Command("systemctl", "start", "docker").Run()
+	// As root, make sure the service is on. Otherwise the user needs access
+	// to the Docker daemon, which `sudo csm setup-host` gives (the docker
+	// group) and root never needs to run bootstrap for.
+	if os.Geteuid() == 0 {
+		_ = exec.Command("systemctl", "enable", "docker").Run()
+		_ = exec.Command("systemctl", "start", "docker").Run()
+		return nil
+	}
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		fmt.Fprintf(w, "  [!] %s cannot use Docker: run `sudo csm setup-host` (it adds you to the docker group), then log out and back in.\n", currentUsername())
+		return fmt.Errorf("docker is not usable by %s", currentUsername())
+	}
 	return nil
 }
 
@@ -1777,7 +1817,7 @@ func isPortInUse(port int) bool {
 	return false
 }
 
-func stopTmuxServerGo(w *bytes.Buffer, user string, serverNum int) error {
+func stopTmuxServerGo(w io.Writer, user string, serverNum int) error {
 	session := fmt.Sprintf("cs2-%d", serverNum)
 	cmd := userShellCommand(user, "tmux has-session -t "+session)
 	if err := cmd.Run(); err != nil {
@@ -1795,7 +1835,7 @@ func stopTmuxServerGo(w *bytes.Buffer, user string, serverNum int) error {
 // --- Bootstrap helper functions (previously moved to separate files) ---
 
 // createCS2User creates the CS2 service user if it doesn't exist.
-func createCS2User(w *bytes.Buffer, user string) error {
+func createCS2User(w io.Writer, user string) error {
 	fmt.Fprintf(w, "  [*] Checking for user %s...\n", user)
 	cmd := exec.Command("id", "-u", user)
 	if err := cmd.Run(); err == nil {
@@ -1825,7 +1865,7 @@ func createCS2User(w *bytes.Buffer, user string) error {
 }
 
 // installMasterViaSteamCMD installs or updates the master CS2 installation via SteamCMD.
-func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg BootstrapConfig) error {
+func installMasterViaSteamCMD(ctx context.Context, w io.Writer, cfg BootstrapConfig) error {
 	masterDir := filepath.Join("/home", cfg.CS2User, "master-install")
 	validateStr := "on"
 	if !SteamcmdShouldValidate() {
@@ -1911,7 +1951,7 @@ func installMasterViaSteamCMD(ctx context.Context, w *bytes.Buffer, cfg Bootstra
 }
 
 // setupSteamSDKLinksGo sets up Steam SDK symlinks for the CS2 user.
-func setupSteamSDKLinksGo(w *bytes.Buffer, user string) error {
+func setupSteamSDKLinksGo(w io.Writer, user string) error {
 	homeDir := filepath.Join("/home", user)
 	sdk64Dir := filepath.Join(homeDir, ".steam", "sdk64")
 	sdk32Dir := filepath.Join(homeDir, ".steam", "sdk32")

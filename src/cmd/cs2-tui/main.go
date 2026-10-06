@@ -54,10 +54,10 @@ func main() {
 	// csm runs as the user whose servers it manages. Only the few host-level
 	// commands (system packages, linger, updating the csm binary) run as root.
 	if os.Geteuid() == 0 {
-		allowed := map[string]bool{"help": true, "setup-host": true, "install-deps": true, "self-update": true}
+		allowed := map[string]bool{"help": true, "setup-host": true, "install-deps": true, "self-update": true, "cleanup-all": true}
 		if len(args) == 0 || !allowed[args[0]] {
 			fmt.Fprintln(os.Stderr, "✗ Don't run csm as root or with sudo. Run it as the user whose servers it manages (for example: csm status).")
-			fmt.Fprintln(os.Stderr, "  Only `sudo csm setup-host`, `sudo csm install-deps` and `sudo csm self-update` need root.")
+			fmt.Fprintln(os.Stderr, "  Only `sudo csm setup-host`, `sudo csm install-deps`, `sudo csm self-update` and `sudo csm cleanup-all` need root.")
 			os.Exit(1)
 		}
 	}
@@ -71,12 +71,14 @@ func main() {
 			hfs := flag.NewFlagSet("setup-host", flag.ExitOnError)
 			skipDeps := hfs.Bool("skip-deps", false, "don't apt-get install dependencies (use on a host that already runs servers)")
 			skipLinger := hfs.Bool("skip-linger", false, "don't run loginctl enable-linger")
+			skipDocker := hfs.Bool("skip-docker", false, "don't start Docker or add the user to the docker group")
 			_ = hfs.Parse(args[1:])
 			var buf strings.Builder
 			err := csm.SetupHost(context.Background(), &buf, csm.SetupHostOptions{
 				CS2User:    strings.TrimSpace(os.Getenv("SUDO_USER")),
 				SkipDeps:   *skipDeps,
 				SkipLinger: *skipLinger,
+				SkipDocker: *skipDocker,
 			})
 			csm.LogAction("cli", "setup-host", buf.String(), err)
 			fmt.Print(buf.String())
@@ -138,22 +140,32 @@ func main() {
 				DBEngine:     getenvDefault("MATCHZY_DB_ENGINE", ""),
 				GameFilesDir: getenvDefault("GAME_FILES_DIR", ""),
 				OverridesDir: getenvDefault("OVERRIDES_DIR", ""),
+				// Each step prints as it happens; out is only kept for the
+				// action log.
+				Progress: os.Stdout,
 			}
 			out, err := csm.Bootstrap(cfg)
 			csm.LogAction("cli", "bootstrap", out, err)
-			if out != "" {
-				fmt.Print(out)
-			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "bootstrap failed: %v\n", err)
 				os.Exit(1)
 			}
 			return
 		case "cleanup-all":
+			cfs := flag.NewFlagSet("cleanup-all", flag.ExitOnError)
+			target := cfs.String("user", "", "the account whose servers to remove (default: the account that ran sudo)")
+			deleteUser := cfs.Bool("delete-user", false, "also delete that account and its home (a dedicated service account; never the account that ran sudo)")
+			_ = cfs.Parse(args[1:])
+			invoking := strings.TrimSpace(os.Getenv("SUDO_USER"))
 			cfg := csm.CleanupConfig{
-				CS2User:          csm.DefaultCS2User,
+				CS2User:          strings.TrimSpace(*target),
+				InvokingUser:     invoking,
+				DeleteUser:       *deleteUser,
 				MatchzyContainer: getenvDefault("MATCHZY_DB_CONTAINER", csm.DefaultMatchzyContainerName),
 				MatchzyVolume:    getenvDefault("MATCHZY_DB_VOLUME", csm.DefaultMatchzyVolumeName),
+			}
+			if cfg.CS2User == "" {
+				cfg.CS2User = invoking
 			}
 			out, err := csm.CleanupAll(cfg)
 			csm.LogAction("cli", "cleanup-all", out, err)
@@ -1150,9 +1162,10 @@ func printUsage() {
 	fmt.Println()
 	fmt.Printf("%sCommands that need root (sudo):%s\n", yellow, reset)
 	fmt.Println("  setup-host             One-time host setup for user mode: deps, CS2 user, linger, file ownership,")
-	fmt.Println("                         monitor cron in the user's crontab (--skip-deps, --skip-linger). Never touches servers")
+	fmt.Println("                         monitor cron in the user's crontab (--skip-deps, --skip-linger, --skip-docker). Never touches servers")
 	fmt.Println("  install-deps           Install system dependencies")
-	fmt.Println("  cleanup-all            Remove all servers and related resources")
+	fmt.Println("  cleanup-all            (sudo) Remove all servers, their files and the MatchZy MySQL container of the account")
+	fmt.Println("                         that ran sudo (--user <name>); --delete-user also deletes a dedicated service account")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")
 }

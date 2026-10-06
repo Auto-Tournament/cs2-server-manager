@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 )
@@ -22,6 +23,8 @@ type SetupHostOptions struct {
 	SkipDeps bool
 	// SkipLinger skips `loginctl enable-linger`.
 	SkipLinger bool
+	// SkipDocker leaves Docker alone: no service start, no docker group.
+	SkipDocker bool
 }
 
 // SetupHost is the one-time root setup for user mode: it installs the system
@@ -43,7 +46,7 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	fmt.Fprintln(w, "Running servers are not started, stopped, restarted or updated.")
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[1/5] System dependencies")
+	fmt.Fprintln(w, "[1/6] System dependencies")
 	if opts.SkipDeps {
 		fmt.Fprintln(w, "  [i] Skipped (--skip-deps).")
 	} else if err := installDeps(ctx, w); err != nil {
@@ -51,7 +54,7 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[2/5] User")
+	fmt.Fprintln(w, "[2/6] User")
 	var ubuf bytes.Buffer
 	err := createCS2User(&ubuf, cs2User)
 	_, _ = w.Write(ubuf.Bytes())
@@ -60,7 +63,7 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[3/5] Lingering (keeps the user's systemd instance running without a login)")
+	fmt.Fprintln(w, "[3/6] Lingering (keeps the user's systemd instance running without a login)")
 	if opts.SkipLinger {
 		fmt.Fprintln(w, "  [i] Skipped (--skip-linger).")
 	} else if err := enableLinger(ctx, w, cs2User); err != nil {
@@ -69,13 +72,22 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[4/5] File ownership")
+	fmt.Fprintln(w, "[4/6] Docker (the shared MySQL database for the plugin runs in a container)")
+	if opts.SkipDocker {
+		fmt.Fprintln(w, "  [i] Skipped (--skip-docker).")
+	} else if err := grantDockerAccess(ctx, w, cs2User); err != nil {
+		// Not fatal: SQLite or an external MySQL server need no Docker.
+		fmt.Fprintf(w, "  [!] %v\n", err)
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "[5/6] File ownership")
 	if err := chownStateForUserMode(w, cs2User); err != nil {
 		return err
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[5/5] Auto-update monitor cron entry")
+	fmt.Fprintln(w, "[6/6] Auto-update monitor cron entry")
 	out, err := MigrateMonitorCronToUser(ctx, cs2User)
 	if out != "" {
 		fmt.Fprintf(w, "  [✓] %s", out)
@@ -87,6 +99,52 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 
 	fmt.Fprint(w, setupHostNextSteps(cs2User))
 	return nil
+}
+
+// grantDockerAccess starts the Docker service and adds cs2User to the docker
+// group, so bootstrap can create the MatchZy MySQL container without root.
+// Membership takes effect at the user's next login.
+func grantDockerAccess(ctx context.Context, w io.Writer, cs2User string) error {
+	if _, err := exec.LookPath("docker"); err != nil {
+		fmt.Fprintln(w, "  [i] Docker is not installed. Install it if you want the shared MySQL database; SQLite needs no Docker.")
+		return nil
+	}
+	_ = exec.CommandContext(ctx, "systemctl", "enable", "--now", "docker").Run()
+	if _, err := user.LookupGroup("docker"); err != nil {
+		return fmt.Errorf("docker is installed but there is no docker group; add %s to it by hand", cs2User)
+	}
+	if inGroup(cs2User, "docker") {
+		fmt.Fprintf(w, "  [✓] %s is in the docker group\n", cs2User)
+		return nil
+	}
+	if out, err := exec.CommandContext(ctx, "usermod", "-aG", "docker", cs2User).CombinedOutput(); err != nil {
+		return fmt.Errorf("usermod -aG docker %s failed: %v: %s", cs2User, err, strings.TrimSpace(string(out)))
+	}
+	fmt.Fprintf(w, "  [✓] Added %s to the docker group. Log out and back in before running csm, so it takes effect.\n", cs2User)
+	fmt.Fprintln(w, "  [i] The docker group can control every container on this host; skip this with --skip-docker if that matters here.")
+	return nil
+}
+
+// inGroup reports whether username is a member of the named group.
+func inGroup(username, group string) bool {
+	u, err := user.Lookup(username)
+	if err != nil {
+		return false
+	}
+	g, err := user.LookupGroup(group)
+	if err != nil {
+		return false
+	}
+	ids, err := u.GroupIds()
+	if err != nil {
+		return false
+	}
+	for _, id := range ids {
+		if id == g.Gid {
+			return true
+		}
+	}
+	return false
 }
 
 // enableLinger runs `loginctl enable-linger <user>` unless lingering is
@@ -106,15 +164,51 @@ func enableLinger(ctx context.Context, w io.Writer, cs2User string) error {
 	return nil
 }
 
+// setupHostStateRoot is the csm state directory setup-host hands to cs2User:
+// CSM_ROOT when set, else cs2User's home, which is where ResolveRoot points
+// when csm later runs as that user. It is never ResolveRoot() here: under
+// sudo $HOME is root's, and a recursive chown of /root to the CS2 user gave
+// that user root's files.
+func setupHostStateRoot(cs2User string) (string, error) {
+	root := strings.TrimSpace(os.Getenv("CSM_ROOT"))
+	if root == "" {
+		u, err := user.Lookup(cs2User)
+		if err != nil {
+			return "", fmt.Errorf("looking up %s: %w", cs2User, err)
+		}
+		root = u.HomeDir
+	}
+	root = filepath.Clean(root)
+	if err := checkStateRoot(root); err != nil {
+		return "", err
+	}
+	return root, nil
+}
+
+// checkStateRoot refuses directories setup-host must never chown -R.
+func checkStateRoot(root string) error {
+	if !filepath.IsAbs(root) {
+		return fmt.Errorf("refusing to chown state directory %q: not an absolute path", root)
+	}
+	switch root {
+	case "/", "/root", "/home", "/etc", "/usr", "/usr/local", "/var", "/opt", "/tmp", "/bin", "/sbin", "/lib", "/boot", "/srv":
+		return fmt.Errorf("refusing to chown state directory %q", root)
+	}
+	if isSystemBinDir(root) {
+		return fmt.Errorf("refusing to chown state directory %q", root)
+	}
+	return nil
+}
+
 // chownStateForUserMode gives cs2User the csm state directory (logs,
 // settings, locks, game_files), the leftovers of earlier root runs in /tmp,
 // and fixes obviously root-owned trees in the user's home.
 func chownStateForUserMode(w io.Writer, cs2User string) error {
 	owner := cs2User + ":" + cs2User
 
-	root := filepath.Clean(ResolveRoot())
-	if !filepath.IsAbs(root) || root == "/" {
-		return fmt.Errorf("refusing to chown state directory %q", root)
+	root, err := setupHostStateRoot(cs2User)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return fmt.Errorf("failed to create %s: %w", root, err)
@@ -175,8 +269,7 @@ func setupHostNextSteps(cs2User string) string {
 	fmt.Fprintln(&b, "  csm            # TUI")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "Running servers keep running and are found as before (same tmux server).")
-	fmt.Fprintln(&b, "Root is still needed for: csm install-deps, csm cleanup-all, and the Docker")
-	fmt.Fprintln(&b, "MySQL container (sudo csm bootstrap). Avoid mixing in other `sudo csm` runs;")
-	fmt.Fprintln(&b, "if you do, run `sudo csm setup-host --skip-deps` again to fix ownership.")
+	fmt.Fprintln(&b, "Root is still needed for: csm install-deps, csm self-update and csm cleanup-all.")
+	fmt.Fprintln(&b, "If setup-host added you to the docker group, log out and back in first.")
 	return b.String()
 }
