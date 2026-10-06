@@ -143,6 +143,11 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if cfg.NumServers <= 0 {
 		cfg.NumServers = DefaultNumServers
 	}
+	// Ready Up runs without Metamod; only the legacy stack loads it.
+	legacyStack := UsesLegacyStack(cfg.CS2User)
+	if !legacyStack {
+		cfg.EnableMetamod = false
+	}
 	if cfg.BaseGamePort == 0 {
 		cfg.BaseGamePort = DefaultBaseGamePort
 	}
@@ -255,7 +260,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	}
 	log("")
 
-	if UsesLegacyStack(cfg.CS2User) {
+	if legacyStack {
 		log("[4/5] Provisioning MatchZy database (Docker)...")
 		if err := setupMatchZyDatabaseGo(out, cfg); err != nil {
 			log("  [!] MatchZy database provisioning skipped or failed: %v", err)

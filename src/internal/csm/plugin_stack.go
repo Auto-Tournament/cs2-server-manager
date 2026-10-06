@@ -593,7 +593,7 @@ func PluginsReport(ctx context.Context, lookup bool) string {
 	case stack == "" && legacyStackPresent(user):
 		stack = "legacy (not chosen; this host has the legacy stack, so it stays)"
 	case stack == "":
-		stack = "not chosen (a fresh install gets Ready Up once it has a stable release)"
+		stack = "not chosen (a fresh install gets Ready Up: stable, or beta until a stable release exists)"
 	case r.Stack != s.Stack:
 		stack += " (" + EnvPluginStack + ")"
 	}

@@ -1345,7 +1345,11 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 		var err error
 		switch step {
 		case installStepPlugins:
-			if cfg.updatePlugins {
+			if cfg.updatePlugins && cfg.stack == csm.PluginStackReadyUp {
+				// Ready Up installs into the servers, which bootstrap creates
+				// in the next step; it is installed right after that.
+				log("Ready Up is installed after the servers are created (next step).")
+			} else if cfg.updatePlugins {
 				// Update+deploy plugins so servers actually have addons/ populated.
 				// We still check context cancellation before/after to allow quick abort.
 				select {
@@ -1408,6 +1412,16 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				log("Bootstrap failed: %v", err)
 			} else {
 				log("Bootstrap completed successfully.")
+				if cfg.updatePlugins && cfg.stack == csm.PluginStackReadyUp {
+					_, err = withPluginsLogTail(func() (string, error) {
+						return csm.UpdateAndDeployPluginsWithContext(ctx)
+					})
+					if err != nil {
+						log("Ready Up install failed: %v", err)
+					} else {
+						log("Ready Up installed on the servers.")
+					}
+				}
 			}
 
 		case installStepMonitor:
