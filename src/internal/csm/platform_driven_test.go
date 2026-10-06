@@ -45,3 +45,21 @@ func TestMonitorCronEntryKeepsTheAgentRoot(t *testing.T) {
 		t.Fatalf("entry = %q", got)
 	}
 }
+
+func TestGamePatchReadsPatchVersion(t *testing.T) {
+	dir := t.TempDir()
+	inf := filepath.Join(dir, "game", "csgo", "steam.inf")
+	if err := os.MkdirAll(filepath.Dir(inf), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Valve writes CRLF.
+	if err := os.WriteFile(inf, []byte("ClientVersion=2000924\r\nServerVersion=2000924\r\nPatchVersion=1.41.8.8\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := gamePatch(dir); got != "1.41.8.8" {
+		t.Fatalf("gamePatch = %q", got)
+	}
+	if got := gamePatch(t.TempDir()); got != "" {
+		t.Fatalf("no steam.inf: %q", got)
+	}
+}
