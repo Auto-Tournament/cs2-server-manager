@@ -56,6 +56,16 @@ func main() {
 	if os.Geteuid() == 0 {
 		allowed := map[string]bool{"help": true, "setup-host": true, "install-deps": true, "self-update": true, "cleanup-all": true}
 		if len(args) == 0 || !allowed[args[0]] {
+			if len(args) > 0 && args[0] == "agent" {
+				// The agent runs as the CS2 user (a systemd --user service), never as root.
+				who := os.Getenv("SUDO_USER")
+				if who == "" {
+					who = "the CS2 user"
+				}
+				fmt.Fprintf(os.Stderr, "✗ Run `csm %s` without sudo, as %s: the host agent runs as that user (a systemd --user service).\n", strings.Join(args, " "), who)
+				fmt.Fprintln(os.Stderr, "  If systemd says it cannot connect to the bus, run `sudo loginctl enable-linger <user>` once (or `sudo csm setup-host`).")
+				os.Exit(1)
+			}
 			fmt.Fprintln(os.Stderr, "✗ Don't run csm as root or with sudo. Run it as the user whose servers it manages (for example: csm status).")
 			fmt.Fprintln(os.Stderr, "  Only `sudo csm setup-host`, `sudo csm install-deps`, `sudo csm self-update` and `sudo csm cleanup-all` need root.")
 			os.Exit(1)
