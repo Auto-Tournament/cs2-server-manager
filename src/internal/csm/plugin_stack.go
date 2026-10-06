@@ -33,9 +33,9 @@ import (
 //   - a host that already has the legacy stack (CounterStrikeSharp in
 //     cs2-config or on a server) stays legacy: csm never switches an existing
 //     install by itself (README, "Moving to Ready Up");
-//   - a fresh install gets Ready Up when Ready Up has a stable release, and
-//     the legacy stack until then (with a note on how to opt into a Ready Up
-//     pre-release).
+//   - a fresh install gets Ready Up: its stable channel, or its beta channel
+//     while there is no stable release. Only when no Ready Up release can be
+//     found at all (offline) does it fall back to the legacy stack.
 //
 // Ready Up settings in the same file: the channel (stable | beta), a pinned
 // version (overrides the channel), the bundle (essentials | full) and the
@@ -267,18 +267,28 @@ func PluginStack(ctx context.Context, w io.Writer, user string) (string, string)
 	if legacyStackPresent(user) {
 		return PluginStackLegacy, "existing install (switch with: csm plugins stack readyup)"
 	}
-	// Fresh install: Ready Up once it has a stable release.
+	// Fresh install: Ready Up, the stack platform 3.x is built for. Its
+	// stable channel when there is a stable release, else the beta channel
+	// (unless a channel was chosen already).
 	rel, err := readyUpClient().Resolve(ctx, readyup.ChannelStable, "")
+	if err != nil && channelIsDefault(s, r) {
+		if beta, berr := readyUpClient().Resolve(ctx, readyup.ChannelBeta, ""); berr == nil {
+			fmt.Fprintf(w, "[plugins] Fresh install: Ready Up has no stable release yet, so csm follows its beta channel (%s).\n", beta.TagName)
+			s.ReadyUpChannel = readyup.ChannelBeta
+			rel, err = beta, nil
+		}
+	}
 	if err != nil {
-		fmt.Fprintf(w, "[plugins] Fresh install: Ready Up has no stable release yet, so csm installs the legacy stack.\n")
+		fmt.Fprintf(w, "[plugins] Fresh install: could not find a Ready Up release, so csm installs the legacy stack.\n")
 		fmt.Fprintf(w, "[plugins]   (%v)\n", err)
-		fmt.Fprintf(w, "[plugins]   For a Ready Up pre-release instead: csm plugins stack readyup; csm plugins channel beta\n")
-		return PluginStackLegacy, "fresh install, no stable Ready Up release"
+		fmt.Fprintf(w, "[plugins]   To choose Ready Up anyway: csm plugins stack readyup\n")
+		return PluginStackLegacy, "fresh install, no Ready Up release found"
 	}
 	s.Stack, s.StackSetBy = PluginStackReadyUp, "fresh-install"
 	if err := savePluginSettings(s); err != nil {
 		fmt.Fprintf(w, "[plugins] [WARN] could not save the plugin stack choice: %v\n", err)
 	}
+	fmt.Fprintf(w, "[plugins]   For the legacy MatchZy Enhanced stack (platform 2.x) instead: csm plugins stack legacy\n")
 	return PluginStackReadyUp, "fresh install, Ready Up " + rel.TagName
 }
 
@@ -391,6 +401,19 @@ func ReadyUpPlanFor(ctx context.Context, w io.Writer, s PluginSettings) (*readyu
 	fmt.Fprintf(w, "[Ready Up] Resolving the release (%s, bundle %s)...\n", what, r.ReadyUpBundle)
 	c := readyUpClient()
 	rel, err := c.Resolve(ctx, r.ReadyUpChannel, r.ReadyUpVersion)
+	if err != nil && channelIsDefault(s, r) {
+		// Nobody chose the stable channel; it is only the default. While
+		// Ready Up has no stable release, follow its beta channel, and keep
+		// that so later updates follow it too.
+		if beta, berr := c.Resolve(ctx, readyup.ChannelBeta, ""); berr == nil {
+			fmt.Fprintf(w, "[Ready Up] No stable release yet: following the beta channel (%s).\n", beta.TagName)
+			rel, err = beta, nil
+			s.ReadyUpChannel = readyup.ChannelBeta
+			if serr := savePluginSettings(s); serr != nil {
+				fmt.Fprintf(w, "[Ready Up] [WARN] could not save the beta channel: %v\n", serr)
+			}
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -405,6 +428,13 @@ func ReadyUpPlanFor(ctx context.Context, w io.Writer, s PluginSettings) (*readyu
 	}
 	fmt.Fprintf(w, "[Ready Up] Downloaded %s, SHA256SUMS ok\n", filepath.Base(b.Zip))
 	return b, nil
+}
+
+// channelIsDefault reports whether the stable channel is only csm's default:
+// no channel saved, none in the environment, and no pinned version.
+func channelIsDefault(s, r PluginSettings) bool {
+	return r.ReadyUpChannel == readyup.ChannelStable && strings.TrimSpace(s.ReadyUpChannel) == "" &&
+		os.Getenv(EnvReadyUpChannel) == "" && r.ReadyUpVersion == ""
 }
 
 // installReadyUpOn runs install.sh --zip on every target. It stops at the
@@ -583,7 +613,7 @@ func PluginsReport(ctx context.Context, lookup bool) string {
 	case stack == "" && legacyStackPresent(user):
 		stack = "legacy (not chosen; this host has the legacy stack, so it stays)"
 	case stack == "":
-		stack = "not chosen (a fresh install gets Ready Up once it has a stable release)"
+		stack = "not chosen (a fresh install gets Ready Up: stable, or beta until a stable release exists)"
 	case r.Stack != s.Stack:
 		stack += " (" + EnvPluginStack + ")"
 	}

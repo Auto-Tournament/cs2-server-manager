@@ -704,7 +704,7 @@ func runCleanupAllGo() tea.Cmd {
 		out, err := csm.CleanupAll(cfg)
 		return commandFinishedMsg{
 			item: menuItem{
-				title: "Danger zone: wipe all servers and CS2 user",
+				title: "Danger zone: wipe all servers",
 				kind:  itemCleanupAllGo,
 			},
 			output: out,
