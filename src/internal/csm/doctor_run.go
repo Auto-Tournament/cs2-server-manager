@@ -86,7 +86,12 @@ func DoctorScan(ctx context.Context, opts DoctorOptions) (DoctorMeta, []DoctorCh
 	checks = append(checks, checkOwnership(meta))
 	checks = append(checks, checkSteamRT(meta))
 	checks = append(checks, checkLibV8(meta, opts))
-	checks = append(checks, checkMatchzyConfigScope(meta))
+	// MatchZy's shared-database check is for the legacy stack only: on Ready
+	// Up servers MatchZy never logs a version, so it warned "still starting"
+	// forever.
+	if UsesLegacyStack(userName) {
+		checks = append(checks, checkMatchzyConfigScope(meta))
+	}
 
 	return meta, checks, nil
 }
@@ -193,7 +198,7 @@ func checkOwnership(meta DoctorMeta) DoctorCheck {
 	if err != nil {
 		return DoctorCheck{
 			ID:     "ownership",
-			Title:  "Ownership under /home/<cs2user>",
+			Title:  "Ownership under /home/" + meta.CS2User,
 			Status: DoctorWarn,
 			Detail: fmt.Sprintf("Could not look up user %q: %v", meta.CS2User, err),
 		}
@@ -229,7 +234,7 @@ func checkOwnership(meta DoctorMeta) DoctorCheck {
 	if len(bad) == 0 {
 		return DoctorCheck{
 			ID:     "ownership",
-			Title:  "Ownership under /home/<cs2user>",
+			Title:  "Ownership under /home/" + meta.CS2User,
 			Status: DoctorOK,
 			Detail: "No obvious ownership mismatches detected in key directories.",
 		}
@@ -237,7 +242,7 @@ func checkOwnership(meta DoctorMeta) DoctorCheck {
 
 	return DoctorCheck{
 		ID:     "ownership",
-		Title:  "Ownership under /home/<cs2user>",
+		Title:  "Ownership under /home/" + meta.CS2User,
 		Status: DoctorFail,
 		Detail: "Some directories are not owned by the CS2 user:\n- " + strings.Join(bad, "\n- "),
 		Fix: func(ctx context.Context) (string, error) {

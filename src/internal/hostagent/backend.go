@@ -53,6 +53,17 @@ type FirstServerCreator interface {
 	FirstServerGamePort() (port int, ok bool)
 }
 
+// FirstServersBootstrapper is an optional Backend extension: a server-N host
+// with no servers yet installs its first `count` servers the way the csm
+// install wizard does (the game, the servers, the plugin stack), so
+// server.create works on a machine that was only linked (issue #108). It
+// returns the server numbers it created and started.
+type FirstServersBootstrapper interface {
+	BootstrapFirstServers(ctx context.Context, count int, beforeStart func(serverDir string) error, progress func(step string, pct int)) ([]int, string, error)
+	// FirstServersGamePort is the game port server-1 gets.
+	FirstServersGamePort() int
+}
+
 // ReadyUpCurrentChecker is an optional Backend extension: a server that
 // already runs the planned Ready Up (csm instance mode: the shared layer has
 // it and the instance is mounted on that layer) needs no install, so the
@@ -67,6 +78,13 @@ type ReadyUpCurrentChecker interface {
 // bundle, so the platform's default (essentials) does not shrink it.
 type ReadyUpBundleChooser interface {
 	ReadyUpBundleFor(requested string) string
+}
+
+// LicenseAnswerAdopter takes the Ready Up license use the platform's admin
+// accepted (accept_license on server.create and host.update_plugins) when
+// the host has no answer of its own. It reports whether it saved one.
+type LicenseAnswerAdopter interface {
+	AdoptLicenseAnswer(use string) (bool, error)
 }
 
 // HostFacts are the machine parts of host.inventory.
