@@ -409,3 +409,32 @@ func TestHostBackendBundleFor(t *testing.T) {
 		t.Fatalf("instances: %q, want full", got)
 	}
 }
+
+func TestReadyUpPlanFallsBackToBetaOnlyWhenStableIsTheDefault(t *testing.T) {
+	pluginTestEnv(t)
+	fakeReadyUpGitHub(t, "", readyup.Release{TagName: "v0.1.0-beta.1", Prerelease: true, PublishedAt: "2026-09-28T00:00:00Z"})
+
+	// Stack chosen by the operator (the install wizard), channel left alone.
+	s := PluginSettings{Stack: PluginStackReadyUp, StackSetBy: "operator", AcceptLicense: "noncommercial"}
+	if err := savePluginSettings(s); err != nil {
+		t.Fatal(err)
+	}
+	var log bytes.Buffer
+	b, err := ReadyUpPlanFor(context.Background(), &log, s)
+	if err != nil {
+		t.Fatalf("default channel, no stable release: %v\n%s", err, log.String())
+	}
+	defer os.RemoveAll(b.Dir)
+	if b.Tag != "v0.1.0-beta.1" || !strings.Contains(log.String(), "beta channel") {
+		t.Fatalf("tag %s\n%s", b.Tag, log.String())
+	}
+	if saved, _ := LoadPluginSettings(); saved.ReadyUpChannel != "beta" {
+		t.Fatalf("beta channel not kept: %+v", saved)
+	}
+
+	// An operator who chose stable keeps stable, and gets the error.
+	s.ReadyUpChannel = "stable"
+	if _, err := ReadyUpPlanFor(context.Background(), io.Discard, s); err == nil {
+		t.Fatal("chosen stable channel fell back to beta")
+	}
+}
