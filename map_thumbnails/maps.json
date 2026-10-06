@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-05T20:42:37Z",
+  "generatedAt": "2026-10-06T08:47:55Z",
   "patchVersion": "1.41.8.6",
   "buildId": "25588766",
   "maps": [
@@ -59,6 +59,21 @@
         "ar_shoots_night_2_thumb.webp",
         "ar_shoots_night_3_thumb.webp",
         "ar_shoots_night_4_thumb.webp"
+      ]
+    },
+    {
+      "id": "cs_agency",
+      "name": "Agency",
+      "mode": "hostage",
+      "images": {
+        "full": "cs_agency.webp",
+        "thumb": "cs_agency_thumb.webp"
+      },
+      "variants": [
+        "cs_agency_1_thumb.webp",
+        "cs_agency_2_thumb.webp",
+        "cs_agency_3_thumb.webp",
+        "cs_agency_4_thumb.webp"
       ]
     },
     {
@@ -227,6 +242,16 @@
       "variants": []
     },
     {
+      "id": "de_golden",
+      "name": "Golden",
+      "mode": "defusal",
+      "images": {
+        "full": "de_golden.webp",
+        "thumb": "de_golden_thumb.webp"
+      },
+      "variants": []
+    },
+    {
       "id": "de_inferno",
       "name": "Inferno",
       "mode": "defusal",
@@ -292,6 +317,16 @@
       ]
     },
     {
+      "id": "de_palacio",
+      "name": "Palacio",
+      "mode": "defusal",
+      "images": {
+        "full": "de_palacio.webp",
+        "thumb": "de_palacio_thumb.webp"
+      },
+      "variants": []
+    },
+    {
       "id": "de_poseidon",
       "name": "Poseidon",
       "mode": "defusal",
@@ -299,6 +334,16 @@
         "full": "de_poseidon.webp",
         "thumb": "de_poseidon_thumb.webp",
         "icon": "de_poseidon_icon.svg"
+      },
+      "variants": []
+    },
+    {
+      "id": "de_rooftop",
+      "name": "Rooftop",
+      "mode": "defusal",
+      "images": {
+        "full": "de_rooftop.webp",
+        "thumb": "de_rooftop_thumb.webp"
       },
       "variants": []
     },
