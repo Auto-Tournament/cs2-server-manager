@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,6 +18,15 @@ import (
 type selfUpdateFinishedMsg struct {
 	newVersion string
 	err        error
+	// note is set when the new binary went somewhere other than the one
+	// running (~/.local/bin): the user has to open a new login shell.
+	note string
+}
+
+// sudoSelfUpdateDoneMsg: `sudo csm self-update`, run from the TUI, returned.
+type sudoSelfUpdateDoneMsg struct {
+	exe string
+	err error
 }
 
 // progressWriter wraps the target file and reports download progress as bytes
@@ -45,6 +55,49 @@ func (pw *progressWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// selfUpdateCmd is how the TUI updates csm. When this user cannot write the
+// binary (user mode: csm in root-owned /usr/local/bin), the TUI steps aside
+// and runs `sudo csm self-update` in the terminal, so the update lands on the
+// binary `csm` actually runs. Writing it to ~/.local/bin instead (and
+// restarting into that) looked like a success, but the next `csm` still ran
+// the old /usr/local/bin/csm until a new login shell put ~/.local/bin in
+// PATH (issue #104). Without sudo, that fallback is still used, and says so.
+func selfUpdateCmd(targetVersion string) tea.Cmd {
+	exe, err := os.Executable()
+	if err == nil {
+		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+			exe = resolved
+		}
+	}
+	if err != nil || os.Geteuid() == 0 || dirWritable(filepath.Dir(exe)) {
+		return runSelfUpdate(targetVersion)
+	}
+	if _, err := exec.LookPath("sudo"); err != nil {
+		return runSelfUpdate(targetVersion)
+	}
+	c := exec.Command("sudo", exe, "self-update")
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return sudoSelfUpdateDoneMsg{exe: exe, err: err}
+	})
+}
+
+// restartCSM replaces this process with exe (the updated binary). It only
+// returns when that fails.
+func restartCSM(exe string) error {
+	return syscall.Exec(exe, os.Args, os.Environ())
+}
+
+// dirWritable reports whether this user can create a file in dir.
+func dirWritable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".csm-perm-check-*")
+	if err != nil {
+		return false
+	}
+	f.Close()
+	_ = os.Remove(f.Name())
+	return true
+}
+
 func runSelfUpdate(targetVersion string) tea.Cmd {
 	return func() tea.Msg {
 		exePath, err := downloadAndReplace(targetVersion, func(percent int) {
@@ -52,6 +105,16 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 		})
 		if err != nil {
 			return selfUpdateFinishedMsg{newVersion: "", err: err}
+		}
+
+		// Installed beside, not over, the running binary (no root, no sudo):
+		// restarting into it would hide that `csm` still finds the old one.
+		if cur, cerr := os.Executable(); cerr == nil && filepath.Clean(cur) != filepath.Clean(exePath) {
+			return selfUpdateFinishedMsg{
+				newVersion: targetVersion,
+				note: fmt.Sprintf("%s is not writable, so the new csm went to %s. Open a new login shell (or run `sudo csm self-update`) so `csm` runs it.",
+					filepath.Dir(cur), exePath),
+			}
 		}
 
 		// Try to restart CSM in-place with the new binary. On success this call
@@ -139,14 +202,8 @@ func downloadAndReplace(targetVersion string, onProgress func(percent int)) (str
 	// Pre-flight permission check: can we create a temp file next to the
 	// binary? A global install in /usr/local/bin is not writable for the CS2
 	// user (user mode); then install into ~/.local/bin instead.
-	dirWritable := false
-	if f, err := os.CreateTemp(filepath.Dir(exePath), ".csm-perm-check-*"); err == nil {
-		f.Close()
-		_ = os.Remove(f.Name())
-		dirWritable = true
-	}
 	home, _ := os.UserHomeDir()
-	exePath, err = selfUpdateTarget(exePath, dirWritable, os.Geteuid(), home)
+	exePath, err = selfUpdateTarget(exePath, dirWritable(filepath.Dir(exePath)), os.Geteuid(), home)
 	if err != nil {
 		return "", err
 	}
