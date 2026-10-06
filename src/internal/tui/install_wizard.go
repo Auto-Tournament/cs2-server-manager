@@ -264,6 +264,8 @@ const (
 	wizardFieldDBExternalName
 	wizardFieldDBExternalUser
 	wizardFieldDBExternalPassword
+	wizardFieldStack
+	wizardFieldLicense
 	wizardFieldNext
 	wizardFieldPrevious
 	wizardFieldStartInstall
@@ -283,29 +285,26 @@ func toggleDBEngine(engine string) string {
 // wizardPage defines which fields appear on each page
 type wizardPage []int
 
-// getWizardPages returns the pages based on DB mode (external DB fields shown conditionally)
-func getWizardPages(dbMode string) []wizardPage {
+// getWizardPages returns the pages for the chosen plugin stack. Ready Up
+// needs no database and no Metamod, so those fields only show for the legacy
+// MatchZy Enhanced stack (external DB fields only in external DB mode).
+func getWizardPages(cfg installConfig) []wizardPage {
+	legacy := cfg.stack == csm.PluginStackLegacy
+	first := wizardPage{wizardFieldStack, wizardFieldLicense, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort}
+	core := wizardPage{wizardFieldGSLT, wizardFieldFreshInstall, wizardFieldUpdateMaster}
+	if legacy {
+		first = wizardPage{wizardFieldStack, wizardFieldDBEngine, wizardFieldDBMode, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort}
+		core = wizardPage{wizardFieldGSLT, wizardFieldMetamod, wizardFieldFreshInstall, wizardFieldUpdateMaster}
+	}
 	pages := []wizardPage{
-		// Page 0: Basic setup (5 items)
-		{
-			wizardFieldDBEngine, wizardFieldDBMode, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort,
-		},
-		// Page 1: Server identity (4 items)
-		{
-			wizardFieldCS2User, wizardFieldHostnamePrefix, wizardFieldRCONPassword, wizardFieldMaxPlayers,
-		},
-		// Page 2: Tokens and core options (4 items)
-		{
-			wizardFieldGSLT, wizardFieldMetamod, wizardFieldFreshInstall, wizardFieldUpdateMaster,
-		},
-		// Page 3: Update options (4 items)
-		{
-			wizardFieldSteamValidate, wizardFieldFastCopy, wizardFieldUpdatePlugins, wizardFieldInstallMonitor,
-		},
+		first,
+		{wizardFieldCS2User, wizardFieldHostnamePrefix, wizardFieldRCONPassword, wizardFieldMaxPlayers},
+		core,
+		{wizardFieldSteamValidate, wizardFieldFastCopy, wizardFieldUpdatePlugins, wizardFieldInstallMonitor},
 	}
 
 	// Add external DB page if using external mode
-	if strings.EqualFold(dbMode, "external") {
+	if legacy && strings.EqualFold(cfg.dbMode, "external") {
 		externalPage := wizardPage{
 			wizardFieldDBExternalHost,
 			wizardFieldDBExternalPort,
@@ -318,6 +317,25 @@ func getWizardPages(dbMode string) []wizardPage {
 	}
 
 	return pages
+}
+
+// toggleStack flips between Ready Up and the legacy stack.
+func toggleStack(stack string) string {
+	if stack == csm.PluginStackLegacy {
+		return csm.PluginStackReadyUp
+	}
+	return csm.PluginStackLegacy
+}
+
+// nextLicense cycles the Ready Up license answer.
+func nextLicense(license string) string {
+	switch license {
+	case "noncommercial":
+		return "commercial"
+	case "commercial":
+		return ""
+	}
+	return "noncommercial"
 }
 
 // estimateDiskSpace returns total and free space (in GB) for the filesystem
@@ -464,7 +482,7 @@ func (m model) viewInstallWizard() string {
 	}
 
 	// Get pages for current DB mode
-	pages := getWizardPages(m.wizard.cfg.dbMode)
+	pages := getWizardPages(m.wizard.cfg)
 	if m.wizard.currentPage < 0 {
 		m.wizard.currentPage = 0
 	}
@@ -517,6 +535,23 @@ func (m model) viewInstallWizard() string {
 	// Render all visible fields
 	for _, fieldIdx := range visibleFields {
 		switch fieldIdx {
+		case wizardFieldStack:
+			stackLabel := "Ready Up (for Auto Tournament 3.x)"
+			if m.wizard.cfg.stack == csm.PluginStackLegacy {
+				stackLabel = "Legacy: MatchZy Enhanced (Auto Tournament 2.x)"
+			}
+			renderRow(wizardFieldStack, "Plugins:", stackLabel)
+
+		case wizardFieldLicense:
+			licenseLabel := "not chosen (press Enter)"
+			switch m.wizard.cfg.license {
+			case "noncommercial":
+				licenseLabel = "Noncommercial (free: personal, club, school, free event)"
+			case "commercial":
+				licenseLabel = "Commercial (needs a paid license key)"
+			}
+			renderRow(wizardFieldLicense, "Ready Up license:", licenseLabel)
+
 		case wizardFieldDBMode:
 			dbLabel := "Docker-managed MySQL (recommended)"
 			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
@@ -727,12 +762,16 @@ func (m model) viewInstallWizard() string {
 			}
 		case wizardFieldNumServers:
 			desc = "How many CS2 game servers to create on this machine."
+		case wizardFieldStack:
+			desc = "Ready Up is what Auto Tournament 3.x is built for. The legacy MatchZy Enhanced stack is for 2.x."
+		case wizardFieldLicense:
+			desc = "Ready Up is free for noncommercial use (PolyForm Noncommercial 1.0.0). Commercial use needs a paid license: " + csm.LicensePricingURL
 		case wizardFieldBasePort:
 			desc = "First game port to use; additional servers use consecutive ports."
 		case wizardFieldTVPort:
 			desc = "First GOTV port to use; additional servers use consecutive ports."
 		case wizardFieldCS2User:
-			desc = "Dedicated account for CS2 Server Manager. Danger zone cleanup deletes this user and its home; don't use it for anything else."
+			desc = "The account the servers run as: the one running csm."
 		case wizardFieldHostnamePrefix:
 			desc = "Base name for your servers, e.g. \"My CS2 Server\" (CSM will append server numbers automatically)."
 		case wizardFieldMetamod:
@@ -827,7 +866,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 	}
 
 	// Get current page fields
-	pages := getWizardPages(m.wizard.cfg.dbMode)
+	pages := getWizardPages(m.wizard.cfg)
 	if m.wizard.currentPage < 0 {
 		m.wizard.currentPage = 0
 	}
@@ -940,11 +979,20 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.cfg.dbMode = "external"
 				}
 				// Recalculate pages if DB mode changed
-				pages = getWizardPages(m.wizard.cfg.dbMode)
+				pages = getWizardPages(m.wizard.cfg)
 				if m.wizard.currentPage >= len(pages) {
 					m.wizard.currentPage = len(pages) - 1
 				}
 				m.wizard.errMsg = ""
+			case wizardFieldStack:
+				m.wizard.cfg.stack = toggleStack(m.wizard.cfg.stack)
+				pages = getWizardPages(m.wizard.cfg)
+				if m.wizard.currentPage >= len(pages) {
+					m.wizard.currentPage = len(pages) - 1
+				}
+				m.wizard.cursor = 0
+			case wizardFieldLicense:
+				m.wizard.cfg.license = nextLicense(m.wizard.cfg.license)
 			case wizardFieldMetamod:
 				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
 				m.wizard.errMsg = ""
@@ -1002,11 +1050,20 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.cfg.dbMode = "external"
 				}
 				// Recalculate pages if DB mode changed
-				pages = getWizardPages(m.wizard.cfg.dbMode)
+				pages = getWizardPages(m.wizard.cfg)
 				if m.wizard.currentPage >= len(pages) {
 					m.wizard.currentPage = len(pages) - 1
 				}
 				m.wizard.errMsg = ""
+			case wizardFieldStack:
+				m.wizard.cfg.stack = toggleStack(m.wizard.cfg.stack)
+				pages = getWizardPages(m.wizard.cfg)
+				if m.wizard.currentPage >= len(pages) {
+					m.wizard.currentPage = len(pages) - 1
+				}
+				m.wizard.cursor = 0
+			case wizardFieldLicense:
+				m.wizard.cfg.license = nextLicense(m.wizard.cfg.license)
 			case wizardFieldMetamod:
 				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
 				m.wizard.errMsg = ""
@@ -1090,7 +1147,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.cursor = 0
 			}
 			return m, nil
-		case wizardFieldDBMode, wizardFieldDBEngine, wizardFieldMetamod, wizardFieldFreshInstall,
+		case wizardFieldStack, wizardFieldLicense, wizardFieldDBMode, wizardFieldDBEngine, wizardFieldMetamod, wizardFieldFreshInstall,
 			wizardFieldUpdateMaster, wizardFieldSteamValidate, wizardFieldFastCopy,
 			wizardFieldUpdatePlugins, wizardFieldInstallMonitor:
 			// Toggle boolean fields or DB mode on Enter
@@ -1104,10 +1161,19 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.cfg.dbMode = "external"
 				}
 				// Recalculate pages
-				pages = getWizardPages(m.wizard.cfg.dbMode)
+				pages = getWizardPages(m.wizard.cfg)
 				if m.wizard.currentPage >= len(pages) {
 					m.wizard.currentPage = len(pages) - 1
 				}
+			case wizardFieldStack:
+				m.wizard.cfg.stack = toggleStack(m.wizard.cfg.stack)
+				pages = getWizardPages(m.wizard.cfg)
+				if m.wizard.currentPage >= len(pages) {
+					m.wizard.currentPage = len(pages) - 1
+				}
+				m.wizard.cursor = 0
+			case wizardFieldLicense:
+				m.wizard.cfg.license = nextLicense(m.wizard.cfg.license)
 			case wizardFieldMetamod:
 				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
 			case wizardFieldFreshInstall:
@@ -1206,6 +1272,23 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				return m, nil
 			}
 
+			// Ready Up installs only with a license answer; save the choices
+			// so the plugin step (and later updates) use them.
+			if m.wizard.cfg.stack == csm.PluginStackReadyUp && m.wizard.cfg.license == "" {
+				m.wizard.errMsg = "Choose the Ready Up license on the first page (noncommercial is free)."
+				return m, nil
+			}
+			if _, err := csm.SetPluginSetting("stack", m.wizard.cfg.stack); err != nil {
+				m.wizard.errMsg = fmt.Sprintf("Saving the plugin choice failed: %v", err)
+				return m, nil
+			}
+			if m.wizard.cfg.stack == csm.PluginStackReadyUp {
+				if _, err := csm.SetPluginSetting("license", m.wizard.cfg.license); err != nil {
+					m.wizard.errMsg = fmt.Sprintf("Saving the license answer failed: %v", err)
+					return m, nil
+				}
+			}
+
 			// Parse numeric fields into cfg.
 			m.wizard.applyWizardNumericFields()
 
@@ -1262,7 +1345,11 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 		var err error
 		switch step {
 		case installStepPlugins:
-			if cfg.updatePlugins {
+			if cfg.updatePlugins && cfg.stack == csm.PluginStackReadyUp {
+				// Ready Up installs into the servers, which bootstrap creates
+				// in the next step; it is installed right after that.
+				log("Ready Up is installed after the servers are created (next step).")
+			} else if cfg.updatePlugins {
 				// Update+deploy plugins so servers actually have addons/ populated.
 				// We still check context cancellation before/after to allow quick abort.
 				select {
@@ -1325,6 +1412,16 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				log("Bootstrap failed: %v", err)
 			} else {
 				log("Bootstrap completed successfully.")
+				if cfg.updatePlugins && cfg.stack == csm.PluginStackReadyUp {
+					_, err = withPluginsLogTail(func() (string, error) {
+						return csm.UpdateAndDeployPluginsWithContext(ctx)
+					})
+					if err != nil {
+						log("Ready Up install failed: %v", err)
+					} else {
+						log("Ready Up installed on the servers.")
+					}
+				}
 			}
 
 		case installStepMonitor:

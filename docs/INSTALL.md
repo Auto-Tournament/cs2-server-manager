@@ -4,21 +4,20 @@ The basic install is in the [README](../README.md#install).
 
 ## Run csm without sudo (user mode)
 
-csm can run as its service user (`cs2servermanager` by default, or `CS2_USER`) instead of root. Set the host up once as root:
+csm runs as the account that owns the servers and refuses to run as root. Log in as that account and set the host up once:
 
 ```bash
 sudo csm setup-host
 ```
 
-It installs the system dependencies, creates the user if needed, runs `loginctl enable-linger` for it, gives it the state directory (`/opt/cs2-server-manager`) and the csm files root runs left in `/tmp`, and moves the auto-update monitor from root's crontab into the user's crontab. It is safe to run again, and it never starts, stops, restarts or updates a server. From then on, run csm as that user, without sudo:
+It installs the system dependencies (and accepts the Steam license the `steamcmd` package asks for), runs `loginctl enable-linger` for your account, gives it csm's files in your home (or `CSM_ROOT`) and the csm files root runs left in `/tmp`, and moves the auto-update monitor from root's crontab into yours. It is safe to run again, and it never starts, stops, restarts or updates a server. Then run csm without sudo:
 
 ```bash
-sudo -iu cs2servermanager   # or log in as that user
 csm status
 csm                         # TUI
 ```
 
-Servers that are already running keep running: csm finds them in the same tmux server as before. A few things still need root and say so when you try them as the user: `sudo csm install-deps`, `sudo csm cleanup-all`, and creating the MatchZy MySQL Docker container (`sudo csm bootstrap`; as the user, bootstrap leaves an existing container alone). On a host that already runs servers, use `sudo csm setup-host --skip-deps`: `apt-get install` can upgrade tmux, and a newer tmux client can't talk to the tmux server the running servers live in. `--skip-linger` skips `loginctl`.
+Servers that are already running keep running: csm finds them in the same tmux server as before. Only `sudo csm install-deps`, `sudo csm self-update` and `sudo csm cleanup-all` still need root. On a host that already runs servers, use `sudo csm setup-host --skip-deps`: `apt-get install` can upgrade tmux, and a newer tmux client can't talk to the tmux server the running servers live in. `--skip-linger` skips `loginctl`. Only the legacy MatchZy Enhanced stack needs Docker (for its MySQL container): add `--docker` to start Docker and put your account in the `docker` group, then log out and back in. Members of that group can control every container on the host.
 
 `csm self-update` run as the user can't replace `/usr/local/bin/csm`, so it installs the new binary into `~/.local/bin/csm`, which login shells put first in `PATH`. Run `csm install-monitor-cron` afterwards so cron uses it too.
 

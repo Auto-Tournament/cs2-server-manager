@@ -18,7 +18,7 @@ const pluginsUsage = `usage: csm plugins [status | <setting> <value>]
   csm plugins stack readyup|legacy
                                   readyup: Ready Up (no Metamod). legacy: Metamod + CounterStrikeSharp
                                   + the MatchZy-era plugin. Unset: an existing legacy host stays legacy,
-                                  a fresh install gets Ready Up once it has a stable release.
+                                  a fresh install gets Ready Up (beta until it has a stable release).
   csm plugins channel stable|beta stable: the latest stable release. beta: pre-releases too
   csm plugins version vX.Y.Z[-beta.N]|latest
                                   pin a release (overrides the channel); latest follows the channel
