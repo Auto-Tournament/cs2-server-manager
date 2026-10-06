@@ -160,6 +160,10 @@ type ServerCreateCmd struct {
 	// into the new servers' fleet.cfg. Without it the key the host linked
 	// with is used.
 	EnrollKey string `json:"enroll_key,omitempty"`
+	// AcceptLicense (optional, csm addition) is the Ready Up license use the
+	// platform's admin accepted: noncommercial or commercial. Used when the
+	// host has no answer of its own (LicenseAnswerAdopter).
+	AcceptLicense string `json:"accept_license,omitempty"`
 }
 
 // ServerRemoveCmd is server.remove.
@@ -194,6 +198,8 @@ type UpdatePluginsCmd struct {
 		Bundle  string `json:"bundle"`
 	} `json:"readyup"`
 	Force *Force `json:"force,omitempty"`
+	// AcceptLicense: as on server.create.
+	AcceptLicense string `json:"accept_license,omitempty"`
 }
 
 // LogsTailCmd is logs.tail.

@@ -15,3 +15,12 @@ func TestStepWriterReportsBootstrapSteps(t *testing.T) {
 		t.Fatalf("pcts %v", pcts)
 	}
 }
+
+func TestDropSteamProgress(t *testing.T) {
+	in := "[1/5] Installing CS2...\n\x1b[0m Update state (0x61) downloading, progress: 74.72 (1 / 2)\n Update state (0x61) downloading, progress: 75.00 (1 / 2)\nSuccess! App '730' fully installed.\n"
+	got := dropSteamProgress(in)
+	want := "[1/5] Installing CS2...\nSuccess! App '730' fully installed.\n"
+	if got != want {
+		t.Fatalf("dropSteamProgress = %q, want %q", got, want)
+	}
+}

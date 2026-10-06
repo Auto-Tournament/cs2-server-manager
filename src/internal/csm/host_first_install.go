@@ -18,6 +18,12 @@ import (
 // after the servers exist), then the agent's pre-start hook (fleet.cfg) and
 // start.
 
+// AdoptLicenseAnswer is the agent's LicenseAnswerAdopter: the platform's
+// license answer, when the host has none (AdoptPlatformLicenseAnswer).
+func (b *HostBackend) AdoptLicenseAnswer(use string) (bool, error) {
+	return AdoptPlatformLicenseAnswer(use)
+}
+
 // FirstServersGamePort is server-1's game port on a fresh host.
 func (b *HostBackend) FirstServersGamePort() int { return DefaultBaseGamePort }
 
@@ -54,6 +60,20 @@ func (s *stepWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// dropSteamProgress leaves SteamCMD's download progress lines ("Update state
+// (0x61) downloading, progress: 74.72 ...") out of a log: a CS2 download
+// prints thousands, which would bury the result the platform shows.
+func dropSteamProgress(log string) string {
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(log, "\n") {
+		if strings.Contains(line, "Update state (0x") {
+			continue
+		}
+		b.WriteString(line)
+	}
+	return b.String()
+}
+
 // BootstrapFirstServers installs and starts the first `count` servers.
 func (b *HostBackend) BootstrapFirstServers(ctx context.Context, count int, beforeStart func(serverDir string) error, progress func(step string, pct int)) ([]int, string, error) {
 	if count < 1 {
@@ -72,7 +92,7 @@ func (b *HostBackend) BootstrapFirstServers(ctx context.Context, count int, befo
 	}
 	var out strings.Builder
 	log, err := BootstrapWithContext(ctx, cfg)
-	out.WriteString(log)
+	out.WriteString(dropSteamProgress(log))
 	LogAction("agent", "first install (bootstrap)", log, err)
 	if err != nil {
 		return nil, out.String(), err

@@ -80,6 +80,13 @@ type ReadyUpBundleChooser interface {
 	ReadyUpBundleFor(requested string) string
 }
 
+// LicenseAnswerAdopter takes the Ready Up license use the platform's admin
+// accepted (accept_license on server.create and host.update_plugins) when
+// the host has no answer of its own. It reports whether it saved one.
+type LicenseAnswerAdopter interface {
+	AdoptLicenseAnswer(use string) (bool, error)
+}
+
 // HostFacts are the machine parts of host.inventory.
 type HostFacts struct {
 	Hostname  string
