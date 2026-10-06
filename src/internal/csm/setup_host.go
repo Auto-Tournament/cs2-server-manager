@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // SetupHostOptions configures `csm setup-host`.
@@ -161,8 +162,33 @@ func enableLinger(ctx context.Context, w io.Writer, cs2User string) error {
 	if out, err := exec.CommandContext(ctx, "loginctl", "enable-linger", cs2User).CombinedOutput(); err != nil {
 		return fmt.Errorf("loginctl enable-linger %s failed: %v: %s", cs2User, err, strings.TrimSpace(string(out)))
 	}
+	// systemd starts the user's manager in the background: wait for it, so
+	// `csm agent install` / `csm ci setup` right after this find its bus.
+	if u, err := user.Lookup(cs2User); err == nil {
+		_ = exec.CommandContext(ctx, "systemctl", "start", "user@"+u.Uid+".service").Run()
+		if waitForUserBus(ctx, u.Uid, 20*time.Second) {
+			fmt.Fprintf(w, "  [✓] Lingering enabled for %s; its systemd user manager is running\n", cs2User)
+			return nil
+		}
+	}
 	fmt.Fprintf(w, "  [✓] Lingering enabled for %s\n", cs2User)
 	return nil
+}
+
+// waitForUserBus waits until /run/user/<uid>/bus exists (the user's systemd
+// manager listens there), for at most `limit`. Reports whether it appeared.
+func waitForUserBus(ctx context.Context, uid string, limit time.Duration) bool {
+	bus := filepath.Join("/run/user", uid, "bus")
+	deadline := time.Now().Add(limit)
+	for {
+		if _, err := os.Stat(bus); err == nil {
+			return true
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
 }
 
 // setupHostStateRoot is the csm state directory setup-host hands to cs2User:

@@ -144,6 +144,23 @@ func SelfUpdateCLI(w io.Writer) error {
 		fmt.Fprintf(w, "csm %s is the latest version.\n", currentVersion)
 		return nil
 	}
+	// Not allowed to write the csm that `csm` runs (user mode, root-owned
+	// /usr/local/bin): update that one through sudo instead of leaving a
+	// second, newer copy in ~/.local/bin that only some shells find (#104).
+	if exe, eerr := os.Executable(); eerr == nil && os.Geteuid() != 0 {
+		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+			exe = resolved
+		}
+		if !dirWritable(filepath.Dir(exe)) {
+			if _, lerr := exec.LookPath("sudo"); lerr == nil && isTerminal(os.Stdin) {
+				fmt.Fprintf(w, "%s is not writable for this user; updating it with sudo...\n", filepath.Dir(exe))
+				cmd := exec.Command("sudo", exe, "self-update")
+				cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, w, os.Stderr
+				return cmd.Run()
+			}
+			return fmt.Errorf("%s is not writable for this user: run `sudo csm self-update`", filepath.Dir(exe))
+		}
+	}
 	fmt.Fprintf(w, "Updating csm %s -> %s...\n", currentVersion, latest)
 	last := -2
 	exePath, err := downloadAndReplace(latest, func(percent int) {
@@ -269,4 +286,36 @@ func selectAssetForCurrentPlatform() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("auto-update is only available for linux/amd64 and linux/arm64 (detected: %s/%s)", runtime.GOOS, runtime.GOARCH)
+}
+
+// isTerminal reports whether f is a terminal (a password prompt can be answered).
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
+// ShadowCopyWarning says so when there are two csm binaries, /usr/local/bin/csm
+// and ~/.local/bin/csm: an older self-update (#104) put the second one there,
+// and which one runs then depends on the shell (login shells put ~/.local/bin
+// first; cron and plain ssh commands do not). "" when there is one.
+func ShadowCopyWarning() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	local := filepath.Join(home, ".local", "bin", "csm")
+	global := "/usr/local/bin/csm"
+	li, lerr := os.Stat(local)
+	gi, gerr := os.Stat(global)
+	if lerr != nil || gerr != nil || os.SameFile(li, gi) {
+		return ""
+	}
+	exe, _ := os.Executable()
+	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+		exe = resolved
+	}
+	if filepath.Clean(exe) == local {
+		return fmt.Sprintf("! There are two csm binaries: this one (%s) and %s, which cron and other shells run. Update that one with `sudo csm self-update`, then remove this copy: rm %s", local, global, local)
+	}
+	return fmt.Sprintf("! There are two csm binaries: this one (%s) and %s, left by an older self-update, which login shells run first. Remove it: rm %s", global, local, local)
 }
