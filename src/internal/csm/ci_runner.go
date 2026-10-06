@@ -247,7 +247,11 @@ func resolveCIDir(raw, home, stateRoot string) (string, error) {
 	if within(dir, filepath.Join(home, CIRunnerDirName)) {
 		return "", fmt.Errorf("CI directory %q must not be inside the runner directory", dir)
 	}
-	if stateRoot != "" && within(dir, filepath.Clean(stateRoot)) {
+	// In user mode the state directory is the home directory itself (the
+	// checks above already keep CI out of home, the servers and the master
+	// install): "inside it" would refuse every path under home, the default
+	// ~/ru-ci included.
+	if stateRoot != "" && filepath.Clean(stateRoot) != home && within(dir, filepath.Clean(stateRoot)) {
 		return "", fmt.Errorf("CI directory %q must not be inside the csm state directory %s", dir, stateRoot)
 	}
 	return dir, nil

@@ -259,6 +259,26 @@ func (a *Agent) handleRestart(ctx context.Context, c *ServerRestartCmd) ResultPa
 	return okResult(c.Server + " restarted")
 }
 
+// adoptLicense saves the platform's Ready Up license answer when the host has
+// none (unattended installs need one), and says so in the command's progress.
+func (a *Agent) adoptLicense(ref, use string) {
+	if use == "" {
+		return
+	}
+	ad, ok := a.opts.Backend.(LicenseAnswerAdopter)
+	if !ok {
+		return
+	}
+	saved, err := ad.AdoptLicenseAnswer(use)
+	if err != nil {
+		a.opts.Logf("could not save the platform's license answer: %v", err)
+		return
+	}
+	if saved {
+		a.progress(ref, "Ready Up license: "+use+" use, as accepted on the platform", 0)
+	}
+}
+
 func (a *Agent) handleCreate(ctx context.Context, ref string, c *ServerCreateCmd) ResultPayload {
 	count := 1
 	if c.Count != nil {
@@ -280,6 +300,7 @@ func (a *Agent) handleCreate(ctx context.Context, ref string, c *ServerCreateCmd
 		return *busy
 	}
 	defer release()
+	a.adoptLicense(ref, c.AcceptLicense)
 
 	all, err := a.opts.Backend.Servers(ctx)
 	if err != nil {
@@ -294,7 +315,14 @@ func (a *Agent) handleCreate(ctx context.Context, ref string, c *ServerCreateCmd
 			first, ok = fc.FirstServerGamePort()
 		}
 		if !ok {
-			return rejected(CodeUnsupported, "no servers on this host yet: run the csm install wizard once, then servers can be created from the platform")
+			bs, canBootstrap := a.opts.Backend.(FirstServersBootstrapper)
+			if !canBootstrap {
+				return rejected(CodeUnsupported, "no servers on this host yet: run the csm install wizard once, then servers can be created from the platform")
+			}
+			if c.GamePort != nil && *c.GamePort != bs.FirstServersGamePort() {
+				return rejected(CodeUnsupported, fmt.Sprintf("the first server gets game port %d", bs.FirstServersGamePort()))
+			}
+			return a.bootstrapFirstServers(ctx, ref, bs, count, *c.Enroll, creds, key)
 		}
 		next = first
 	} else {
@@ -336,6 +364,34 @@ func (a *Agent) handleCreate(ctx context.Context, ref string, c *ServerCreateCmd
 	}
 	a.progress(ref, "done", 100)
 	return okResult("created " + strings.Join(names, ", ") + "\n" + out.String())
+}
+
+// bootstrapFirstServers installs a host's first servers (no servers yet):
+// the game download alone takes a while, so every step reports progress.
+func (a *Agent) bootstrapFirstServers(ctx context.Context, ref string, bs FirstServersBootstrapper, count int, enroll bool, creds *Credentials, key string) ResultPayload {
+	a.progress(ref, fmt.Sprintf("first install on this machine: %d server(s); downloading CS2 takes a while", count), 1)
+	nums, log, err := bs.BootstrapFirstServers(ctx, count, func(dir string) error {
+		if !enroll {
+			return nil
+		}
+		if err := WriteFleetCfg(dir, creds.PlatformURL, key, creds.InsecureDev, creds.CAFile, a.opts.Backend.ChownToCS2User); err != nil {
+			return fmt.Errorf("writing fleet.cfg: %w", err)
+		}
+		return nil
+	}, func(step string, pct int) { a.progress(ref, step, pct) })
+	if err != nil {
+		return failed(CodeFailed, "first install failed: "+err.Error(), log)
+	}
+	names := make([]string, 0, len(nums))
+	for _, n := range nums {
+		names = append(names, ServerName(n))
+	}
+	a.progress(ref, "done", 100)
+	out := "created " + strings.Join(names, ", ") + " (first install on this machine)\n" + log
+	if enroll {
+		out += "\nWrote cfg/ReadyUp/fleet.cfg (url + fleet key) on each; Ready Up enrolls itself on start.\n"
+	}
+	return okResult(out)
 }
 
 func (a *Agent) handleRemove(ctx context.Context, ref string, c *ServerRemoveCmd) ResultPayload {
@@ -422,6 +478,7 @@ func (a *Agent) handleUpdatePlugins(ctx context.Context, ref string, c *UpdatePl
 	if err != nil {
 		return failed(CodeFailed, err.Error(), "")
 	}
+	a.adoptLicense(ref, c.AcceptLicense)
 	a.progress(ref, "resolving Ready Up "+c.ReadyUp.Version, 0)
 	bundle := c.ReadyUp.Bundle
 	if bc, ok := a.opts.Backend.(ReadyUpBundleChooser); ok {
