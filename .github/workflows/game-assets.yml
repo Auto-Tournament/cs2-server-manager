@@ -53,6 +53,13 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Set up Go
+        if: steps.build.outputs.run == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
       - name: Build csm
         if: steps.build.outputs.run == 'true'
         working-directory: src
