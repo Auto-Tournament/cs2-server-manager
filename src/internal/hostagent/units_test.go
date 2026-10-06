@@ -336,7 +336,7 @@ func TestUpgradeSameHostWS(t *testing.T) {
 
 func TestFleetCfg(t *testing.T) {
 	existing := "// template\n// url = https://tournament.example.com\noffline_pause_minutes = 5\nurl = https://old.example.com\nenroll_code = RUE-1111-2222-3333-4444\n"
-	out := RenderFleetCfg(existing, "https://at.example.com", testKey, false, "")
+	out := RenderFleetCfg(existing, "https://at.example.com", testKey, false, "", "")
 	for _, want := range []string{"// url = https://tournament.example.com", "offline_pause_minutes = 5", "url = https://at.example.com", "enroll_key = " + testKey} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in\n%s", want, out)
@@ -348,7 +348,7 @@ func TestFleetCfg(t *testing.T) {
 		}
 	}
 	// Rewriting is stable.
-	if again := RenderFleetCfg(out, "https://at.example.com", testKey, false, ""); again != out {
+	if again := RenderFleetCfg(out, "https://at.example.com", testKey, false, "", ""); again != out {
 		t.Fatalf("not idempotent:\n%s\n---\n%s", out, again)
 	}
 
@@ -461,5 +461,26 @@ func TestBackoffAndRetryAfter(t *testing.T) {
 	}
 	if d := retryAfter("rate limited", time.Minute); d != time.Minute {
 		t.Fatalf("default = %s", d)
+	}
+}
+
+func TestRenderFleetCfgPublicAddr(t *testing.T) {
+	out := RenderFleetCfg("", "https://at.example.com", testKey, false, "", "192.168.50.196")
+	if !strings.Contains(out, "public_addr = 192.168.50.196\n") {
+		t.Fatalf("no public_addr:\n%s", out)
+	}
+	// Rendering again keeps one line and does not move it.
+	if again := RenderFleetCfg(out, "https://at.example.com", testKey, false, "", "192.168.50.196"); again != out {
+		t.Fatalf("not stable:\n%s\n---\n%s", out, again)
+	}
+	// An operator's own public_addr stays, and csm adds none.
+	own := "public_addr = cs2.example.com:27015\n"
+	out = RenderFleetCfg(own, "https://at.example.com", testKey, false, "", "10.0.0.5")
+	if !strings.Contains(out, own) || strings.Contains(out, "10.0.0.5") {
+		t.Fatalf("operator address lost or doubled:\n%s", out)
+	}
+	// No address known: no line.
+	if out := RenderFleetCfg("", "https://x", testKey, false, "", ""); strings.Contains(out, "public_addr") {
+		t.Fatalf("empty address written:\n%s", out)
 	}
 }
