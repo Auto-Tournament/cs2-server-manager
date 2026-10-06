@@ -139,6 +139,26 @@ func (m *TmuxManager) StartAll() error {
 	return nil
 }
 
+// waitUDPPortFree reports whether UDP port can be bound on all addresses,
+// trying for up to wait (our own server, just killed, may still hold it).
+func waitUDPPortFree(port int, wait time.Duration) error {
+	if port <= 0 {
+		return nil
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		pc, err := net.ListenPacket("udp", fmt.Sprintf(":%d", port))
+		if err == nil {
+			_ = pc.Close()
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
 // Start starts a single server in tmux.
 func (m *TmuxManager) Start(server int) error {
 	session := m.sessionName(server)
@@ -151,6 +171,13 @@ func (m *TmuxManager) Start(server int) error {
 
 	// Detect ports for this server from its config
 	gamePort, tvPort := detectServerPorts(m.CS2User, server)
+
+	// A port someone else holds (another csm user's server, a stray cs2)
+	// makes the game fail to bind and exit a moment after "started": say so
+	// now instead.
+	if err := waitUDPPortFree(gamePort, 3*time.Second); err != nil {
+		return fmt.Errorf("server %d cannot start: its game port %d is in use by another program (another CS2 server on this machine?): %w", server, gamePort, err)
+	}
 
 	// Use the Valve cs2.sh script from the game directory. Run directly in
 	// tmux without piping to maintain interactive console responsiveness when
