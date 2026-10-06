@@ -107,6 +107,7 @@ func (b *HostBackend) instanceHostFacts(f *hostagent.HostFacts) {
 		f.Resources.Disk = append(f.Resources.Disk, hostagent.DiskInfo{Mount: p, TotalGB: round1(gb(st.Blocks)), FreeGB: round1(gb(st.Bavail))})
 	}
 	f.CS2.MasterBuild = m.MasterBuild()
+	f.CS2.MasterPatch = m.MasterPatch()
 	if s, err := LoadAutoUpdateSettings(); err == nil {
 		f.CS2.UpdatesHold = s.Mode()
 	} else {
