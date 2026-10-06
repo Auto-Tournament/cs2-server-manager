@@ -113,7 +113,18 @@ func RunAutoUpdateMonitor() error {
 		}
 	}
 
-	for i := 1; i <= mgr.NumServers; i++ {
+	// A host enrolled with the platform gets its updates from there: the
+	// platform asks Steam and Ready Up's releases, and sends
+	// host.update_game / host.update_plugins when the servers it would
+	// restart are idle. The monitor then only restarts idle instances onto
+	// what is already installed, and cleans up.
+	platformDriven := PlatformDrivesUpdates()
+	if platformDriven {
+		log("This host is enrolled with the platform, which decides when CS2 and Ready Up update; " +
+			"this cycle only restarts idle servers onto installed updates (CSM_LOCAL_UPDATES=1 to update from here instead).")
+	}
+
+	for i := 1; i <= mgr.NumServers && !platformDriven; i++ {
 		logPath := mgr.ServerLogPath(i)
 		if strings.TrimSpace(logPath) == "" {
 			log("Server-%d: no tmux log path available; skipping.", i)
@@ -213,11 +224,13 @@ func RunAutoUpdateMonitor() error {
 
 	// Ready Up on the readyup stack: same hold, same idle rules, its own
 	// schedule (readyup_auto_update.go).
-	runReadyUpAutoUpdate(ctx, log, mgr, hold, grace, &state, saveState)
+	if !platformDriven {
+		runReadyUpAutoUpdate(ctx, log, mgr, hold, grace, &state, saveState)
+	}
 
 	// Instances (instance mode): one shared update, idle-only restarts
 	// (instance_update.go).
-	runInstanceMonitor(ctx, log, hold, grace, &state, saveState)
+	runInstanceMonitor(ctx, log, hold, grace, &state, saveState, platformDriven)
 
 	log("Monitor cycle complete.")
 	return writeMonitorLog(buf.String(), nil)
@@ -265,7 +278,7 @@ func InstallAutoUpdateCronWithContext(ctx context.Context, interval string) (str
 		}
 	}
 
-	entry := fmt.Sprintf("%s * * * * %s monitor >/dev/null 2>&1", interval, binPath)
+	entry := monitorCronEntry(interval, binPath, cronRoot())
 
 	// Which crontab: the current user's, or (root on a user-mode host) the
 	// CS2 user's.
@@ -356,4 +369,56 @@ func RemoveAutoUpdateCronWithContext(ctx context.Context) (string, error) {
 func writeMonitorLog(content string, err error) error {
 	AppendLog("auto_update_monitor.log", content)
 	return err
+}
+
+// PlatformDrivesUpdates: this host's agent is enrolled with the platform
+// (it has fleet credentials), so the platform starts CS2 and Ready Up
+// updates and `csm monitor` only finishes them. CSM_LOCAL_UPDATES=1 keeps
+// the monitor updating on its own.
+func PlatformDrivesUpdates() bool {
+	if os.Getenv("CSM_LOCAL_UPDATES") == "1" {
+		return false
+	}
+	_, err := os.Stat(HostAgentPaths().Credentials())
+	return err == nil
+}
+
+// cronRoot is the csm root the monitor runs with: $CSM_ROOT when set, else
+// the one the host agent's unit runs with, so the monitor reads the same
+// settings, update state and fleet credentials as the agent (a host whose
+// agent keeps them in /usr/local/bin would otherwise get a monitor that
+// looks in the CS2 user's home and finds nothing), else ResolveRoot().
+func cronRoot() string {
+	if v := strings.TrimSpace(os.Getenv("CSM_ROOT")); v != "" {
+		return v
+	}
+	if s, err := hostAgentService(); err == nil {
+		if data, err := os.ReadFile(s.unitPath); err == nil {
+			if v := unitCSMRoot(string(data)); v != "" {
+				return v
+			}
+		}
+	}
+	return ResolveRoot()
+}
+
+// unitCSMRoot is the CSM_ROOT a systemd unit sets, or "".
+func unitCSMRoot(unit string) string {
+	for _, line := range strings.Split(unit, "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "Environment=CSM_ROOT="); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+var safeCronPathRe = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
+
+// monitorCronEntry is the crontab line. It carries CSM_ROOT (when it is a
+// plain absolute path) so cron's bare environment resolves the same root.
+func monitorCronEntry(interval, binPath, root string) string {
+	if safeCronPathRe.MatchString(root) {
+		return fmt.Sprintf("%s * * * * CSM_ROOT=%s %s monitor >/dev/null 2>&1", interval, root, binPath)
+	}
+	return fmt.Sprintf("%s * * * * %s monitor >/dev/null 2>&1", interval, binPath)
 }

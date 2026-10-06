@@ -254,7 +254,18 @@ func (b *HostBackend) Host(ctx context.Context) (hostagent.HostFacts, error) {
 		f.Resources.Disk = append(f.Resources.Disk, hostagent.DiskInfo{Mount: p, TotalGB: round1(gb(st.Blocks)), FreeGB: round1(gb(st.Bavail))})
 	}
 
-	f.CS2.MasterBuild = steamInfServerVersion(filepath.Join("/home", user, "master-install", "game", "csgo", "steam.inf"))
+	// The install new servers run: the current game version on an instance
+	// host, the master install otherwise.
+	inf := filepath.Join("/home", user, "master-install", "game", "csgo", "steam.inf")
+	if InstancesExist() {
+		if m, err := NewInstanceManager(); err == nil {
+			inf = filepath.Join(m.CurrentGame(), "game", "csgo", "steam.inf")
+		}
+	}
+	f.CS2.MasterBuild = steamInfServerVersion(inf)
+	if data, err := os.ReadFile(inf); err == nil {
+		f.CS2.MasterPatch = parsePatchVersion(string(data))
+	}
 	if s, err := LoadAutoUpdateSettings(); err == nil {
 		f.CS2.UpdatesHold = s.Mode()
 	} else {
