@@ -484,3 +484,18 @@ func TestRenderFleetCfgPublicAddr(t *testing.T) {
 		t.Fatalf("empty address written:\n%s", out)
 	}
 }
+
+func TestInventoryCarriesTheMachineAddress(t *testing.T) {
+	old := MachineAddress
+	t.Cleanup(func() { MachineAddress = old })
+	MachineAddress = func() string { return "192.168.50.196" }
+	inv := BuildInventory("h1", "1.21.0", HostFacts{Hostname: "cs2"}, nil, func(int) int { return 0 })
+	if inv.Address != "192.168.50.196" {
+		t.Fatalf("address = %q", inv.Address)
+	}
+	MachineAddress = func() string { return "" }
+	b, _ := json.Marshal(BuildInventory("h1", "1.21.0", HostFacts{Hostname: "cs2"}, nil, func(int) int { return 0 }))
+	if strings.Contains(string(b), `"address"`) {
+		t.Fatalf("an unknown address is left out: %s", b)
+	}
+}
