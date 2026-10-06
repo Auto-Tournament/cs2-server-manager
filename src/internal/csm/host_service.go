@@ -107,7 +107,13 @@ func InstallHostAgentService(ctx context.Context, w io.Writer) error {
 	}
 	for _, args := range [][]string{{"daemon-reload"}, {"enable", HostAgentUnit}, {"restart", HostAgentUnit}} {
 		if out, err := s.systemctl(ctx, args...).CombinedOutput(); err != nil {
-			return fmt.Errorf("systemctl %s failed: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+			text := strings.TrimSpace(string(out))
+			if !s.system && strings.Contains(text, "Failed to connect to bus") {
+				user := currentUsername()
+				return fmt.Errorf("systemctl --user %s: %s. %s has no systemd user manager running: run `sudo loginctl enable-linger %s` (or `sudo csm setup-host`), then run csm agent install again as %s, logged in as that user (ssh %s@<host>, or `sudo -iu %s`)",
+					strings.Join(args, " "), text, user, user, user, user, user)
+			}
+			return fmt.Errorf("systemctl %s failed: %v: %s", strings.Join(args, " "), err, text)
 		}
 	}
 	fmt.Fprintf(w, "[✓] %s installed (%s) and running.\n", HostAgentUnit, s.unitPath)
