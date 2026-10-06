@@ -1,7 +1,7 @@
 # Usage
 
 
-Run these as the CS2 user after `sudo csm setup-host` (see above), or with `sudo` as before.
+Run these as the account that owns the servers, after a one-time `sudo csm setup-host`. csm refuses to run as root; only `setup-host`, `install-deps`, `self-update` and `cleanup-all` take `sudo`.
 
 ```bash
 csm                        # interactive TUI for installs, updates, status and so on
@@ -39,7 +39,7 @@ csm license status         # check it offline
 csm license clear
 
 # Setup and maintenance
-sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger)
+sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger, --skip-docker)
 sudo csm install-deps      # install system dependencies
 csm bootstrap              # install or redeploy servers without the TUI
 csm doctor                 # diagnose common problems and offer fixes
@@ -58,7 +58,7 @@ csm debug 1                # run server 1 in the foreground
 csm logs 1 100             # last 100 log lines for server 1
 csm logs-file 1            # path to server 1's log file
 
-# Removes all CS2 data and the CS2 user
+# Removes your servers, their files and the MySQL container (your account stays)
 sudo csm cleanup-all
 ```
 
