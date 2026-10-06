@@ -1063,7 +1063,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Reset progress bar.
 					m.updateProgress = progress.New(progress.WithDefaultGradient())
 					m.updateProgress.Width = 60
-					cmds = append(cmds, runSelfUpdate(m.latestVersion), m.spin.Tick)
+					cmds = append(cmds, selfUpdateCmd(m.latestVersion), m.spin.Tick)
 				}
 			case itemForceUpdateNow:
 				// Force update ignores the local cache TTL and always hits the
@@ -1835,7 +1835,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastOutput = ""
 		m.updateProgress = progress.New(progress.WithDefaultGradient())
 		m.updateProgress.Width = 60
-		cmds = append(cmds, runSelfUpdate(m.latestVersion), m.spin.Tick)
+		cmds = append(cmds, selfUpdateCmd(m.latestVersion), m.spin.Tick)
+		return m, tea.Batch(cmds...)
+
+	case sudoSelfUpdateDoneMsg:
+		m.running = false
+		m.selfUpdating = false
+		if msg.err != nil {
+			m.status = fmt.Sprintf("Update failed (sudo csm self-update: %v). Run `sudo csm self-update` in a terminal.", msg.err)
+			return m, tea.Batch(cmds...)
+		}
+		// Updated in place by root: start over on the new binary.
+		if err := restartCSM(msg.exe); err != nil {
+			m.status = "CSM updated. Restart CSM to use the new version."
+			m.updateAvailable = false
+			m.rebuildItems()
+		}
 		return m, tea.Batch(cmds...)
 
 	case selfUpdateFinishedMsg:
@@ -1844,6 +1859,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.confirmQuit = false
 		if msg.err != nil {
 			m.status = fmt.Sprintf("Update failed: %v", msg.err)
+		} else if msg.note != "" {
+			m.status = fmt.Sprintf("CSM %s downloaded. %s", msg.newVersion, msg.note)
 		} else {
 			m.status = fmt.Sprintf("CSM updated to %s. Restart CSM to use the new version.", msg.newVersion)
 			m.version = msg.newVersion
