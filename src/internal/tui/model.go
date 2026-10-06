@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -69,6 +70,9 @@ const (
 	itemEditMatchZyConfig
 	itemEditMatchZyDatabase
 	itemEditCSSAdmins
+	itemReadyUpStatus
+	itemPlatformLinkStatus
+	itemAgentInstall
 	itemUnbanIP
 	itemUnbanAllIPs
 	itemCLIHelp
@@ -328,7 +332,7 @@ func initialModel() model {
 // rebuildItems rebuilds the menu for the current tab, optionally appending
 // dynamic items like the self-update action at the bottom.
 func (m *model) rebuildItems() {
-	items := buildItemsForTab(m.tab)
+	items := buildItemsForTab(m.tab, tuiLegacyStack())
 
 	// Append self-update item at the bottom of the Install tab when an update is
 	// available. This keeps the main actions visually grouped and the update
@@ -379,8 +383,20 @@ func menuWindowSizeFor(height int) int {
 	return rowsForItems
 }
 
-// buildItemsForTab returns the menu items for a given top-level tab.
-func buildItemsForTab(t tab) []menuItem {
+// tuiLegacyStack reports whether this host runs the legacy MatchZy Enhanced
+// stack; the Ready Up stack gets no MatchZy / CounterStrikeSharp menu items.
+func tuiLegacyStack() bool {
+	user := ""
+	if mgr, err := csm.NewTmuxManager(); err == nil {
+		user = mgr.CS2User
+	}
+	return csm.UsesLegacyStack(user)
+}
+
+// buildItemsForTab returns the menu items for a given top-level tab. With the
+// Ready Up stack (`legacy` false) the MatchZy and CounterStrikeSharp items are
+// left out: Ready Up ignores those files (issue #108).
+func buildItemsForTab(t tab, legacy bool) []menuItem {
 	switch t {
 	case tabInstall:
 		return []menuItem{
@@ -462,7 +478,7 @@ func buildItemsForTab(t tab) []menuItem {
 			},
 		}
 	case tabConfig:
-		return []menuItem{
+		items := []menuItem{
 			{
 				title:       "Update server configs",
 				description: "Update RCON password, maxplayers, GSLT, hostname, and RCON ban settings for all servers.",
@@ -473,29 +489,43 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "View the server.cfg file for a specific server.",
 				kind:        itemViewServerConfig,
 			},
-			{
-				title:       "Edit MatchZy config.cfg",
-				description: "Edit shared MatchZy configuration (applies to all servers).",
-				kind:        itemEditMatchZyConfig,
-			},
-			{
-				title:       "Edit MatchZy database.json",
-				description: "Edit MatchZy database connection settings.",
-				kind:        itemEditMatchZyDatabase,
-			},
-			{
-				title:       "Edit CounterStrikeSharp admins.json",
-				description: "Edit CSS admin permissions (applies to all servers).",
-				kind:        itemEditCSSAdmins,
-			},
 		}
+		if legacy {
+			items = append(items,
+				menuItem{
+					title:       "Edit MatchZy config.cfg",
+					description: "Edit shared MatchZy configuration (applies to all servers).",
+					kind:        itemEditMatchZyConfig,
+				},
+				menuItem{
+					title:       "Edit MatchZy database.json",
+					description: "Edit MatchZy database connection settings.",
+					kind:        itemEditMatchZyDatabase,
+				},
+				menuItem{
+					title:       "Edit CounterStrikeSharp admins.json",
+					description: "Edit CSS admin permissions (applies to all servers).",
+					kind:        itemEditCSSAdmins,
+				},
+			)
+		}
+		return items
 	case tabTools:
-		return []menuItem{
-			{
+		var lead []menuItem
+		if legacy {
+			lead = append(lead, menuItem{
 				title:       "MatchZy DB: verify/repair",
 				description: "Verify MatchZy database setup and repair in a scrollable view.",
 				kind:        itemMatchzyDBViewport,
-			},
+			})
+		} else {
+			lead = append(lead,
+				menuItem{title: "Ready Up: plugin status", kind: itemReadyUpStatus},
+				menuItem{title: "Auto Tournament link and host agent", kind: itemPlatformLinkStatus},
+				menuItem{title: "Install the host agent (systemd service)", kind: itemAgentInstall},
+			)
+		}
+		return append(lead, []menuItem{
 			{
 				title:       "Unban IP address",
 				description: "Remove an IP from banned RCON requests (use 0 for all servers).",
@@ -541,7 +571,7 @@ func buildItemsForTab(t tab) []menuItem {
 				description: "",
 				kind:        itemCleanupAllGo,
 			},
-		}
+		}...)
 	default:
 		return nil
 	}
@@ -924,6 +954,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "enter", "q", "esc":
 				m.view = viewMain
+				// The next result page starts as a success: a failure flag left
+				// here put "OPERATION FAILED" over a later, successful install
+				// wizard summary (issue #108).
+				m.detailIsError = false
 				// When returning from a detail page, always focus the first
 				// item in the current tab so navigation feels predictable
 				// (e.g. after Add/Remove servers, focus the Servers dashboard).
@@ -1203,6 +1237,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Resolving public IP..."
 				m.lastOutput = ""
 				cmds = append(cmds, runPublicIP(), m.spin.Tick)
+			case itemReadyUpStatus:
+				m.running = true
+				m.status = "Reading the Ready Up plugin status..."
+				m.lastOutput = ""
+				cmds = append(cmds, runSelfCommand(selected, "plugins", "status"), m.spin.Tick)
+			case itemPlatformLinkStatus:
+				m.running = true
+				m.status = "Reading the platform link..."
+				m.lastOutput = ""
+				cmds = append(cmds, runSelfCommand(selected, "link", "status"), m.spin.Tick)
+			case itemAgentInstall:
+				m.running = true
+				m.status = "Installing the host agent..."
+				m.lastOutput = ""
+				cmds = append(cmds, runSelfCommand(selected, "agent", "install"), m.spin.Tick)
 			case itemExtractThumbnailsGo:
 				m.running = true
 				m.status = "Extracting and converting map thumbnails..."
@@ -1582,6 +1631,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			m.detailTitle = "Install wizard summary"
+			m.detailIsError = false
 			m.detailContent = strings.Join(lines, "\n")
 			m.view = viewActionResult
 			return m, tea.Batch(cmds...)
@@ -2036,6 +2086,12 @@ func (m model) View() string {
 			desc = "Bypass the cache and check GitHub for a newer CSM version."
 		case itemExtractThumbnailsGo:
 			desc = "Write map thumbnails (PNG + WEBP, full + 1280px) and maps.json (map list + Active Duty pool) into map_thumbnails/."
+		case itemReadyUpStatus:
+			desc = "Ready Up channel, version and license, and what each server has installed (csm plugins status)."
+		case itemPlatformLinkStatus:
+			desc = "Whether this machine is linked to Auto Tournament and its host agent runs. Link with: csm link <url> <code>."
+		case itemAgentInstall:
+			desc = "Run the host agent as a systemd user service, so the platform can start, update and create servers here."
 		case itemViewRecentLogsGo:
 			desc = "Show a list of the 20 most recent command logs with quick error/success status for debugging."
 		case itemCleanupAllGo:
@@ -2118,4 +2174,17 @@ func (m model) View() string {
 	}
 
 	return mainStyle.Render("\n" + b.String() + "\n")
+}
+
+// runSelfCommand runs this csm binary with args (a CLI command) and shows its
+// output on the result page.
+func runSelfCommand(item menuItem, args ...string) tea.Cmd {
+	return func() tea.Msg {
+		exe, err := os.Executable()
+		if err != nil {
+			return commandFinishedMsg{item: item, err: err}
+		}
+		out, err := exec.Command(exe, args...).CombinedOutput()
+		return commandFinishedMsg{item: item, output: string(out), err: err}
+	}
 }

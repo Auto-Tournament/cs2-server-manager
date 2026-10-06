@@ -195,7 +195,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 
 	// If no overrides directory exists yet, seed it with the built-in defaults.
 	var createdOverrideFiles []string
-	if err := ensureDefaultOverridesWithTracking(cfg.OverridesDir, &createdOverrideFiles); err != nil {
+	if err := ensureDefaultOverridesWithTracking(cfg.OverridesDir, &createdOverrideFiles, legacyStack); err != nil {
 		log("  [!] Failed to write default overrides to %s: %v", cfg.OverridesDir, err)
 	}
 

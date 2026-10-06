@@ -72,6 +72,16 @@ func main() {
 		}
 	}
 
+	// Two csm binaries (an older self-update put one in ~/.local/bin): say so
+	// in a terminal, never in the agent, the cron monitor or daemon mode.
+	if os.Geteuid() != 0 && !daemonMode && (len(args) == 0 || (args[0] != "agent" && args[0] != "monitor")) {
+		if fi, err := os.Stderr.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			if msg := tui.ShadowCopyWarning(); msg != "" {
+				fmt.Fprintln(os.Stderr, msg)
+			}
+		}
+	}
+
 	if len(args) > 0 {
 		switch args[0] {
 		case "help":
@@ -265,7 +275,7 @@ func main() {
 			}
 			target := "all"
 			if len(startArgs) > 0 {
-				server, serr := strconv.Atoi(startArgs[0])
+				server, serr := parseServerArg(startArgs[0])
 				if serr != nil || server <= 0 {
 					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", startArgs[0])
 					os.Exit(1)
@@ -284,6 +294,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux start failed: %v\n", err)
 				os.Exit(1)
 			}
+			fmt.Println(cliTargetDone("Started", target))
 			return
 		case "stop":
 			if instanceBackendCommand("stop", args[1:]) {
@@ -301,7 +312,7 @@ func main() {
 			}
 			target := "all"
 			if len(stopArgs) > 0 {
-				server, serr := strconv.Atoi(stopArgs[0])
+				server, serr := parseServerArg(stopArgs[0])
 				if serr != nil || server <= 0 {
 					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", stopArgs[0])
 					os.Exit(1)
@@ -322,6 +333,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux stop failed: %v\n", err)
 				os.Exit(1)
 			}
+			fmt.Println(cliTargetDone("Stopped", target))
 			return
 		case "restart":
 			if instanceBackendCommand("restart", args[1:]) {
@@ -352,7 +364,7 @@ func main() {
 			}
 			target := "all"
 			if len(restartArgs) > 0 {
-				server, serr := strconv.Atoi(restartArgs[0])
+				server, serr := parseServerArg(restartArgs[0])
 				if serr != nil || server <= 0 {
 					fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", restartArgs[0])
 					os.Exit(1)
@@ -373,6 +385,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "tmux restart failed: %v\n", err)
 				os.Exit(1)
 			}
+			fmt.Println(cliTargetDone("Restarted", target))
 			return
 		case "reinstall":
 			if len(args) < 2 {
@@ -391,7 +404,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (csm, as the CS2 user or root).")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil || server <= 0 {
 				fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
 				os.Exit(1)
@@ -428,7 +441,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "No servers found. Run the install wizard first (csm, as the CS2 user or root).")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil || server <= 0 {
 				fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
 				os.Exit(1)
@@ -461,7 +474,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "         csm unban 0 172.19.0.3  (unban from all servers)")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil || server < 0 {
 				fmt.Fprintf(os.Stderr, "invalid server number %q (must be 0 for all servers, or a positive integer)\n", args[1])
 				os.Exit(1)
@@ -490,7 +503,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "         csm unban-all 0  (clear all bans from all servers)")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil || server < 0 {
 				fmt.Fprintf(os.Stderr, "invalid server number %q (must be 0 for all servers, or a positive integer)\n", args[1])
 				os.Exit(1)
@@ -512,7 +525,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "Lists all banned IP addresses for the specified server.")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil || server <= 0 {
 				fmt.Fprintf(os.Stderr, "invalid server number %q (must be a positive integer)\n", args[1])
 				os.Exit(1)
@@ -533,7 +546,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "usage: csm logs <server> [lines]")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil {
 				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
 				os.Exit(1)
@@ -570,7 +583,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "usage: csm logs-file <server>")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil || server <= 0 {
 				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
 				os.Exit(1)
@@ -690,7 +703,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "Use 0 to repair all discovered servers.")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil || server < 0 {
 				fmt.Fprintf(os.Stderr, "invalid server number %q (must be 0 for all servers, or a positive integer)\n", args[1])
 				os.Exit(1)
@@ -780,7 +793,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "usage: csm attach <server>")
 				os.Exit(1)
 			}
-			server, serr := strconv.Atoi(args[1])
+			server, serr := parseServerArg(args[1])
 			if serr != nil {
 				fmt.Fprintf(os.Stderr, "invalid server number %q\n", args[1])
 				os.Exit(1)
@@ -834,7 +847,7 @@ func main() {
 				os.Exit(1)
 			}
 
-			server, serr := strconv.Atoi(debugArgs[0])
+			server, serr := parseServerArg(debugArgs[0])
 			if serr != nil {
 				fmt.Fprintf(os.Stderr, "invalid server number %q\n", debugArgs[0])
 				os.Exit(1)
@@ -865,11 +878,33 @@ func main() {
 			// Stream the log (SteamCMD and rsync progress) as it happens; it
 			// is not printed again at the end.
 			live := strings.TrimSpace(os.Getenv("CSM_UPDATE_GAME_LOG")) == ""
+			var pipeW *os.File
+			var pipeDone chan struct{}
 			if live {
-				csm.SetLiveOutput(os.Stdout)
+				if isatty.IsTerminal(os.Stdout.Fd()) {
+					csm.SetLiveOutput(os.Stdout)
+				} else if r, w, perr := os.Pipe(); perr == nil {
+					// Cron, scripts, a log file: the same lines without the
+					// progress redraws (hundreds per server otherwise).
+					pipeW, pipeDone = w, make(chan struct{})
+					go func() {
+						filter := csm.NewProgressFilter(os.Stdout)
+						_, _ = io.Copy(filter, r)
+						_ = filter.Flush()
+						_ = r.Close()
+						close(pipeDone)
+					}()
+					csm.SetLiveOutput(w)
+				} else {
+					csm.SetLiveOutput(os.Stdout)
+				}
 			}
 			out, err := csm.UpdateGame()
 			csm.SetLiveOutput(nil)
+			if pipeW != nil {
+				_ = pipeW.Close()
+				<-pipeDone
+			}
 			csm.LogAction("cli", "update-game", out, err)
 			if !live && out != "" {
 				fmt.Print(out)
@@ -885,7 +920,7 @@ func main() {
 				fmt.Fprintln(os.Stderr, "usage: csm update-server [--force] <server>")
 				os.Exit(1)
 			}
-			sn, serr := strconv.Atoi(serverArgs[0])
+			sn, serr := parseServerArg(serverArgs[0])
 			if serr != nil || sn <= 0 {
 				fmt.Fprintf(os.Stderr, "invalid server number %q\n", serverArgs[0])
 				os.Exit(1)
@@ -953,7 +988,12 @@ func main() {
 			}
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "updates: %v\n", err)
-				printUpdatesUsage(os.Stderr)
+				// The usage only for a command csm did not understand, not
+				// after a real answer ("no platform is configured").
+				known := map[string]bool{"hold": true, "status": true, "grace": true, "platform": true, "check": true}
+				if len(args) < 2 || !known[args[1]] {
+					printUpdatesUsage(os.Stderr)
+				}
 				os.Exit(1)
 			}
 			return
@@ -1372,4 +1412,17 @@ func promptYesNo(question string) bool {
 	default:
 		return false
 	}
+}
+
+// parseServerArg reads a server number the way csm prints it: "1" or "server-1".
+func parseServerArg(raw string) (int, error) {
+	return strconv.Atoi(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(raw)), "server-"))
+}
+
+// cliTargetDone is the line start / stop / restart print when they worked.
+func cliTargetDone(verb, target string) string {
+	if target == "all" {
+		return verb + " all servers."
+	}
+	return verb + " " + target + "."
 }

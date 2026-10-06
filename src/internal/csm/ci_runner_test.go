@@ -100,6 +100,21 @@ func TestRedactWriterSplitWrites(t *testing.T) {
 	}
 }
 
+// User mode: csm's state directory is the home directory (CSM_ROOT=$HOME).
+// The default ~/ru-ci must still be allowed (found in a test pass, 2026-10-06).
+func TestResolveCIDirUserModeStateIsHome(t *testing.T) {
+	home := "/home/tester"
+	if got, err := resolveCIDir("", home, home); err != nil || got != home+"/ru-ci" {
+		t.Fatalf("default in user mode = %q, %v", got, err)
+	}
+	if _, err := resolveCIDir("~/server-1", home, home); err == nil {
+		t.Fatal("a server directory must still be refused")
+	}
+	if _, err := resolveCIDir("~", home, home); err == nil {
+		t.Fatal("home itself must still be refused")
+	}
+}
+
 func TestResolveCIDir(t *testing.T) {
 	home := "/home/cs2servermanager"
 	state := "/opt/cs2-server-manager"

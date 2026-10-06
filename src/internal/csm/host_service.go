@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // The host agent as a systemd service
@@ -98,6 +100,11 @@ func InstallHostAgentService(ctx context.Context, w io.Writer) error {
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
+	}
+	if !s.system {
+		// Lingering was just switched on (sudo csm setup-host): the user's
+		// manager may still be starting. Give it a moment before systemctl.
+		waitForUserBus(ctx, strconv.Itoa(os.Getuid()), 20*time.Second)
 	}
 	if err := os.MkdirAll(filepath.Dir(s.unitPath), 0o755); err != nil {
 		return err

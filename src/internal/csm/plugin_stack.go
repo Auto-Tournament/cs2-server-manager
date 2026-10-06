@@ -168,6 +168,36 @@ func (s PluginSettings) LayerBundleFor(requested string) string {
 	return s.LayerBundle()
 }
 
+// AdoptPlatformLicenseAnswer saves the Ready Up license use the platform's
+// admin accepted (Settings → License; sent with server.create and
+// host.update_plugins) when this host has no answer of its own. An answer
+// from the operator (csm plugins license, the install prompt) or from
+// AT_ACCEPT_LICENSE always wins; one taken from the platform before follows
+// the platform's. It reports whether it saved anything.
+func AdoptPlatformLicenseAnswer(use string) (bool, error) {
+	use = strings.ToLower(strings.TrimSpace(use))
+	if use != "noncommercial" && use != "commercial" {
+		return false, nil
+	}
+	if v := strings.ToLower(strings.TrimSpace(os.Getenv(EnvAcceptLicense))); v == "noncommercial" || v == "commercial" {
+		return false, nil
+	}
+	s, err := LoadPluginSettings()
+	if err != nil {
+		return false, err
+	}
+	if s.AcceptLicense != "" && (s.AcceptLicenseBy != "platform" || s.AcceptLicense == use) {
+		return false, nil
+	}
+	s.AcceptLicense = use
+	s.AcceptLicenseAt = time.Now().UTC().Format(time.RFC3339)
+	s.AcceptLicenseBy = "platform"
+	if err := savePluginSettings(s); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // SetPluginSetting changes one setting and saves. value "" (or "latest" for
 // version, "clear" for license) resets it.
 func SetPluginSetting(key, value string) (PluginSettings, error) {
