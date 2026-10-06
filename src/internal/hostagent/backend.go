@@ -95,7 +95,11 @@ type DiskInfo struct {
 
 // CS2Facts is host.inventory.cs2.
 type CS2Facts struct {
-	MasterBuild     int64  `json:"master_build"`
+	MasterBuild int64 `json:"master_build"`
+	// MasterPatch is PatchVersion ("1.41.8.9") of the CS2 install new
+	// servers run, the unit Steam's UpToDateCheck takes. The platform asks
+	// Steam with it and sends host.update_game when it is behind.
+	MasterPatch     string `json:"master_patch,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
 	UpdatesHold     string `json:"updates_hold"`
 }

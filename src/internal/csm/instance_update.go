@@ -241,7 +241,9 @@ func (m *InstanceManager) UpdateReadyUp(ctx context.Context, w io.Writer, hold U
 }
 
 // runInstanceMonitor is the instance part of one `csm monitor` cycle.
-func runInstanceMonitor(ctx context.Context, logf func(string, ...any), hold UpdateHold, grace time.Duration, state *autoUpdateState, saveState func()) {
+// platformDriven skips starting updates (steps 1 and 3): the platform sends
+// those as host.update_game and host.update_plugins.
+func runInstanceMonitor(ctx context.Context, logf func(string, ...any), hold UpdateHold, grace time.Duration, state *autoUpdateState, saveState func(), platformDriven bool) {
 	m, err := NewInstanceManager()
 	if err != nil {
 		logf("Instances: %v", err)
@@ -270,10 +272,10 @@ func runInstanceMonitor(ctx context.Context, logf func(string, ...any), hold Upd
 			marked = append(marked, n)
 		}
 	}
-	if len(marked) > 0 {
+	if len(marked) > 0 && !platformDriven {
+		// A hold does not stop the download: instances keep running on their
+		// game version until step 4 restarts them, which the hold does stop.
 		switch {
-		case hold.On:
-			logf("Instances: CS2 update available (instance %v); waits: updates are on hold (%s).", marked, hold.Reason)
 		case masterReadOnly():
 			logf("Instances: CS2 update available (instance %v); %s is set, so the master install is not updated here.", marked, EnvInstanceMasterReadOnly)
 		case ls.LastGameUpdate > 0 && time.Since(time.Unix(ls.LastGameUpdate, 0)) < autoUpdateCooldown:
@@ -315,7 +317,7 @@ func runInstanceMonitor(ctx context.Context, logf func(string, ...any), hold Upd
 	}
 
 	// 3. Ready Up on its channel.
-	if s, err := LoadPluginSettings(); err == nil {
+	if s, err := LoadPluginSettings(); err == nil && !platformDriven {
 		r := s.Resolved()
 		switch {
 		case !r.AutoUpdateOn():
@@ -333,11 +335,11 @@ func runInstanceMonitor(ctx context.Context, logf func(string, ...any), hold Upd
 			case err != nil:
 				logf("Instances: no Ready Up target release: %v", err)
 			case have == want:
-			case hold.On:
-				logf("Instances: Ready Up %s -> %s waits: updates are on hold (%s).", have, want, hold.Reason)
 			case ls.LastTarget == target && time.Since(time.Unix(ls.LastTry, 0)) < readyUpRetryAfter:
 				logf("Instances: Ready Up %s -> %s waits: the last try failed %s ago.", have, want, time.Since(time.Unix(ls.LastTry, 0)).Round(time.Minute))
 			default:
+				// Building is safe under a hold too: running instances stay on their
+				// layer until step 4 restarts them; stopped ones start on the new one.
 				logf("Instances: Ready Up %s -> %s: building a new layer.", have, want)
 				if _, err := m.BuildLayerFromRelease(ctx, logw, "auto-update"); err != nil {
 					ls.LastTry, ls.LastTarget = time.Now().Unix(), target
