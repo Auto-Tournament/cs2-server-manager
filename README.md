@@ -27,7 +27,7 @@ csm installs CS2 with SteamCMD, puts a plugin stack on every server ([Ready Up](
 
 ## Install
 
-On a Linux server, download the latest release to `/usr/local/bin/csm` and start the installer:
+On a Linux server, log in as the account the servers will run as, download the latest release to `/usr/local/bin/csm`, set up the host once, and start the installer:
 
 ```bash
 arch=$(uname -m); \
@@ -40,10 +40,16 @@ tmp=$(mktemp); \
 curl -L "https://github.com/Auto-Tournament/cs2-server-manager/releases/latest/download/$asset" -o "$tmp" && \
 sudo install -m 0755 "$tmp" /usr/local/bin/csm && \
 rm "$tmp" && \
-sudo csm          # launches the interactive TUI installer
+sudo csm setup-host   # once: packages and lingering for your account
 ```
 
-csm keeps its data under `/opt/cs2-server-manager` and logs to `/opt/cs2-server-manager/logs/csm.log`. Configs you put in `overrides/` survive game and plugin updates. Running without sudo, and what to do when `steamcmd` can't be installed: [docs/INSTALL.md](docs/INSTALL.md).
+Then run csm without sudo. The installer sets up Ready Up and asks for its license:
+
+```bash
+csm                   # the interactive TUI installer
+```
+
+csm keeps its data in your home folder and logs to `~/logs/csm.log`. Configs you put in `overrides/` survive game and plugin updates. Running without sudo, and what to do when `steamcmd` can't be installed: [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Usage
 
