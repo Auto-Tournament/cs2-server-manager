@@ -2,7 +2,9 @@ package hostagent
 
 import (
 	"context"
+	"net"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -163,14 +165,28 @@ var fleetCfgKeys = map[string]bool{
 // insecure_dev / ca_file set by csm. Ready Up's format is `key = value` with
 // // or # comments; lines csm does not own (offline_pause_minutes, spool
 // limits, a commented template) are kept.
-func RenderFleetCfg(existing, platformURL, enrollKey string, insecure bool, caFile string) string {
+//
+// publicAddr, when set and the file has no public_addr yet, becomes
+// `public_addr`: the address players connect to. Without it the platform
+// falls back to the address the server's link comes from, which behind a
+// proxy or tunnel is another machine (NTLAN 2026-10-05). A public_addr
+// already in the file is the operator's and stays.
+func RenderFleetCfg(existing, platformURL, enrollKey string, insecure bool, caFile, publicAddr string) string {
 	var keep []string
+	afterAddrMarker := false
 	for _, line := range strings.Split(strings.ReplaceAll(existing, "\r\n", "\n"), "\n") {
 		t := strings.TrimSpace(line)
+		csmAddr := afterAddrMarker
+		afterAddrMarker = false
 		if k, _, ok := strings.Cut(t, "="); ok && !strings.HasPrefix(t, "//") && !strings.HasPrefix(t, "#") {
-			if fleetCfgKeys[strings.ToLower(strings.TrimSpace(k))] {
+			key := strings.ToLower(strings.TrimSpace(k))
+			if fleetCfgKeys[key] || (csmAddr && key == "public_addr") {
 				continue
 			}
+		}
+		if t == fleetCfgAddrMarker {
+			afterAddrMarker = true
+			continue
 		}
 		if strings.HasPrefix(t, "// csm host agent") {
 			continue
@@ -198,7 +214,52 @@ func RenderFleetCfg(existing, platformURL, enrollKey string, insecure bool, caFi
 	if strings.TrimSpace(caFile) != "" {
 		b.WriteString("ca_file = " + caFile + "\n")
 	}
+	if publicAddr = strings.TrimSpace(publicAddr); publicAddr != "" && !hasCfgKey(keep, "public_addr", "fleet_public_addr") {
+		b.WriteString(fleetCfgAddrMarker + "\n")
+		b.WriteString("public_addr = " + publicAddr + "\n")
+	}
 	return b.String()
+}
+
+// fleetCfgAddrMarker comes right before a public_addr csm wrote, so the next
+// render replaces that one (the machine's address may change) and keeps an
+// operator's own.
+const fleetCfgAddrMarker = "// csm host agent: public_addr below is this machine's address; remove this line to keep your own."
+
+// hasCfgKey reports whether one of the lines sets one of the keys.
+func hasCfgKey(lines []string, keys ...string) bool {
+	for _, line := range lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "//") || strings.HasPrefix(t, "#") {
+			continue
+		}
+		k, _, ok := strings.Cut(t, "=")
+		if !ok {
+			continue
+		}
+		for _, want := range keys {
+			if strings.EqualFold(strings.TrimSpace(k), want) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// MachineAddress is this machine's primary IPv4 address (the source of its
+// default route), or "" when it cannot tell. A var so tests can pin it.
+var MachineAddress = func() string {
+	if out, err := exec.Command("ip", "-4", "route", "get", "1.1.1.1").CombinedOutput(); err == nil {
+		fields := strings.Fields(string(out))
+		for i, f := range fields {
+			if f == "src" && i+1 < len(fields) {
+				if ip := net.ParseIP(fields[i+1]); ip != nil && ip.To4() != nil && !ip.IsLoopback() {
+					return ip.String()
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // WriteFleetCfg writes (or updates) a server's fleet.cfg, mode 0600, so Ready
@@ -212,7 +273,7 @@ func WriteFleetCfg(serverDir, platformURL, enrollKey string, insecure bool, caFi
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	content := RenderFleetCfg(string(existing), platformURL, enrollKey, insecure, caFile)
+	content := RenderFleetCfg(string(existing), platformURL, enrollKey, insecure, caFile, MachineAddress())
 	dir := serverDir + "/game/csgo/cfg/ReadyUp"
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
