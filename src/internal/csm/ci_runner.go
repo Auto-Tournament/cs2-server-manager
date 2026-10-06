@@ -325,29 +325,38 @@ func parseEnvFile(content string) map[string]string {
 	return out
 }
 
-// userBusEnv makes `systemctl --user` work from `sudo -iu <user>`, which has
-// no logind session and so no XDG_RUNTIME_DIR: with lingering enabled the
-// user manager listens in /run/user/<uid>.
+// userBusEnv points `systemctl --user` at this user's own manager in
+// /run/user/<uid> (with lingering on it runs without a login). The
+// environment's XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS are kept only
+// when they are this user's: `sudo -iu <user>` has none, and `su <user>`
+// (without -l) or `sudo -u <user>` keeps the previous user's, /run/user/0,
+// whose bus refuses this user with "Failed to connect to bus: Permission
+// denied" (issue #106).
 func userBusEnv(environ []string, uid int) []string {
-	out := append([]string(nil), environ...)
+	own := fmt.Sprintf("/run/user/%d", uid)
 	runtime := ""
-	hasBus := false
+	bus := ""
+	out := make([]string, 0, len(environ)+2)
 	for _, kv := range environ {
-		if v, ok := strings.CutPrefix(kv, "XDG_RUNTIME_DIR="); ok && v != "" {
+		if v, ok := strings.CutPrefix(kv, "XDG_RUNTIME_DIR="); ok {
 			runtime = v
+			continue
 		}
-		if strings.HasPrefix(kv, "DBUS_SESSION_BUS_ADDRESS=") {
-			hasBus = true
+		if v, ok := strings.CutPrefix(kv, "DBUS_SESSION_BUS_ADDRESS="); ok {
+			bus = v
+			continue
 		}
+		out = append(out, kv)
 	}
-	if runtime == "" {
-		runtime = fmt.Sprintf("/run/user/%d", uid)
-		out = append(out, "XDG_RUNTIME_DIR="+runtime)
+	if runtime != own {
+		// Not ours (or none): use our own, and its bus.
+		runtime = own
+		bus = ""
 	}
-	if !hasBus {
-		out = append(out, "DBUS_SESSION_BUS_ADDRESS=unix:path="+runtime+"/bus")
+	if bus == "" || !strings.Contains(bus, own) {
+		bus = "unix:path=" + own + "/bus"
 	}
-	return out
+	return append(out, "XDG_RUNTIME_DIR="+runtime, "DBUS_SESSION_BUS_ADDRESS="+bus)
 }
 
 // runnerRelease is the part of the GitHub releases API response csm uses.
