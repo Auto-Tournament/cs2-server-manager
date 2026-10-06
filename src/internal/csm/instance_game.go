@@ -65,6 +65,19 @@ func gameBuild(dir string) int64 {
 	return steamInfServerVersion(filepath.Join(dir, "game", "csgo", "steam.inf"))
 }
 
+// gamePatch is PatchVersion ("1.41.8.9") of a game version, or "".
+func gamePatch(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "game", "csgo", "steam.inf"))
+	if err != nil {
+		return ""
+	}
+	return parsePatchVersion(string(data))
+}
+
+// MasterPatch is PatchVersion of the game version new layers are built on:
+// what host.inventory reports as cs2.master_patch.
+func (m *InstanceManager) MasterPatch() string { return gamePatch(m.CurrentGame()) }
+
 // CurrentGame is the game version new layers are built on: games/current,
 // or the master install before the first update.
 func (m *InstanceManager) CurrentGame() string {
