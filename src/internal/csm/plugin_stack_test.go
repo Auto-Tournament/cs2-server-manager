@@ -438,3 +438,43 @@ func TestReadyUpPlanFallsBackToBetaOnlyWhenStableIsTheDefault(t *testing.T) {
 		t.Fatal("chosen stable channel fell back to beta")
 	}
 }
+
+func TestAdoptPlatformLicenseAnswer(t *testing.T) {
+	pluginTestEnv(t)
+	t.Setenv(EnvAcceptLicense, "")
+
+	// No answer yet: the platform's is taken, and marked as the platform's.
+	if saved, err := AdoptPlatformLicenseAnswer("noncommercial"); err != nil || !saved {
+		t.Fatalf("first adopt = %v, %v", saved, err)
+	}
+	s, _ := LoadPluginSettings()
+	if s.AcceptLicense != "noncommercial" || s.AcceptLicenseBy != "platform" {
+		t.Fatalf("after adopt = %+v", s)
+	}
+	// The same answer again saves nothing; a changed one follows the platform.
+	if saved, _ := AdoptPlatformLicenseAnswer("noncommercial"); saved {
+		t.Fatal("same answer saved again")
+	}
+	if saved, _ := AdoptPlatformLicenseAnswer("commercial"); !saved {
+		t.Fatal("changed platform answer not followed")
+	}
+	// Nonsense is ignored.
+	if saved, _ := AdoptPlatformLicenseAnswer("maybe"); saved {
+		t.Fatal("invalid answer saved")
+	}
+	// The operator's own answer always wins.
+	if _, err := SetPluginSetting("license", "noncommercial"); err != nil {
+		t.Fatal(err)
+	}
+	if saved, _ := AdoptPlatformLicenseAnswer("commercial"); saved {
+		t.Fatal("platform answer replaced the operator's")
+	}
+	// So does AT_ACCEPT_LICENSE.
+	if _, err := SetPluginSetting("license", "clear"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvAcceptLicense, "commercial")
+	if saved, _ := AdoptPlatformLicenseAnswer("noncommercial"); saved {
+		t.Fatal("platform answer used over AT_ACCEPT_LICENSE")
+	}
+}

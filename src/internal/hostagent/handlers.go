@@ -259,6 +259,26 @@ func (a *Agent) handleRestart(ctx context.Context, c *ServerRestartCmd) ResultPa
 	return okResult(c.Server + " restarted")
 }
 
+// adoptLicense saves the platform's Ready Up license answer when the host has
+// none (unattended installs need one), and says so in the command's progress.
+func (a *Agent) adoptLicense(ref, use string) {
+	if use == "" {
+		return
+	}
+	ad, ok := a.opts.Backend.(LicenseAnswerAdopter)
+	if !ok {
+		return
+	}
+	saved, err := ad.AdoptLicenseAnswer(use)
+	if err != nil {
+		a.opts.Logf("could not save the platform's license answer: %v", err)
+		return
+	}
+	if saved {
+		a.progress(ref, "Ready Up license: "+use+" use, as accepted on the platform", 0)
+	}
+}
+
 func (a *Agent) handleCreate(ctx context.Context, ref string, c *ServerCreateCmd) ResultPayload {
 	count := 1
 	if c.Count != nil {
@@ -280,6 +300,7 @@ func (a *Agent) handleCreate(ctx context.Context, ref string, c *ServerCreateCmd
 		return *busy
 	}
 	defer release()
+	a.adoptLicense(ref, c.AcceptLicense)
 
 	all, err := a.opts.Backend.Servers(ctx)
 	if err != nil {
@@ -457,6 +478,7 @@ func (a *Agent) handleUpdatePlugins(ctx context.Context, ref string, c *UpdatePl
 	if err != nil {
 		return failed(CodeFailed, err.Error(), "")
 	}
+	a.adoptLicense(ref, c.AcceptLicense)
 	a.progress(ref, "resolving Ready Up "+c.ReadyUp.Version, 0)
 	bundle := c.ReadyUp.Bundle
 	if bc, ok := a.opts.Backend.(ReadyUpBundleChooser); ok {
