@@ -107,6 +107,8 @@ type viewportFinishedMsg struct {
 }
 
 type installConfig struct {
+	stack              string // csm.PluginStackReadyUp or csm.PluginStackLegacy
+	license            string // Ready Up license answer: "", "noncommercial" or "commercial"
 	dbMode             string // "docker" or "external"
 	dbEngine           string // csm.MatchzyDBEngineMySQL (shared) or csm.MatchzyDBEngineSQLite (per server)
 	numServers         int
@@ -573,6 +575,15 @@ func (m *model) initWizardDefaults() {
 		externalDBName:     "matchzy",
 		externalDBUser:     "matchzy",
 		externalDBPassword: "matchzy",
+	}
+
+	// Ready Up unless this host is on (or chose) the legacy stack.
+	cfg.stack = csm.PluginStackReadyUp
+	if csm.UsesLegacyStack(cfg.cs2User) {
+		cfg.stack = csm.PluginStackLegacy
+	}
+	if ps, err := csm.LoadPluginSettings(); err == nil {
+		cfg.license = ps.Resolved().AcceptLicense
 	}
 
 	// Try to detect existing configuration from installed servers

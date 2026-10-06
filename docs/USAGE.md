@@ -39,7 +39,7 @@ csm license status         # check it offline
 csm license clear
 
 # Setup and maintenance
-sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger, --skip-docker)
+sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger, --docker for the legacy stack's MySQL)
 sudo csm install-deps      # install system dependencies
 csm bootstrap              # install or redeploy servers without the TUI
 csm doctor                 # diagnose common problems and offer fixes

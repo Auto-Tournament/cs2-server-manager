@@ -23,8 +23,9 @@ type SetupHostOptions struct {
 	SkipDeps bool
 	// SkipLinger skips `loginctl enable-linger`.
 	SkipLinger bool
-	// SkipDocker leaves Docker alone: no service start, no docker group.
-	SkipDocker bool
+	// Docker starts Docker and adds the user to the docker group, for the
+	// legacy stack's MySQL container. Ready Up needs no database.
+	Docker bool
 }
 
 // SetupHost is the one-time root setup for user mode: it installs the system
@@ -72,9 +73,9 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[4/6] Docker (the shared MySQL database for the plugin runs in a container)")
-	if opts.SkipDocker {
-		fmt.Fprintln(w, "  [i] Skipped (--skip-docker).")
+	fmt.Fprintln(w, "[4/6] Docker (only for the legacy MatchZy Enhanced stack's MySQL database)")
+	if !opts.Docker {
+		fmt.Fprintln(w, "  [i] Skipped: Ready Up needs no database. Add --docker for the legacy stack's MySQL container.")
 	} else if err := grantDockerAccess(ctx, w, cs2User); err != nil {
 		// Not fatal: SQLite or an external MySQL server need no Docker.
 		fmt.Fprintf(w, "  [!] %v\n", err)
@@ -121,7 +122,7 @@ func grantDockerAccess(ctx context.Context, w io.Writer, cs2User string) error {
 		return fmt.Errorf("usermod -aG docker %s failed: %v: %s", cs2User, err, strings.TrimSpace(string(out)))
 	}
 	fmt.Fprintf(w, "  [✓] Added %s to the docker group. Log out and back in before running csm, so it takes effect.\n", cs2User)
-	fmt.Fprintln(w, "  [i] The docker group can control every container on this host; skip this with --skip-docker if that matters here.")
+	fmt.Fprintln(w, "  [i] The docker group can control every container on this host.")
 	return nil
 }
 
@@ -270,6 +271,6 @@ func setupHostNextSteps(cs2User string) string {
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "Running servers keep running and are found as before (same tmux server).")
 	fmt.Fprintln(&b, "Root is still needed for: csm install-deps, csm self-update and csm cleanup-all.")
-	fmt.Fprintln(&b, "If setup-host added you to the docker group, log out and back in first.")
+	fmt.Fprintln(&b, "If setup-host added you to the docker group (--docker), log out and back in first.")
 	return b.String()
 }

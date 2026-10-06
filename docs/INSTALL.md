@@ -10,14 +10,14 @@ csm runs as the account that owns the servers and refuses to run as root. Log in
 sudo csm setup-host
 ```
 
-It installs the system dependencies (and accepts the Steam license the `steamcmd` package asks for), runs `loginctl enable-linger` for your account, adds it to the `docker` group for the MatchZy MySQL container, gives it csm's files in your home (or `CSM_ROOT`) and the csm files root runs left in `/tmp`, and moves the auto-update monitor from root's crontab into yours. It is safe to run again, and it never starts, stops, restarts or updates a server. Log out and back in so the docker group applies, then run csm without sudo:
+It installs the system dependencies (and accepts the Steam license the `steamcmd` package asks for), runs `loginctl enable-linger` for your account, gives it csm's files in your home (or `CSM_ROOT`) and the csm files root runs left in `/tmp`, and moves the auto-update monitor from root's crontab into yours. It is safe to run again, and it never starts, stops, restarts or updates a server. Then run csm without sudo:
 
 ```bash
 csm status
 csm                         # TUI
 ```
 
-Servers that are already running keep running: csm finds them in the same tmux server as before. Only `sudo csm install-deps`, `sudo csm self-update` and `sudo csm cleanup-all` still need root. On a host that already runs servers, use `sudo csm setup-host --skip-deps`: `apt-get install` can upgrade tmux, and a newer tmux client can't talk to the tmux server the running servers live in. `--skip-linger` skips `loginctl`, and `--skip-docker` leaves Docker alone (members of the `docker` group can control every container on the host; use SQLite or your own MySQL server then).
+Servers that are already running keep running: csm finds them in the same tmux server as before. Only `sudo csm install-deps`, `sudo csm self-update` and `sudo csm cleanup-all` still need root. On a host that already runs servers, use `sudo csm setup-host --skip-deps`: `apt-get install` can upgrade tmux, and a newer tmux client can't talk to the tmux server the running servers live in. `--skip-linger` skips `loginctl`. Only the legacy MatchZy Enhanced stack needs Docker (for its MySQL container): add `--docker` to start Docker and put your account in the `docker` group, then log out and back in. Members of that group can control every container on the host.
 
 `csm self-update` run as the user can't replace `/usr/local/bin/csm`, so it installs the new binary into `~/.local/bin/csm`, which login shells put first in `PATH`. Run `csm install-monitor-cron` afterwards so cron uses it too.
 

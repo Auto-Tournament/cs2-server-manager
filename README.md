@@ -40,10 +40,10 @@ tmp=$(mktemp); \
 curl -L "https://github.com/Auto-Tournament/cs2-server-manager/releases/latest/download/$asset" -o "$tmp" && \
 sudo install -m 0755 "$tmp" /usr/local/bin/csm && \
 rm "$tmp" && \
-sudo csm setup-host   # once: packages, lingering, docker group for your account
+sudo csm setup-host   # once: packages and lingering for your account
 ```
 
-Log out and back in (so the docker group applies), then run csm without sudo:
+Then run csm without sudo. The installer sets up Ready Up and asks for its license:
 
 ```bash
 csm                   # the interactive TUI installer

@@ -71,14 +71,14 @@ func main() {
 			hfs := flag.NewFlagSet("setup-host", flag.ExitOnError)
 			skipDeps := hfs.Bool("skip-deps", false, "don't apt-get install dependencies (use on a host that already runs servers)")
 			skipLinger := hfs.Bool("skip-linger", false, "don't run loginctl enable-linger")
-			skipDocker := hfs.Bool("skip-docker", false, "don't start Docker or add the user to the docker group")
+			docker := hfs.Bool("docker", false, "start Docker and add the user to the docker group (legacy MatchZy Enhanced stack's MySQL)")
 			_ = hfs.Parse(args[1:])
 			var buf strings.Builder
 			err := csm.SetupHost(context.Background(), &buf, csm.SetupHostOptions{
 				CS2User:    strings.TrimSpace(os.Getenv("SUDO_USER")),
 				SkipDeps:   *skipDeps,
 				SkipLinger: *skipLinger,
-				SkipDocker: *skipDocker,
+				Docker:     *docker,
 			})
 			csm.LogAction("cli", "setup-host", buf.String(), err)
 			fmt.Print(buf.String())
@@ -1162,7 +1162,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Printf("%sCommands that need root (sudo):%s\n", yellow, reset)
 	fmt.Println("  setup-host             One-time host setup for user mode: deps, CS2 user, linger, file ownership,")
-	fmt.Println("                         monitor cron in the user's crontab (--skip-deps, --skip-linger, --skip-docker). Never touches servers")
+	fmt.Println("                         monitor cron in the user's crontab (--skip-deps, --skip-linger, --docker). Never touches servers")
 	fmt.Println("  install-deps           Install system dependencies")
 	fmt.Println("  cleanup-all            (sudo) Remove all servers, their files and the MatchZy MySQL container of the account")
 	fmt.Println("                         that ran sudo (--user <name>); --delete-user also deletes a dedicated service account")

@@ -126,12 +126,24 @@ func TestPluginStackFreshInstall(t *testing.T) {
 	fakeReadyUpGitHub(t, "", readyup.Release{TagName: "v0.1.0-beta.1", Prerelease: true, PublishedAt: "2026-09-28T00:00:00Z"})
 	var log bytes.Buffer
 	stack, why := PluginStack(context.Background(), &log, "csm-test-no-such-user")
-	if stack != PluginStackLegacy || !strings.Contains(why, "no stable") || !strings.Contains(log.String(), "csm plugins channel beta") {
+	if stack != PluginStackReadyUp || !strings.Contains(why, "v0.1.0-beta.1") || !strings.Contains(log.String(), "beta channel") {
 		t.Fatalf("pre-releases only = %s (%s)\n%s", stack, why, log.String())
+	}
+	if s, _ := LoadPluginSettings(); s.Stack != PluginStackReadyUp || s.ReadyUpChannel != "beta" || s.StackSetBy != "fresh-install" {
+		t.Fatalf("beta fallback saved = %+v", s)
+	}
+
+	// No release reachable at all (offline): the legacy stack, not saved.
+	pluginTestEnv(t)
+	t.Setenv(EnvReadyUpAPI, "http://127.0.0.1:1")
+	if stack, _ := PluginStack(context.Background(), io.Discard, "csm-test-no-such-user"); stack != PluginStackLegacy {
+		t.Fatalf("offline = %s", stack)
 	}
 	if s, _ := LoadPluginSettings(); s.Stack != "" {
 		t.Fatalf("a legacy fallback was saved: %+v", s)
 	}
+	t.Setenv(EnvReadyUpAPI, "")
+	pluginTestEnv(t)
 
 	fakeReadyUpGitHub(t, "v0.1.0", readyup.Release{TagName: "v0.1.0", PublishedAt: "2026-10-01T00:00:00Z"})
 	stack, _ = PluginStack(context.Background(), io.Discard, "csm-test-no-such-user")

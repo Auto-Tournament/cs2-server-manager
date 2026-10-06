@@ -255,11 +255,14 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	}
 	log("")
 
-	log("[4/5] Provisioning MatchZy database (Docker)...")
-
-	if err := setupMatchZyDatabaseGo(out, cfg); err != nil {
-		log("  [!] MatchZy database provisioning skipped or failed: %v", err)
-		log("      Fix that and run bootstrap again, or choose SQLite (MATCHZY_DB_ENGINE=sqlite) or your own MySQL server.")
+	if UsesLegacyStack(cfg.CS2User) {
+		log("[4/5] Provisioning MatchZy database (Docker)...")
+		if err := setupMatchZyDatabaseGo(out, cfg); err != nil {
+			log("  [!] MatchZy database provisioning skipped or failed: %v", err)
+			log("      Fix that and run bootstrap again, or choose SQLite (MATCHZY_DB_ENGINE=sqlite) or your own MySQL server.")
+		}
+	} else {
+		log("[4/5] Database: none needed. Ready Up sends match data to the platform; only the legacy MatchZy Enhanced stack uses MySQL.")
 	}
 	log("")
 
@@ -1745,6 +1748,21 @@ func (t *teeWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// UsesLegacyStack reports whether this install is on the legacy
+// MatchZy Enhanced stack, the only one that needs the MatchZy database: the
+// stack chosen in plugins.json or CSM_PLUGIN_STACK, else an existing legacy
+// install. A fresh install gets Ready Up (see PluginStack).
+func UsesLegacyStack(user string) bool {
+	s, _ := LoadPluginSettings()
+	switch s.Resolved().Stack {
+	case PluginStackLegacy:
+		return true
+	case PluginStackReadyUp:
+		return false
+	}
+	return legacyStackPresent(user)
+}
+
 // steamLicenseSelections answers the steamcmd package's license questions.
 // Debian and Ubuntu name the question's owner differently, so both are set.
 const steamLicenseSelections = `steam steam/question select I AGREE
@@ -1776,7 +1794,7 @@ func ensureDockerGo(w io.Writer) error {
 		return nil
 	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
-		fmt.Fprintf(w, "  [!] %s cannot use Docker: run `sudo csm setup-host` (it adds you to the docker group), then log out and back in.\n", currentUsername())
+		fmt.Fprintf(w, "  [!] %s cannot use Docker: run `sudo csm setup-host --docker` (it adds you to the docker group), then log out and back in.\n", currentUsername())
 		return fmt.Errorf("docker is not usable by %s", currentUsername())
 	}
 	return nil
