@@ -1275,7 +1275,24 @@ func runUpdatesCommand(args []string) (string, error) {
 		}
 		platform := st.Platform.Resolved()
 		if !platform.Configured() {
-			return "", fmt.Errorf("no platform is configured (csm updates platform <url> <token>)")
+			// The monitor then asks through the host link (`csm link`); say
+			// what it gets from there.
+			link := csm.HostLinkPlatformURL()
+			if link == "" {
+				return "", fmt.Errorf("no platform is configured (csm updates platform <url> <token>) and this host is not linked (csm link)")
+			}
+			auto := st
+			auto.HoldMode = csm.HoldModeAuto
+			h := csm.ResolveUpdateHold(context.Background(), auto)
+			hold := "off"
+			if h.On {
+				hold = "ON"
+			}
+			out := fmt.Sprintf("Platform:  %s (through the host link)\nHold:      %s\nReason:    %s\n", link, hold, h.Reason)
+			if st.Mode() != csm.HoldModeAuto {
+				out += fmt.Sprintf("\nNote: the hold is set to %q, so this answer is not used.\n", st.Mode())
+			}
+			return out, nil
 		}
 		answer, err := csm.FetchPlatformHold(context.Background(), platform)
 		if err != nil {
