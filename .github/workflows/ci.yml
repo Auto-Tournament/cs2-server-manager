@@ -36,3 +36,8 @@ jobs:
 
       - name: Test
         run: go test ./...
+
+      # THIRD_PARTY_NOTICES.md lists the Go modules compiled into csm with
+      # their licenses; it must change with go.mod.
+      - name: Third-party notices are current
+        run: python3 scripts/third-party-notices.py --check

@@ -31,6 +31,11 @@ Prices, the price calculator and card checkout are on [autotournament.gg/pricing
 
 Contributions are accepted under the [Contributor License Agreement](CLA.md).
 
+## What the license does not cover
+
+- The images in `map_thumbnails/` and `skin_images/` are Valve Corporation's (Counter-Strike 2 screenshots and artwork). They are not under the license above and are not ours to license. Counter-Strike and Valve are trademarks of Valve Corporation; Auto Tournament is not affiliated with Valve.
+- Third-party Go modules compiled into csm stay under their own licenses: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## Older versions
 
 Earlier versions were published without a license file. Everything from the addition of the LICENSE file on is under the PolyForm Noncommercial License 1.0.0.
