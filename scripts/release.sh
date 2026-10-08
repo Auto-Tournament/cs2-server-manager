@@ -199,6 +199,10 @@ fi
 
 DIST_DIR="dist/releases/${TAG}"
 mkdir -p "${DIST_DIR}"
+# The license and the notices of the Go modules compiled into the binary go
+# with every release (MIT, BSD and Apache ask for them).
+python3 ./scripts/third-party-notices.py
+cp LICENSE THIRD_PARTY_NOTICES.md "${DIST_DIR}/"
 
 # Verify version.go was updated correctly before building
 # The version constant should NOT have the 'v' prefix (UI adds it when displaying)
@@ -240,12 +244,16 @@ if [[ "$CSM_DRY_RUN" == "true" ]]; then
   echo "[csm] DRY RUN: would create GitHub release ${TAG} with assets:"
   echo "  - ${DIST_DIR}/csm-linux-amd64"
   echo "  - ${DIST_DIR}/csm-linux-arm64"
+  echo "  - ${DIST_DIR}/LICENSE"
+  echo "  - ${DIST_DIR}/THIRD_PARTY_NOTICES.md"
 else
   echo "[csm] Creating GitHub release ${TAG}..."
 
   gh release create "${TAG}" \
     "${DIST_DIR}/csm-linux-amd64" \
     "${DIST_DIR}/csm-linux-arm64" \
+    "${DIST_DIR}/LICENSE" \
+    "${DIST_DIR}/THIRD_PARTY_NOTICES.md" \
     --title "CSM ${TAG}" \
     --notes "CS2 Server Manager (CSM) release ${TAG}"
 
