@@ -99,7 +99,10 @@ def main():
 
     if "--check" in sys.argv:
         current = open(OUT).read() if os.path.exists(OUT) else ""
-        if current != text:
+        # The Go runtime's section is whichever Go builds it (its LICENSE text
+        # changed in Go 1.23); releases write it fresh, so compare the modules.
+        modules = lambda t: t.split("## Go standard library and runtime")[0]
+        if modules(current) != modules(text):
             print("THIRD_PARTY_NOTICES.md is out of date: run python3 scripts/third-party-notices.py", file=sys.stderr)
             sys.exit(1)
         print(f"THIRD_PARTY_NOTICES.md is current ({len(deps)} modules).")
