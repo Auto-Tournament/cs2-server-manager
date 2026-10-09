@@ -21,6 +21,7 @@ import (
 )
 
 func main() {
+	csm.CheckinVersion = tui.Version()
 	// Internal diagnostics (the standard logger) only show with CSM_VERBOSE=1;
 	// commands print their own results.
 	if os.Getenv("CSM_VERBOSE") == "" {

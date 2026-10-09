@@ -2,9 +2,11 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/mattn/go-isatty"
@@ -45,7 +47,35 @@ func runLicenseCommand(args []string, stdin io.Reader, stdinIsTerminal bool) (st
 		if err != nil {
 			return out.String(), err
 		}
+		// Check in at once: the license's current terms and where it stands.
+		csm.MaybeCheckIn(context.Background(), &out, true)
 		return "License key saved.\n" + out.String() + "\n" + s.Report(), nil
+	case "cap":
+		// csm license cap [<n>|off]: how many servers the linked platform may create here.
+		if len(args) == 1 {
+			if n := csm.PlatformCap(csm.DefaultPlatformLink); n >= 0 {
+				return fmt.Sprintf("The linked platform may create at most %d server(s) on this host.\n", n), nil
+			}
+			return "No cap: the linked platform may create servers here up to the license's limit.\n", nil
+		}
+		if len(args) != 2 {
+			return "", fmt.Errorf("usage: csm license cap [<n>|off]")
+		}
+		n := -1
+		if args[1] != "off" {
+			v, err := strconv.Atoi(args[1])
+			if err != nil || v < 0 {
+				return "", fmt.Errorf("the cap is a number of servers (0 or more), or off")
+			}
+			n = v
+		}
+		if err := csm.SetPlatformCap(csm.DefaultPlatformLink, n); err != nil {
+			return "", err
+		}
+		if n < 0 {
+			return "Cap removed.\n", nil
+		}
+		return fmt.Sprintf("The linked platform may now create at most %d server(s) on this host.\n", n), nil
 	case "clear", "remove", "unset":
 		if len(args) != 1 {
 			return "", fmt.Errorf("usage: csm license clear")
@@ -93,15 +123,17 @@ func licenseCommand(args []string) {
 }
 
 func printLicenseUsage(w *os.File) {
-	fmt.Fprintln(w, "usage: csm license set <key> | status | clear")
+	fmt.Fprintln(w, "usage: csm license set <key> | status | clear | cap [<n>|off]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  set <key>   store an Auto Tournament license key and hand it to Ready Up on every server")
 	fmt.Fprintln(w, "              (without <key>, or with -, it is read from stdin)")
 	fmt.Fprintln(w, "  status      check the stored key offline and show what it covers")
 	fmt.Fprintln(w, "  clear       remove the key, also from the servers' config")
+	fmt.Fprintln(w, "  cap [<n>|off]  how many servers the linked platform may create on this host")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Free for non-commercial use without a key: "+csm.LicensePricingURL)
-	fmt.Fprintln(w, "Nothing is ever blocked: a problem with the key is only a warning.")
+	fmt.Fprintln(w, "With a paid key, servers are created within the license's limit (shared by every")
+	fmt.Fprintln(w, "install using the key), and an unpaid, replaced or moved key stops new servers.")
 }
 
 // licenseStatusLine is the one line `csm status` prints.
@@ -113,6 +145,9 @@ func licenseStatusLine() string {
 	line := s.Line()
 	if s.Set && (len(s.Result.Warnings) > 0) {
 		line += " — csm license status"
+	}
+	if st := csm.CurrentStanding().StandingLine(); st != "" {
+		line += "\n" + st
 	}
 	return line
 }

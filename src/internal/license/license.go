@@ -73,6 +73,9 @@ type Payload struct {
 	UpdatesUntil string `json:"updates_until"`
 	ValidFrom    string `json:"valid_from,omitempty"`
 	ValidTo      string `json:"valid_to,omitempty"`
+	// Lease is set only on a lease: the license's current terms from a
+	// check-in. A lease is used for limits next to the key, never as the key.
+	Lease bool `json:"lease,omitempty"`
 }
 
 // Message is one warning, or the reason a key is invalid.
@@ -287,6 +290,13 @@ func parsePayload(raw map[string]any) (*Payload, string) {
 			return nil, "bad valid_from/valid_to"
 		}
 		p.ValidFrom, p.ValidTo = from, to
+	}
+	if v, has := raw["lease"]; has {
+		b, isBool := v.(bool)
+		if !isBool {
+			return nil, "bad lease"
+		}
+		p.Lease = b
 	}
 	if v, has := raw["licensee"]; has {
 		s, isString := v.(string)
