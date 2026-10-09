@@ -148,6 +148,19 @@ type PlatformLicense struct {
 	// Use is the platform's license answer (noncommercial | commercial) when it
 	// sends one; csm adopts it for Ready Up when the operator gave none.
 	Use string `json:"use,omitempty"`
+	// Lease is the license's current terms from the platform's last check-in
+	// (signed like a key, marked "lease"): the key never changes on renewal
+	// or more servers, so csm and Ready Up take their limits from it.
+	Lease *string `json:"lease,omitempty"`
+	// State is where the license stands, from the platform's last check-in.
+	State *PlatformLicenseState `json:"state,omitempty"`
+}
+
+// PlatformLicenseState is the platform's last check-in answer about the license.
+type PlatformLicenseState struct {
+	Status     string  `json:"status"`
+	StopsOn    *string `json:"stops_on"`
+	ValidUntil *string `json:"valid_until"`
 }
 
 // maxHoldBody bounds what is read from the platform, so a wrong URL that

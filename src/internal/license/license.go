@@ -68,11 +68,14 @@ type Payload struct {
 	Product      string `json:"product"` // servers | platform
 	Pack         string `json:"pack"`    // S | M | L
 	MaxServers   int    `json:"max_servers"`
-	Kind         string `json:"kind"` // event | year | founder
+	Kind         string `json:"kind"` // month | year | founder (event: older keys)
 	IssuedAt     string `json:"issued_at"`
 	UpdatesUntil string `json:"updates_until"`
 	ValidFrom    string `json:"valid_from,omitempty"`
 	ValidTo      string `json:"valid_to,omitempty"`
+	// Lease is set only on a lease: the license's current terms from a
+	// check-in. A lease is used for limits next to the key, never as the key.
+	Lease bool `json:"lease,omitempty"`
 }
 
 // Message is one warning, or the reason a key is invalid.
@@ -265,7 +268,7 @@ func parsePayload(raw map[string]any) (*Payload, string) {
 		return nil, "bad max_servers"
 	}
 	p.MaxServers = int(max)
-	if p.Kind, ok = oneOf(raw["kind"], "event", "year", "founder"); !ok {
+	if p.Kind, ok = oneOf(raw["kind"], "month", "event", "year", "founder"); !ok {
 		return nil, "bad kind"
 	}
 	if !validIssuedAt(raw["issued_at"]) {
@@ -287,6 +290,13 @@ func parsePayload(raw map[string]any) (*Payload, string) {
 			return nil, "bad valid_from/valid_to"
 		}
 		p.ValidFrom, p.ValidTo = from, to
+	}
+	if v, has := raw["lease"]; has {
+		b, isBool := v.(bool)
+		if !isBool {
+			return nil, "bad lease"
+		}
+		p.Lease = b
 	}
 	if v, has := raw["licensee"]; has {
 		s, isString := v.(string)

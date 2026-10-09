@@ -217,7 +217,7 @@ func steamInfServerVersion(path string) int64 {
 
 // Host returns the machine facts.
 func (b *HostBackend) Host(ctx context.Context) (hostagent.HostFacts, error) {
-	f := hostagent.HostFacts{OS: HostOSDescription()}
+	f := hostagent.HostFacts{OS: HostOSDescription(), License: inventoryLicense()}
 	f.Hostname, _ = os.Hostname()
 	f.Resources.CPUs = runtime.NumCPU()
 	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
@@ -438,6 +438,8 @@ func (b *HostBackend) Restart(ctx context.Context, server int) error {
 
 // CreateServer runs the add-server flow with a pre-start hook.
 func (b *HostBackend) CreateServer(ctx context.Context, beforeStart func(serverDir string) error) (int, string, error) {
+	// The cap and the license are checked per platform by LinkBackend, which
+	// is what the agent runs on.
 	if InstanceBackendOn() {
 		return b.instanceCreate(ctx, beforeStart)
 	}

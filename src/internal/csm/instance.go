@@ -641,7 +641,19 @@ func (m *InstanceManager) mkdirs(dirs ...string) error {
 
 // Create makes instance n (0 = the lowest free number): its directories and
 // state. It needs a Ready Up layer to start, not to be created.
+// Create makes instance n (0: the next free one), within a paid license's
+// limit. The agent creates through LinkBackend, which checks per platform
+// and calls createUngated.
 func (m *InstanceManager) Create(w io.Writer, n int) (int, error) {
+	if !m.Exists(n) || n == 0 {
+		if err := GateCreate(context.Background(), 1); err != nil {
+			return 0, err
+		}
+	}
+	return m.createUngated(w, n)
+}
+
+func (m *InstanceManager) createUngated(w io.Writer, n int) (int, error) {
 	if err := m.requireInstancePrivileges("instance create"); err != nil {
 		return 0, err
 	}
@@ -795,6 +807,9 @@ func writeFileAtomicMode(path string, data []byte, mode os.FileMode) error {
 // Start starts instance n in its tmux session.
 func (m *InstanceManager) Start(ctx context.Context, n int) error {
 	if err := m.requireInstancePrivileges("instance start"); err != nil {
+		return err
+	}
+	if err := GateStart(); err != nil {
 		return err
 	}
 	if !m.Exists(n) {

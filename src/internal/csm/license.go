@@ -116,11 +116,17 @@ func CheckLicense(key string, serverCount int, now time.Time) LicenseSummary {
 // server-N directory, spares and test servers included (they can't be told
 // apart). -1 when it can't be read.
 func LicenseServerCount() int {
-	mgr, err := NewTmuxManager()
-	if err != nil {
-		return -1
+	n := -1
+	if mgr, err := NewTmuxManager(); err == nil {
+		n = mgr.NumServers
 	}
-	return mgr.NumServers
+	// Instance mode: every serving instance is a game server too.
+	if m, err := NewInstanceManager(); err == nil {
+		if k := len(m.Serving()); k > n {
+			n = k
+		}
+	}
+	return n
 }
 
 // CurrentLicense checks the stored key.
@@ -151,6 +157,8 @@ func periodText(p *license.Payload) string {
 			return "event " + p.ValidFrom
 		}
 		return fmt.Sprintf("event %s to %s", p.ValidFrom, p.ValidTo)
+	case "month":
+		return "monthly, paid until " + p.UpdatesUntil
 	case "year":
 		return "updates until " + p.UpdatesUntil
 	case "founder":
@@ -216,6 +224,17 @@ func (s LicenseSummary) Report() string {
 	if link := s.VerifyLink(); link != "" {
 		b.WriteString("Check it:   " + link + "\n")
 	}
+	st := CurrentStanding()
+	if st.Paid {
+		b.WriteString(fmt.Sprintf("Servers:    %d on this host", max(s.ServerCount, 0)))
+		if st.ServersElsewhere > 0 {
+			b.WriteString(fmt.Sprintf(", %d on other installs with this key", st.ServersElsewhere))
+		}
+		b.WriteString(fmt.Sprintf("; the license covers %d\n", st.MaxServers))
+		if line := st.StandingLine(); line != "" {
+			b.WriteString(line + "\n")
+		}
+	}
 	if !license.BakedLineDate() {
 		b.WriteString("(dev build: version line date " + license.LineDate() + ", the build date)\n")
 	}
@@ -230,6 +249,9 @@ func SetLicenseKey(w io.Writer, key string) (LicenseSummary, error) {
 	key = strings.TrimSpace(key)
 	if !license.LooksLikeKey(key) {
 		return LicenseSummary{}, fmt.Errorf("that is not an Auto Tournament license key (it starts with %s.)", license.TokenPrefix)
+	}
+	if p, ok := license.Peek(key); ok && p.Lease {
+		return LicenseSummary{}, fmt.Errorf("that is a lease, not a license key: copy the key from the console")
 	}
 	user := licenseCS2User()
 	if err := saveLicenseSettings(LicenseSettings{Key: key, SetAt: time.Now().UTC().Format(time.RFC3339)}, user); err != nil {
@@ -271,7 +293,8 @@ func applyLicenseToAllServers(w io.Writer, key string) (done, failed int) {
 		if _, err := os.Stat(cfgDir); err != nil {
 			continue
 		}
-		if err := writeServerLicense(cfgDir, key, mgr.CS2User); err != nil {
+		k, lease, state := serverLicense(i, key)
+		if err := writeServerLicenseWith(cfgDir, k, lease, state, mgr.CS2User); err != nil {
 			fmt.Fprintf(w, "  warning: server-%d: could not update its Ready Up license key: %v\n", i, err)
 			failed++
 			continue
@@ -289,21 +312,56 @@ func applyLicenseToAllServers(w io.Writer, key string) (done, failed int) {
 // applyStoredLicenseToServer is called wherever csm (re)writes a server's
 // server.cfg, so a regenerated config keeps the key. Best-effort.
 func applyStoredLicenseToServer(w io.Writer, user string, serverNum int) {
-	s, err := LoadLicenseSettings()
-	if err != nil || s.Key == "" || !license.LooksLikeKey(s.Key) {
+	s, _ := LoadLicenseSettings()
+	key, lease, state := serverLicense(serverNum, s.Key)
+	if key == "" || !license.LooksLikeKey(key) {
 		return
 	}
 	cfgDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "cfg")
-	if err := writeServerLicense(cfgDir, s.Key, user); err != nil {
+	if err := writeServerLicenseWith(cfgDir, key, lease, state, user); err != nil {
 		fmt.Fprintf(w, "  [i] Could not hand the license key to Ready Up on server-%d: %v\n", serverNum, err)
 	}
 }
 
-// readyUpLicenseCfgContent is the per-server cfg that sets the cvar.
+// The lease and the license state go to Ready Up next to the key, so it stops
+// loading matches together with csm and the platform (license_enforce.go).
+const (
+	readyUpLeaseCvar = "readyup_license_lease"
+	readyUpStateCvar = "readyup_license_state"
+)
+
+// readyUpLicenseCfgContent is the per-server cfg that sets the cvars: the
+// key, and the lease and license state csm last got for it.
 func readyUpLicenseCfgContent(key string) string {
-	return "// Written by csm: the Auto Tournament license key for Ready Up.\n" +
+	c := loadCheckinFile()
+	return readyUpLicenseCfgContentWith(key, c.Lease, c.State)
+}
+
+// readyUpLicenseCfgContentWith is the cfg for a key with its own lease and state.
+func readyUpLicenseCfgContentWith(key, lease string, state *CheckinState) string {
+	out := "// Written by csm: the Auto Tournament license key for Ready Up.\n" +
 		"// Change it with `csm license set` / `csm license clear`; edits here are overwritten.\n" +
 		fmt.Sprintf("%s \"%s\"\n", ReadyUpLicenseCvar, key)
+	if lease != "" && license.LooksLikeKey(lease) {
+		out += fmt.Sprintf("%s \"%s\"\n", readyUpLeaseCvar, lease)
+	}
+	if state != nil && safeCfgWord(state.Status) && (state.StopsOn == "" || safeCfgWord(state.StopsOn)) {
+		out += fmt.Sprintf("%s \"%s\"\n", readyUpStateCvar, strings.TrimSpace(state.Status+" "+state.StopsOn))
+	}
+	return out
+}
+
+// safeCfgWord: letters, digits, '-' and '_' only (safe inside a quoted cfg value).
+func safeCfgWord(s string) bool {
+	if s == "" || len(s) > 40 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // isLicenseExecLine matches the exec line csm adds (with or without its comment).
@@ -348,6 +406,12 @@ func withLicenseExec(cfg string, on bool) string {
 // server.cfg exec it. A server without a server.cfg gets the file only; the
 // exec line is added when csm writes its server.cfg.
 func writeServerLicense(cfgDir, key, user string) error {
+	c := loadCheckinFile()
+	return writeServerLicenseWith(cfgDir, key, c.Lease, c.State, user)
+}
+
+// writeServerLicenseWith is writeServerLicense with the key's own lease and state.
+func writeServerLicenseWith(cfgDir, key, lease string, state *CheckinState, user string) error {
 	cfgFile := filepath.Join(cfgDir, readyUpLicenseCfg)
 	serverCfg := filepath.Join(cfgDir, "server.cfg")
 
@@ -360,7 +424,7 @@ func writeServerLicense(cfgDir, key, user string) error {
 			return fmt.Errorf("not a license key")
 		}
 		tmp := cfgFile + ".tmp"
-		if err := os.WriteFile(tmp, []byte(readyUpLicenseCfgContent(key)), 0o600); err != nil {
+		if err := os.WriteFile(tmp, []byte(readyUpLicenseCfgContentWith(key, lease, state)), 0o600); err != nil {
 			return err
 		}
 		if err := os.Chmod(tmp, 0o600); err != nil {

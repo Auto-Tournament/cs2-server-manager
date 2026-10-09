@@ -249,7 +249,7 @@ func TestSignedButIncompleteIsInvalid(t *testing.T) {
 		"zero servers":       {"max_servers": 0},
 		"fractional servers": {"max_servers": 1.5},
 		"string servers":     {"max_servers": "6"},
-		"bad kind":           {"kind": "month"},
+		"bad kind":           {"kind": "weekly"},
 		"bad date":           {"updates_until": "2027-02-30"},
 		"bad issued_at":      {"issued_at": "yesterday"},
 		"half window":        {"valid_from": "2026-10-03"},
