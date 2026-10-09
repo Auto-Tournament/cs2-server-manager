@@ -97,6 +97,7 @@ var Capabilities = []string{
 	"update.game",
 	"update.plugins",
 	"updates.hold",
+	"license.push",
 	"logs.tail",
 	"logs.follow",
 	"health.v1",
