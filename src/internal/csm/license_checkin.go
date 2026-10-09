@@ -235,9 +235,14 @@ func MaybeCheckIn(ctx context.Context, w io.Writer, force bool) {
 			c.Notice = c.Notice[:300]
 		}
 	}
+	before := loadCheckinFile()
 	if err := saveCheckinFile(c); err != nil {
 		fmt.Fprintf(w, "License check-in: could not save the answer (%v).\n", err)
 		return
+	}
+	// Ready Up gets the new lease / state in its cfg (read at the next map load).
+	if before.Lease != c.Lease || fmt.Sprint(before.State) != fmt.Sprint(c.State) {
+		applyLicenseToAllServers(io.Discard, key)
 	}
 	state := "active"
 	if c.State != nil {

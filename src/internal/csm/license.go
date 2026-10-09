@@ -321,11 +321,40 @@ func applyStoredLicenseToServer(w io.Writer, user string, serverNum int) {
 	}
 }
 
-// readyUpLicenseCfgContent is the per-server cfg that sets the cvar.
+// The lease and the license state go to Ready Up next to the key, so it stops
+// loading matches together with csm and the platform (license_enforce.go).
+const (
+	readyUpLeaseCvar = "readyup_license_lease"
+	readyUpStateCvar = "readyup_license_state"
+)
+
+// readyUpLicenseCfgContent is the per-server cfg that sets the cvars: the
+// key, and the lease and license state csm last got for it.
 func readyUpLicenseCfgContent(key string) string {
-	return "// Written by csm: the Auto Tournament license key for Ready Up.\n" +
+	out := "// Written by csm: the Auto Tournament license key for Ready Up.\n" +
 		"// Change it with `csm license set` / `csm license clear`; edits here are overwritten.\n" +
 		fmt.Sprintf("%s \"%s\"\n", ReadyUpLicenseCvar, key)
+	c := loadCheckinFile()
+	if c.Lease != "" && license.LooksLikeKey(c.Lease) {
+		out += fmt.Sprintf("%s \"%s\"\n", readyUpLeaseCvar, c.Lease)
+	}
+	if c.State != nil && safeCfgWord(c.State.Status) && (c.State.StopsOn == "" || safeCfgWord(c.State.StopsOn)) {
+		out += fmt.Sprintf("%s \"%s\"\n", readyUpStateCvar, strings.TrimSpace(c.State.Status+" "+c.State.StopsOn))
+	}
+	return out
+}
+
+// safeCfgWord: letters, digits, '-' and '_' only (safe inside a quoted cfg value).
+func safeCfgWord(s string) bool {
+	if s == "" || len(s) > 40 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // isLicenseExecLine matches the exec line csm adds (with or without its comment).
