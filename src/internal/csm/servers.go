@@ -26,6 +26,10 @@ func AddServersWithContext(ctx context.Context, count int) (string, error) {
 	if count <= 0 {
 		return "", fmt.Errorf("server count must be a positive integer")
 	}
+	// A paid license's limit, for the whole license (license_enforce.go).
+	if err := GateCreate(ctx, count); err != nil {
+		return "", err
+	}
 
 	var buf bytes.Buffer
 	created := 0

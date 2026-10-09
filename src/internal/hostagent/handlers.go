@@ -560,6 +560,7 @@ type Inventory struct {
 	// Address is this machine's address (MachineAddress): where players
 	// connect to its servers unless a server reports its own public_addr.
 	Address   string      `json:"address,omitempty"`
+	License   *InvLicense `json:"license,omitempty"`
 	Resources Resources   `json:"resources"`
 	CS2       CS2Facts    `json:"cs2"`
 	Servers   []InvServer `json:"servers"`
@@ -603,7 +604,7 @@ func BuildInventory(hostID, csmVersion string, facts HostFacts, servers []Server
 	inv := Inventory{
 		HostID: hostID, Hostname: truncate(facts.Hostname, 255), CSMVersion: csmVersion, OS: truncate(facts.OS, 128),
 		Resources: facts.Resources, CS2: facts.CS2, Servers: make([]InvServer, 0, len(servers)),
-		Address: MachineAddress(),
+		Address: MachineAddress(), License: facts.License,
 	}
 	if inv.Resources.Disk == nil {
 		inv.Resources.Disk = []DiskInfo{}

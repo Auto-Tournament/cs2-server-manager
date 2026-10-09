@@ -1,6 +1,7 @@
 package csm
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,21 +16,27 @@ import (
 // and 8). It only ever applies to a genuine paid key; with no key (free,
 // non-commercial use) or a key that doesn't verify, nothing is limited.
 //
-//   - The server limit: no game server is created above the key's
-//     max_servers, however it is asked for (the TUI, `csm`, the platform
-//     through the host agent). Servers that already exist keep running.
-//   - Late payment: a monthly or yearly license that isn't paid is past due
-//     (a warning) and, after 14 days of grace, expired: csm won't create or
-//     start servers, and Ready Up stops loading matches, until it is paid.
+//   - One limit per license: every install using the key (csm hosts, the
+//     platform) shares the license's max_servers. Before creating servers,
+//     csm asks the license server whether they fit the whole license right
+//     now (license_checkin.go, Reserve). If it can't be asked, the last
+//     check-in decides, but only when it is at most 3 days old.
+//   - Late payment, a replaced key, a key in use on another platform
+//     install: csm won't create or start servers, and Ready Up stops loading
+//     matches, until it is sorted. Servers already running are never stopped.
 //
-// The standing comes from the key itself (offline) and the last check-in
-// answer (license_checkin.go), so the license server being unreachable
-// changes nothing: the last answer and the key's own dates hold. A monthly
-// key whose last paid day is more than 14 days ago is expired even offline;
-// the check-in brings the renewed key.
+// The key never changes on renewal or more servers. The license's current
+// terms come as a lease (signed like a key, marked "lease") in the check-in
+// answer, or from the platform with its key. The standing comes from the
+// key, the lease and the last answer, so the license server being
+// unreachable changes nothing: they hold.
 
 // LicenseGraceDays is how long a late subscription keeps working.
 const LicenseGraceDays = 14
+
+// checkinFresh is how recent the last check-in must be to create servers
+// with a paid key when the license server can't be asked.
+const checkinFresh = 3 * 24 * time.Hour
 
 // Standing statuses.
 const (
@@ -50,8 +57,12 @@ type LicenseStanding struct {
 	Paid       bool
 	MaxServers int
 	LicenseID  string
-	// StopsOn is the day csm and Ready Up stop unless it is paid (YYYY-MM-DD), or "".
+	// StopsOn is the day csm and Ready Up stop unless it is sorted (YYYY-MM-DD), or "".
 	StopsOn string
+	// Reason is why it is past due or expired: unpaid, replaced or in_use_elsewhere.
+	Reason string
+	// ServersElsewhere is the servers other installs use on this license (last answer).
+	ServersElsewhere int
 }
 
 // CheckinState is what the license server last said about the license.
@@ -71,20 +82,51 @@ func addDaysISO(day string, days int) string {
 
 var standingRank = map[string]int{StandingActive: 0, StandingPastDue: 1, StandingExpired: 2}
 
-// StandingFor is the standing for a key and the last check-in answer on
-// `now`. Pure apart from the embedded public keys (opts for tests).
-func StandingFor(key string, server *CheckinState, now time.Time, keys map[string]string) LicenseStanding {
+func verifyQuiet(token string, keys map[string]string, now time.Time) *license.Payload {
+	r := license.Verify(token, license.Options{PublicKeys: keys, LineDate: "0000-01-01", ServerCount: -1, Now: now})
+	if !r.Valid || r.License == nil {
+		return nil
+	}
+	return r.License
+}
+
+// StandingFor is the standing for a key, a lease and the last answer on
+// `now`. Pure apart from the embedded public keys (keys != nil in tests).
+func StandingFor(key, lease string, server *CheckinState, now time.Time, keys map[string]string) LicenseStanding {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return LicenseStanding{Status: StandingFree}
 	}
-	r := license.Verify(key, license.Options{PublicKeys: keys, LineDate: "0000-01-01", ServerCount: -1, Now: now})
-	if !r.Valid || r.License == nil {
+	p := verifyQuiet(key, keys, now)
+	if p == nil || p.Lease {
 		return LicenseStanding{Status: StandingInvalid}
 	}
-	p := r.License
+	if lease = strings.TrimSpace(lease); lease != "" {
+		if l := verifyQuiet(lease, keys, now); l != nil && l.Lease && l.ID == p.ID && l.Kind == p.Kind && l.IssuedAt >= p.IssuedAt {
+			p = l
+		}
+	}
 	today := now.UTC().Format("2006-01-02")
 	st := LicenseStanding{Status: StandingActive, Paid: true, MaxServers: p.MaxServers, LicenseID: p.ID}
+
+	if server != nil {
+		switch server.Status {
+		case "in_use_elsewhere":
+			st.Status, st.Reason, st.StopsOn = StandingExpired, "in_use_elsewhere", server.StopsOn
+			return st
+		case "replaced":
+			st.StopsOn, st.Reason = server.StopsOn, "replaced"
+			if st.StopsOn == "" || today > st.StopsOn {
+				st.Status = StandingExpired
+			} else {
+				st.Status = StandingPastDue
+			}
+			return st
+		case "revoked":
+			return LicenseStanding{Status: StandingInvalid}
+		}
+	}
+
 	if p.Kind == "month" {
 		stops := addDaysISO(p.UpdatesUntil, LicenseGraceDays)
 		switch {
@@ -94,12 +136,10 @@ func StandingFor(key string, server *CheckinState, now time.Time, keys map[strin
 			st.Status, st.StopsOn = StandingPastDue, stops
 		}
 	}
-	// The license server only ever makes it stricter; a renewal arrives as a newer key.
-	// An answer about an older period than the key covers (the key was renewed since) doesn't count.
-	if server != nil && server.ValidUntil != "" && server.ValidUntil < p.UpdatesUntil {
-		server = nil
-	}
-	if server != nil && (server.Status == StandingPastDue || server.Status == StandingExpired) {
+	// The license server only ever makes it stricter; an answer about an
+	// earlier period than the lease covers (paid since) doesn't count.
+	if server != nil && !(server.ValidUntil != "" && server.ValidUntil < p.UpdatesUntil) &&
+		(server.Status == StandingPastDue || server.Status == StandingExpired) {
 		if standingRank[server.Status] > standingRank[st.Status] {
 			st.Status = server.Status
 		}
@@ -107,50 +147,65 @@ func StandingFor(key string, server *CheckinState, now time.Time, keys map[strin
 			st.StopsOn = server.StopsOn
 		}
 	}
+	if st.Status != StandingActive {
+		st.Reason = "unpaid"
+	}
 	return st
 }
 
 // LicenseLimitError is a refused create or start.
 type LicenseLimitError struct {
-	Code    string // server_limit | license_expired
+	Code    string // server_limit | license_expired | checkin_stale | platform_cap
 	Message string
 }
 
 func (e *LicenseLimitError) Error() string { return e.Message }
 
 // CheckCreate refuses creating `adding` servers when `current` are set up
-// and that would go above the paid limit, or when the license has expired.
+// here, the license's other installs use ServersElsewhere, and that would go
+// above the paid limit; or when the license has stopped.
 func CheckCreate(st LicenseStanding, current, adding int) error {
 	if !st.Paid {
 		return nil
 	}
 	if st.Status == StandingExpired {
-		return expiredError()
+		return stoppedError(st.Reason)
 	}
 	if current < 0 {
 		current = 0
 	}
-	if current+adding > st.MaxServers {
+	if current+st.ServersElsewhere+adding > st.MaxServers {
 		plural := "s"
 		if st.MaxServers == 1 {
 			plural = ""
 		}
+		elsewhere := ""
+		if st.ServersElsewhere > 0 {
+			elsewhere = fmt.Sprintf(" (%d of them on other installs using this key)", st.ServersElsewhere)
+		}
 		return &LicenseLimitError{Code: "server_limit", Message: fmt.Sprintf(
-			"your license covers %d game server%s and %d are set up; add servers to your license at %s to create more",
-			st.MaxServers, plural, current, LicenseConsoleURL)}
+			"your license covers %d game server%s and %d are set up%s; add servers to your license at %s to create more",
+			st.MaxServers, plural, current+st.ServersElsewhere, elsewhere, LicenseConsoleURL)}
 	}
 	return nil
 }
 
-// CheckStart refuses starting servers once the license has expired.
+// CheckStart refuses starting servers once the license has stopped.
 func CheckStart(st LicenseStanding) error {
 	if st.Paid && st.Status == StandingExpired {
-		return expiredError()
+		return stoppedError(st.Reason)
 	}
 	return nil
 }
 
-func expiredError() error {
+func stoppedError(reason string) error {
+	switch reason {
+	case "in_use_elsewhere":
+		return &LicenseLimitError{Code: "license_expired", Message: "this license key is in use on another Auto Tournament install; use \"Move to another install\" at " +
+			LicenseConsoleURL + ", or set this host's own key (`csm license set`)"}
+	case "replaced":
+		return &LicenseLimitError{Code: "license_expired", Message: "this license key was replaced by a new one in the console; set the new key (`csm license set`, or in the platform's license settings)"}
+	}
 	return &LicenseLimitError{Code: "license_expired", Message: "your Auto Tournament license has expired because it wasn't paid; pay it at " +
 		LicenseConsoleURL + " and servers can be created and started again (or `csm license clear` for free, non-commercial use)"}
 }
@@ -163,31 +218,69 @@ func CurrentStanding() LicenseStanding {
 		return LicenseStanding{Status: StandingFree}
 	}
 	c := loadCheckinFile()
-	return StandingFor(s.Key, c.State, time.Now(), nil)
+	st := StandingFor(s.Key, c.Lease, c.State, time.Now(), nil)
+	st.ServersElsewhere = c.ServersElsewhere
+	return st
 }
 
-// GateCreate is CheckCreate for this host: `adding` more servers on top of
-// the servers set up now.
-func GateCreate(adding int) error {
+// GateCreate decides whether `adding` more servers may be created on this
+// host now. For a key set on this host it asks the license server (one limit
+// across every install using the key); a key from the platform was already
+// checked by the platform, so only the local view applies.
+func GateCreate(ctx context.Context, adding int) error {
 	st := CurrentStanding()
 	if !st.Paid {
 		return nil
 	}
-	return CheckCreate(st, LicenseServerCount(), adding)
+	current := LicenseServerCount()
+	if err := CheckCreate(st, current, adding); err != nil {
+		return err
+	}
+	s, _ := LoadLicenseSettings()
+	if s.Source == LicenseSourcePlatform {
+		return nil
+	}
+	if current < 0 {
+		current = 0
+	}
+	ans := Reserve(ctx, current, adding)
+	switch ans.Result {
+	case ReserveRefused:
+		if ans.Reason == "server_limit" {
+			st.MaxServers, st.ServersElsewhere = ans.MaxServers, ans.Elsewhere
+			if err := CheckCreate(st, current, adding); err != nil {
+				return err
+			}
+			return &LicenseLimitError{Code: "server_limit", Message: "your license has no free servers left; add servers to your license at " + LicenseConsoleURL}
+		}
+		reason := ans.Reason
+		if reason != "in_use_elsewhere" && reason != "replaced" {
+			reason = "unpaid"
+		}
+		return stoppedError(reason)
+	case ReserveUnreachable:
+		if !CheckedInRecently() {
+			return &LicenseLimitError{Code: "checkin_stale", Message: "csm hasn't reached autotournament.gg for 3 days, so new servers can't be created with a paid license; servers already set up keep working. Check the internet connection and try again"}
+		}
+	}
+	return nil
 }
 
 // GateStart is CheckStart for this host.
 func GateStart() error { return CheckStart(CurrentStanding()) }
 
 // checkinFile is <csm root>/license_checkin.json (mode 600): this host's
-// random instance id and the last check-in answer. Kept apart from
-// license.json, which the platform hand-off rewrites.
+// random instance id, the last check-in (or platform hand-off) answer and
+// the lease. Kept apart from license.json, which the platform hand-off
+// rewrites.
 type checkinFile struct {
-	InstanceID string        `json:"instance_id,omitempty"`
-	LastAt     string        `json:"last_at,omitempty"`
-	LicenseID  string        `json:"license_id,omitempty"`
-	State      *CheckinState `json:"state,omitempty"`
-	Notice     string        `json:"notice,omitempty"`
+	InstanceID       string        `json:"instance_id,omitempty"`
+	LastAt           string        `json:"last_at,omitempty"`
+	LicenseID        string        `json:"license_id,omitempty"`
+	State            *CheckinState `json:"state,omitempty"`
+	Lease            string        `json:"lease,omitempty"`
+	ServersElsewhere int           `json:"servers_elsewhere,omitempty"`
+	Notice           string        `json:"notice,omitempty"`
 }
 
 func checkinFilePath() string { return filepath.Join(ResolveRoot(), "license_checkin.json") }
@@ -199,10 +292,10 @@ func loadCheckinFile() checkinFile {
 		return c
 	}
 	_ = json.Unmarshal(data, &c)
-	// An answer about another license (the key was replaced) doesn't count.
+	// What was said about another license (the key was replaced) doesn't count.
 	if s, err := LoadLicenseSettings(); err == nil {
 		if p, ok := license.Peek(s.Key); !ok || p.ID != c.LicenseID {
-			c.State = nil
+			c.State, c.Lease, c.ServersElsewhere = nil, "", 0
 		}
 	}
 	return c
@@ -218,13 +311,23 @@ func saveCheckinFile(c checkinFile) error {
 	return nil
 }
 
+// CheckedInRecently reports whether the last successful check-in (or
+// platform hand-off) is at most 3 days old.
+func CheckedInRecently() bool {
+	c := loadCheckinFile()
+	last, err := time.Parse(time.RFC3339, c.LastAt)
+	return err == nil && time.Since(last) < checkinFresh
+}
+
 // StandingLine is the one-line warning for status output, or "" when there is nothing to say.
 func (st LicenseStanding) StandingLine() string {
-	switch st.Status {
-	case StandingPastDue:
+	switch {
+	case st.Status == StandingPastDue && st.Reason == "replaced":
+		return fmt.Sprintf("License key replaced by a new one: set the new key before %s, when this one stops.", st.StopsOn)
+	case st.Status == StandingPastDue:
 		return fmt.Sprintf("License payment is late: csm and Ready Up stop on %s unless it is paid (%s).", st.StopsOn, LicenseConsoleURL)
-	case StandingExpired:
-		return "License expired (not paid): servers can't be created or started, and Ready Up won't load matches, until it is paid (" + LicenseConsoleURL + ")."
+	case st.Status == StandingExpired:
+		return "License stopped: " + stoppedError(st.Reason).Error() + "."
 	}
 	return ""
 }
