@@ -76,8 +76,11 @@ func TestStandingFreeInvalidAndPaid(t *testing.T) {
 func TestStandingLateMonthlyAndLease(t *testing.T) {
 	s := newTestSigner(t)
 	key := s.sign(t, nil)
-	if st := StandingFor(key, "", nil, day("2026-11-02"), s.keys); st.Status != StandingPastDue || st.StopsOn != "2026-11-15" || st.Reason != "unpaid" {
+	if st := StandingFor(key, "", nil, day("2026-11-02"), s.keys); st.Status != StandingPastDue || st.StopsOn != "2026-11-16" || st.Reason != "unpaid" {
 		t.Fatalf("late: %+v", st)
+	}
+	if st := StandingFor(key, "", nil, day("2026-11-15"), s.keys); st.Status != StandingPastDue {
+		t.Fatalf("day 14 still works: %+v", st)
 	}
 	if st := StandingFor(key, "", nil, day("2026-11-16"), s.keys); st.Status != StandingExpired {
 		t.Fatalf("expired: %+v", st)
@@ -106,10 +109,10 @@ func TestStandingReplacedAndElsewhere(t *testing.T) {
 	s := newTestSigner(t)
 	key := s.sign(t, nil)
 	replaced := &CheckinState{Status: "replaced", StopsOn: "2026-10-11"}
-	if st := StandingFor(key, "", replaced, day("2026-10-11"), s.keys); st.Status != StandingPastDue || st.Reason != "replaced" {
+	if st := StandingFor(key, "", replaced, day("2026-10-10"), s.keys); st.Status != StandingPastDue || st.Reason != "replaced" {
 		t.Fatalf("replaced, within its day: %+v", st)
 	}
-	st := StandingFor(key, "", replaced, day("2026-10-12"), s.keys)
+	st := StandingFor(key, "", replaced, day("2026-10-11"), s.keys)
 	if st.Status != StandingExpired || CheckStart(st) == nil || !strings.Contains(CheckCreate(st, 0, 1).Error(), "replaced") {
 		t.Fatalf("replaced, after its day: %+v", st)
 	}
