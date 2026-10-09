@@ -57,7 +57,7 @@ type LicenseStanding struct {
 	Paid       bool
 	MaxServers int
 	LicenseID  string
-	// StopsOn is the day csm and Ready Up stop unless it is sorted (YYYY-MM-DD), or "".
+	// StopsOn is the first day csm and Ready Up no longer work unless it is sorted (YYYY-MM-DD), or "".
 	StopsOn string
 	// Reason is why it is past due or expired: unpaid, replaced or in_use_elsewhere.
 	Reason string
@@ -116,7 +116,7 @@ func StandingFor(key, lease string, server *CheckinState, now time.Time, keys ma
 			return st
 		case "replaced":
 			st.StopsOn, st.Reason = server.StopsOn, "replaced"
-			if st.StopsOn == "" || today > st.StopsOn {
+			if st.StopsOn == "" || today >= st.StopsOn {
 				st.Status = StandingExpired
 			} else {
 				st.Status = StandingPastDue
@@ -128,9 +128,10 @@ func StandingFor(key, lease string, server *CheckinState, now time.Time, keys ma
 	}
 
 	if p.Kind == "month" {
-		stops := addDaysISO(p.UpdatesUntil, LicenseGraceDays)
+		// Works through the 14th day after the last paid day; stops on the 15th.
+		stops := addDaysISO(p.UpdatesUntil, LicenseGraceDays+1)
 		switch {
-		case today > stops:
+		case today >= stops:
 			st.Status, st.StopsOn = StandingExpired, stops
 		case today > p.UpdatesUntil:
 			st.Status, st.StopsOn = StandingPastDue, stops
