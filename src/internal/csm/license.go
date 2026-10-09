@@ -116,11 +116,17 @@ func CheckLicense(key string, serverCount int, now time.Time) LicenseSummary {
 // server-N directory, spares and test servers included (they can't be told
 // apart). -1 when it can't be read.
 func LicenseServerCount() int {
-	mgr, err := NewTmuxManager()
-	if err != nil {
-		return -1
+	n := -1
+	if mgr, err := NewTmuxManager(); err == nil {
+		n = mgr.NumServers
 	}
-	return mgr.NumServers
+	// Instance mode: every serving instance is a game server too.
+	if m, err := NewInstanceManager(); err == nil {
+		if k := len(m.Serving()); k > n {
+			n = k
+		}
+	}
+	return n
 }
 
 // CurrentLicense checks the stored key.
@@ -151,6 +157,8 @@ func periodText(p *license.Payload) string {
 			return "event " + p.ValidFrom
 		}
 		return fmt.Sprintf("event %s to %s", p.ValidFrom, p.ValidTo)
+	case "month":
+		return "monthly, paid until " + p.UpdatesUntil
 	case "year":
 		return "updates until " + p.UpdatesUntil
 	case "founder":
