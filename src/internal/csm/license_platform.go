@@ -29,9 +29,11 @@ import (
 //
 // Precedence:
 //
-//   - The platform has a key: it wins. It replaces a key an operator set by
-//     hand with `csm license set` (the platform is where the admin manages
-//     the license once a host is pointed at one).
+//   - This host has its own genuine paid key (`csm license set`): it stays.
+//     A hosting provider's servers run under the provider's license, and the
+//     platform leaves them out of its own count (host inventory `license`).
+//   - Otherwise the platform has a key: it is applied, replacing a key that
+//     doesn't verify.
 //   - The platform has no key: a key csm got from the platform is cleared;
 //     a key an operator set by hand is left alone.
 //   - The platform gave no answer (unreachable, older than the hand-off, or
@@ -114,6 +116,19 @@ func syncPlatformLicense(w io.Writer, lic *PlatformLicense, apply licenseApplier
 		return
 	}
 
+	// A host's own paid key (`csm license set`) is never overwritten: a
+	// hosting provider's servers count toward the provider's license, not the
+	// platform's, and their Ready Up keeps the provider's key.
+	if stored.Key != "" && stored.Source != LicenseSourcePlatform && hostOwnsLicense(stored.Key) {
+		if stored.PlatformRevision != revision {
+			stored.PlatformRevision = revision
+			if err := saveLicenseSettings(stored, user); err == nil {
+				fmt.Fprintf(w, "License: keeping this host's own %s; the platform's key isn't applied here, and these servers count toward this host's license.\n", licenseFingerprint(stored.Key))
+			}
+		}
+		return
+	}
+
 	if stored.Key == key && stored.Source == LicenseSourcePlatform && stored.PlatformRevision == revision {
 		return // already applied everywhere
 	}
@@ -136,6 +151,7 @@ func syncPlatformLicense(w io.Writer, lic *PlatformLicense, apply licenseApplier
 		fmt.Fprintf(w, "License: warning: handed the platform's %s to %d server(s), %d failed; will try again at the next poll.\n", licenseFingerprint(key), done, failed)
 		return
 	}
+	storePlatformTerms(w, key, lic)
 	next.PlatformRevision = revision
 	if err := saveLicenseSettings(next, user); err != nil {
 		fmt.Fprintf(w, "License: warning: could not record the applied revision in %s (%v); the key will be written again at the next poll.\n", licenseSettingsPath(), err)
@@ -164,4 +180,40 @@ func platformLicenseForCycle(ctx context.Context, settings AutoUpdateSettings, h
 		return nil, err
 	}
 	return answer.License, nil
+}
+
+// hostOwnsLicense reports whether key is a genuine paid key (not a lease),
+// i.e. this host runs under a license of its own.
+func hostOwnsLicense(key string) bool {
+	p := verifyQuiet(key, nil, time.Now())
+	return p != nil && !p.Lease
+}
+
+// storePlatformTerms keeps the platform's lease and license state for the
+// key it handed over (license_checkin.json), so csm's own limits follow the
+// platform's. Best-effort.
+func storePlatformTerms(w io.Writer, key string, lic *PlatformLicense) {
+	p := verifyQuiet(key, nil, time.Now())
+	if p == nil || lic == nil {
+		return
+	}
+	c := loadCheckinFile()
+	c.LicenseID = p.ID
+	c.LastAt = time.Now().UTC().Format(time.RFC3339)
+	c.ServersElsewhere = 0
+	c.Lease = leaseFor(p, lic.Lease)
+	c.State = nil
+	if lic.State != nil && lic.State.Status != "" {
+		st := &CheckinState{Status: lic.State.Status}
+		if lic.State.StopsOn != nil {
+			st.StopsOn = *lic.State.StopsOn
+		}
+		if lic.State.ValidUntil != nil {
+			st.ValidUntil = *lic.State.ValidUntil
+		}
+		c.State = st
+	}
+	if err := saveCheckinFile(c); err != nil {
+		fmt.Fprintf(w, "License: warning: could not store the platform's license terms (%v).\n", err)
+	}
 }

@@ -655,6 +655,10 @@ func (m *InstanceManager) Create(w io.Writer, n int) (int, error) {
 	if m.Exists(n) {
 		return n, fmt.Errorf("instance %d already exists", n)
 	}
+	// A paid license's limit (license_enforce.go): one more server.
+	if err := GateCreate(context.Background(), 1); err != nil {
+		return 0, err
+	}
 	for _, p := range []string{m.L.Root, m.L.Master, m.L.Upper(n), m.L.Work(n), m.L.Merged(n)} {
 		if err := overlayPathOK(p); err != nil {
 			return 0, err
@@ -795,6 +799,9 @@ func writeFileAtomicMode(path string, data []byte, mode os.FileMode) error {
 // Start starts instance n in its tmux session.
 func (m *InstanceManager) Start(ctx context.Context, n int) error {
 	if err := m.requireInstancePrivileges("instance start"); err != nil {
+		return err
+	}
+	if err := GateStart(); err != nil {
 		return err
 	}
 	if !m.Exists(n) {

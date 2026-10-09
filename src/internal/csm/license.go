@@ -224,6 +224,17 @@ func (s LicenseSummary) Report() string {
 	if link := s.VerifyLink(); link != "" {
 		b.WriteString("Check it:   " + link + "\n")
 	}
+	st := CurrentStanding()
+	if st.Paid {
+		b.WriteString(fmt.Sprintf("Servers:    %d on this host", max(s.ServerCount, 0)))
+		if st.ServersElsewhere > 0 {
+			b.WriteString(fmt.Sprintf(", %d on other installs with this key", st.ServersElsewhere))
+		}
+		b.WriteString(fmt.Sprintf("; the license covers %d\n", st.MaxServers))
+		if line := st.StandingLine(); line != "" {
+			b.WriteString(line + "\n")
+		}
+	}
 	if !license.BakedLineDate() {
 		b.WriteString("(dev build: version line date " + license.LineDate() + ", the build date)\n")
 	}
@@ -238,6 +249,9 @@ func SetLicenseKey(w io.Writer, key string) (LicenseSummary, error) {
 	key = strings.TrimSpace(key)
 	if !license.LooksLikeKey(key) {
 		return LicenseSummary{}, fmt.Errorf("that is not an Auto Tournament license key (it starts with %s.)", license.TokenPrefix)
+	}
+	if p, ok := license.Peek(key); ok && p.Lease {
+		return LicenseSummary{}, fmt.Errorf("that is a lease, not a license key: copy the key from the console")
 	}
 	user := licenseCS2User()
 	if err := saveLicenseSettings(LicenseSettings{Key: key, SetAt: time.Now().UTC().Format(time.RFC3339)}, user); err != nil {

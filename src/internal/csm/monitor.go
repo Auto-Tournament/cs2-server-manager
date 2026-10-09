@@ -105,6 +105,12 @@ func RunAutoUpdateMonitor() error {
 			}
 		}
 	}
+	// This host's own key checks in once a day (license_checkin.go).
+	var checkinLog bytes.Buffer
+	MaybeCheckIn(ctx, &checkinLog, false)
+	if checkinLog.Len() > 0 {
+		log("%s", strings.TrimRight(checkinLog.String(), "\n"))
+	}
 
 	state := loadAutoUpdateState()
 	saveState := func() {
