@@ -24,30 +24,41 @@ func (f *fakeLinkHost) Servers(context.Context) ([]hostagent.ServerState, error)
 	}
 	return out, nil
 }
-func (f *fakeLinkHost) Host(context.Context) (hostagent.HostFacts, error) { return hostagent.HostFacts{}, nil }
-func (f *fakeLinkHost) Start(_ context.Context, n int, _ string) error   { f.started = append(f.started, n); return nil }
-func (f *fakeLinkHost) Stop(context.Context, int, int) error              { return nil }
-func (f *fakeLinkHost) Restart(context.Context, int) error                { return nil }
+func (f *fakeLinkHost) Host(context.Context) (hostagent.HostFacts, error) {
+	return hostagent.HostFacts{}, nil
+}
+func (f *fakeLinkHost) Start(_ context.Context, n int, _ string) error {
+	f.started = append(f.started, n)
+	return nil
+}
+func (f *fakeLinkHost) Stop(context.Context, int, int) error { return nil }
+func (f *fakeLinkHost) Restart(context.Context, int) error   { return nil }
 func (f *fakeLinkHost) CreateServer(context.Context, func(string) error) (int, string, error) {
 	f.n++
 	return f.n, "", nil
 }
-func (f *fakeLinkHost) RemoveLastServer(context.Context) (string, error) { f.n--; f.removed++; return "", nil }
+func (f *fakeLinkHost) RemoveLastServer(context.Context) (string, error) {
+	f.n--
+	f.removed++
+	return "", nil
+}
 func (f *fakeLinkHost) UpdateGame(_ context.Context, s []int, _ func(string)) (string, error) {
 	f.updated = s
 	return "", nil
 }
-func (f *fakeLinkHost) InstallReadyUp(context.Context, int, hostagent.ReadyUpPlan) (string, error) { return "", nil }
-func (f *fakeLinkHost) SetUpdatesHold(mode string) error                                     { f.hold = mode; return nil }
-func (f *fakeLinkHost) LogFile(int, string) (string, error)                                  { return "", nil }
-func (f *fakeLinkHost) ChownToCS2User(string) error                                          { return nil }
-func (f *fakeLinkHost) AdoptLicenseAnswer(string) (bool, error)                              { return false, nil }
-func (f *fakeLinkHost) FirstServersGamePort() int                                            { return 27015 }
+func (f *fakeLinkHost) InstallReadyUp(context.Context, int, hostagent.ReadyUpPlan) (string, error) {
+	return "", nil
+}
+func (f *fakeLinkHost) SetUpdatesHold(mode string) error        { f.hold = mode; return nil }
+func (f *fakeLinkHost) LogFile(int, string) (string, error)     { return "", nil }
+func (f *fakeLinkHost) ChownToCS2User(string) error             { return nil }
+func (f *fakeLinkHost) AdoptLicenseAnswer(string) (bool, error) { return false, nil }
+func (f *fakeLinkHost) FirstServersGamePort() int               { return 27015 }
 func (f *fakeLinkHost) BootstrapFirstServers(context.Context, int, func(string) error, func(string, int)) ([]int, string, error) {
 	return nil, "", nil
 }
-func (f *fakeLinkHost) FirstServerGamePort() (int, bool)                       { return 0, false }
-func (f *fakeLinkHost) ReadyUpBundleFor(r string) string                       { return r }
+func (f *fakeLinkHost) FirstServerGamePort() (int, bool)                         { return 0, false }
+func (f *fakeLinkHost) ReadyUpBundleFor(r string) string                         { return r }
 func (f *fakeLinkHost) ReadyUpCurrent(int, hostagent.ReadyUpPlan) (bool, string) { return false, "" }
 
 func TestLinkBackendOwnsWhatItCreates(t *testing.T) {
