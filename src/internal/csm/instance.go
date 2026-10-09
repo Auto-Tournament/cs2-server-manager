@@ -641,7 +641,19 @@ func (m *InstanceManager) mkdirs(dirs ...string) error {
 
 // Create makes instance n (0 = the lowest free number): its directories and
 // state. It needs a Ready Up layer to start, not to be created.
+// Create makes instance n (0: the next free one), within a paid license's
+// limit. The agent creates through LinkBackend, which checks per platform
+// and calls createUngated.
 func (m *InstanceManager) Create(w io.Writer, n int) (int, error) {
+	if !m.Exists(n) || n == 0 {
+		if err := GateCreate(context.Background(), 1); err != nil {
+			return 0, err
+		}
+	}
+	return m.createUngated(w, n)
+}
+
+func (m *InstanceManager) createUngated(w io.Writer, n int) (int, error) {
 	if err := m.requireInstancePrivileges("instance create"); err != nil {
 		return 0, err
 	}
@@ -654,10 +666,6 @@ func (m *InstanceManager) Create(w io.Writer, n int) (int, error) {
 	}
 	if m.Exists(n) {
 		return n, fmt.Errorf("instance %d already exists", n)
-	}
-	// A paid license's limit (license_enforce.go): one more server.
-	if err := GateCreate(context.Background(), 1); err != nil {
-		return 0, err
 	}
 	for _, p := range []string{m.L.Root, m.L.Master, m.L.Upper(n), m.L.Work(n), m.L.Merged(n)} {
 		if err := overlayPathOK(p); err != nil {

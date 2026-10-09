@@ -51,31 +51,39 @@ func runLicenseCommand(args []string, stdin io.Reader, stdinIsTerminal bool) (st
 		csm.MaybeCheckIn(context.Background(), &out, true)
 		return "License key saved.\n" + out.String() + "\n" + s.Report(), nil
 	case "cap":
-		// csm license cap [<n>|off]: how many servers the linked platform may create here.
-		if len(args) == 1 {
-			if n := csm.PlatformCap(csm.DefaultPlatformLink); n >= 0 {
-				return fmt.Sprintf("The linked platform may create at most %d server(s) on this host.\n", n), nil
+		// csm license cap [--link <name>] [<n>|off]: how many servers a linked platform may create here.
+		rest := args[1:]
+		link := csm.DefaultPlatformLink
+		if len(rest) >= 2 && rest[0] == "--link" {
+			link, rest = rest[1], rest[2:]
+			if !csm.ValidLinkName(link) {
+				return "", fmt.Errorf("--link names a platform link (csm link status lists them)")
 			}
-			return "No cap: the linked platform may create servers here up to the license's limit.\n", nil
 		}
-		if len(args) != 2 {
-			return "", fmt.Errorf("usage: csm license cap [<n>|off]")
+		if len(rest) == 0 {
+			if n := csm.PlatformCap(link); n >= 0 {
+				return fmt.Sprintf("Platform link %q may create at most %d server(s) on this host.\n", link, n), nil
+			}
+			return fmt.Sprintf("No cap: platform link %q may create servers here up to its license's limit.\n", link), nil
+		}
+		if len(rest) != 1 {
+			return "", fmt.Errorf("usage: csm license cap [--link <name>] [<n>|off]")
 		}
 		n := -1
-		if args[1] != "off" {
-			v, err := strconv.Atoi(args[1])
+		if rest[0] != "off" {
+			v, err := strconv.Atoi(rest[0])
 			if err != nil || v < 0 {
 				return "", fmt.Errorf("the cap is a number of servers (0 or more), or off")
 			}
 			n = v
 		}
-		if err := csm.SetPlatformCap(csm.DefaultPlatformLink, n); err != nil {
+		if err := csm.SetPlatformCap(link, n); err != nil {
 			return "", err
 		}
 		if n < 0 {
-			return "Cap removed.\n", nil
+			return fmt.Sprintf("Cap removed for platform link %q.\n", link), nil
 		}
-		return fmt.Sprintf("The linked platform may now create at most %d server(s) on this host.\n", n), nil
+		return fmt.Sprintf("Platform link %q may now create at most %d server(s) on this host.\n", link, n), nil
 	case "clear", "remove", "unset":
 		if len(args) != 1 {
 			return "", fmt.Errorf("usage: csm license clear")
@@ -123,13 +131,13 @@ func licenseCommand(args []string) {
 }
 
 func printLicenseUsage(w *os.File) {
-	fmt.Fprintln(w, "usage: csm license set <key> | status | clear | cap [<n>|off]")
+	fmt.Fprintln(w, "usage: csm license set <key> | status | clear | cap [--link <name>] [<n>|off]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  set <key>   store an Auto Tournament license key and hand it to Ready Up on every server")
 	fmt.Fprintln(w, "              (without <key>, or with -, it is read from stdin)")
 	fmt.Fprintln(w, "  status      check the stored key offline and show what it covers")
 	fmt.Fprintln(w, "  clear       remove the key, also from the servers' config")
-	fmt.Fprintln(w, "  cap [<n>|off]  how many servers the linked platform may create on this host")
+	fmt.Fprintln(w, "  cap [--link <name>] [<n>|off]  how many servers a linked platform may create on this host")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Free for non-commercial use without a key: "+csm.LicensePricingURL)
 	fmt.Fprintln(w, "With a paid key, servers are created within the license's limit (shared by every")

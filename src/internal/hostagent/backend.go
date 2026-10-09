@@ -87,6 +87,12 @@ type LicenseAnswerAdopter interface {
 	AdoptLicenseAnswer(use string) (bool, error)
 }
 
+// PlatformLicenseReceiver takes the platform's license (host.license) for
+// the servers that platform owns on this host.
+type PlatformLicenseReceiver interface {
+	ReceivePlatformLicense(lic LicenseCmd) error
+}
+
 // HostFacts are the machine parts of host.inventory.
 type HostFacts struct {
 	Hostname  string

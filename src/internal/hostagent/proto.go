@@ -78,6 +78,7 @@ const (
 	TypeLogsTail        = "logs.tail"
 	TypeLogsStop        = "logs.stop"
 	TypeUpdatesHold     = "host.updates_hold"
+	TypeLicense         = "host.license"
 
 	// host -> platform
 	TypeInventory = "host.inventory"

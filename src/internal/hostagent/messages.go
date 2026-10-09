@@ -224,6 +224,33 @@ type UpdatesHoldCmd struct {
 	Mode string `json:"mode"`
 }
 
+// LicenseCmd is host.license: the platform's license for the servers it
+// owns on this host. Key null = the platform has none (free use). Lease is
+// the license's current terms (signed, marked lease); State is what the
+// license server last said.
+type LicenseCmd struct {
+	commandBase
+	Key   *string       `json:"key"`
+	Lease *string       `json:"lease,omitempty"`
+	State *LicenseState `json:"state,omitempty"`
+	Use   string        `json:"use,omitempty"`
+	// Revision is the platform's name for this exact key + lease + state (the
+	// same as the hold poll's license.revision), so either path applies it once.
+	Revision string `json:"revision,omitempty"`
+}
+
+// LicenseState is host.license.state.
+type LicenseState struct {
+	Status     string  `json:"status"`
+	StopsOn    *string `json:"stops_on,omitempty"`
+	ValidUntil *string `json:"valid_until,omitempty"`
+}
+
+var (
+	licenseTokenRe = regexp.MustCompile(`^ATL1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`)
+	dateRe         = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+)
+
 // --- host -> platform ------------------------------------------------------
 
 // ResultError is host.result.error.
@@ -435,6 +462,28 @@ func validateCommand(typ string, cmd any) error {
 		default:
 			return fmt.Errorf("mode must be on, off or auto")
 		}
+	case *LicenseCmd:
+		token := func(s *string) bool {
+			return s == nil || (len(*s) <= 4096 && licenseTokenRe.MatchString(*s))
+		}
+		if !token(c.Key) || !token(c.Lease) {
+			return fmt.Errorf("key and lease must be license tokens")
+		}
+		if c.State != nil {
+			switch c.State.Status {
+			case "active", "past_due", "expired", "revoked", "replaced", "in_use_elsewhere":
+			default:
+				return fmt.Errorf("state.status is not a license status")
+			}
+			for _, d := range []*string{c.State.StopsOn, c.State.ValidUntil} {
+				if d != nil && !dateRe.MatchString(*d) {
+					return fmt.Errorf("state dates must be YYYY-MM-DD")
+				}
+			}
+		}
+		if c.Use != "" && c.Use != "noncommercial" && c.Use != "commercial" {
+			return fmt.Errorf("use must be noncommercial or commercial")
+		}
 	default:
 		return fmt.Errorf("no validator for %s", typ)
 	}
@@ -469,6 +518,8 @@ func newCommand(typ string) any {
 		return &LogsStopCmd{}
 	case TypeUpdatesHold:
 		return &UpdatesHoldCmd{}
+	case TypeLicense:
+		return &LicenseCmd{}
 	}
 	return nil
 }

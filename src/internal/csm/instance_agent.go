@@ -182,7 +182,7 @@ func (b *HostBackend) instanceCreate(ctx context.Context, beforeStart func(serve
 			return 0, out.String(), fmt.Errorf("no Ready Up layer and building one failed: %w", err)
 		}
 	}
-	n, err := m.Create(&out, 0)
+	n, err := m.createUngated(&out, 0)
 	if err != nil {
 		return n, out.String(), err
 	}
