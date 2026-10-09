@@ -218,7 +218,9 @@ func (b *LinkBackend) ReceivePlatformLicense(lic hostagent.LicenseCmd) error {
 
 // --- optional extensions, passed through -----------------------------------------
 
-func (b *LinkBackend) AdoptLicenseAnswer(use string) (bool, error) { return b.inner.AdoptLicenseAnswer(use) }
+func (b *LinkBackend) AdoptLicenseAnswer(use string) (bool, error) {
+	return b.inner.AdoptLicenseAnswer(use)
+}
 
 func (b *LinkBackend) FirstServersGamePort() int { return b.inner.FirstServersGamePort() }
 
@@ -238,7 +240,9 @@ func (b *LinkBackend) BootstrapFirstServers(ctx context.Context, count int, befo
 
 func (b *LinkBackend) FirstServerGamePort() (int, bool) { return b.inner.FirstServerGamePort() }
 
-func (b *LinkBackend) ReadyUpBundleFor(requested string) string { return b.inner.ReadyUpBundleFor(requested) }
+func (b *LinkBackend) ReadyUpBundleFor(requested string) string {
+	return b.inner.ReadyUpBundleFor(requested)
+}
 
 func (b *LinkBackend) ReadyUpCurrent(n int, plan hostagent.ReadyUpPlan) (bool, string) {
 	return b.inner.ReadyUpCurrent(n, plan)
