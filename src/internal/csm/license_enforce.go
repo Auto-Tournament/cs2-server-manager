@@ -234,6 +234,15 @@ func GateCreate(ctx context.Context, adding int) error {
 		return nil
 	}
 	current := LicenseServerCount()
+	// With several platforms and no key of the host's own, a platform's key
+	// covers only the servers the default link owns.
+	if hostOwnKey() == "" && len(PlatformLinks()) > 1 && current > 0 {
+		nums := make([]int, current)
+		for i := range nums {
+			nums[i] = i + 1
+		}
+		current = len(ServersOwnedBy(DefaultPlatformLink, nums))
+	}
 	if err := CheckCreate(st, current, adding); err != nil {
 		return err
 	}

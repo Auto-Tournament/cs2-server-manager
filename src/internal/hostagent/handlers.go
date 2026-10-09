@@ -44,6 +44,16 @@ func (a *Agent) handle(ctx context.Context, env *Envelope, cmd any) {
 		return
 	case *LogsStopCmd:
 		res = a.handleLogsStop(c)
+	case *LicenseCmd:
+		r, ok := a.opts.Backend.(PlatformLicenseReceiver)
+		if !ok {
+			res = rejected(CodeUnsupported, "this csm doesn't take a license from the platform")
+		} else if err := r.ReceivePlatformLicense(*c); err != nil {
+			res = failed(CodeFailed, err.Error(), "")
+		} else {
+			res = okResult("license applied")
+			a.markInventoryDirty()
+		}
 	case *UpdatesHoldCmd:
 		if err := a.opts.Backend.SetUpdatesHold(c.Mode); err != nil {
 			res = failed(CodeFailed, err.Error(), "")
