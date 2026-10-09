@@ -146,12 +146,13 @@ func syncPlatformLicense(w io.Writer, lic *PlatformLicense, apply licenseApplier
 		fmt.Fprintf(w, "License: warning: could not store the platform's license key in %s (%v); will try again at the next poll.\n", licenseSettingsPath(), err)
 		return
 	}
+	// The lease and state first, so the servers' cfg carries them with the key.
+	storePlatformTerms(w, key, lic)
 	done, failed := apply(w, key)
 	if failed > 0 {
 		fmt.Fprintf(w, "License: warning: handed the platform's %s to %d server(s), %d failed; will try again at the next poll.\n", licenseFingerprint(key), done, failed)
 		return
 	}
-	storePlatformTerms(w, key, lic)
 	next.PlatformRevision = revision
 	if err := saveLicenseSettings(next, user); err != nil {
 		fmt.Fprintf(w, "License: warning: could not record the applied revision in %s (%v); the key will be written again at the next poll.\n", licenseSettingsPath(), err)
