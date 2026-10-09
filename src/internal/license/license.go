@@ -68,7 +68,7 @@ type Payload struct {
 	Product      string `json:"product"` // servers | platform
 	Pack         string `json:"pack"`    // S | M | L
 	MaxServers   int    `json:"max_servers"`
-	Kind         string `json:"kind"` // event | year | founder
+	Kind         string `json:"kind"` // month | year | founder (event: older keys)
 	IssuedAt     string `json:"issued_at"`
 	UpdatesUntil string `json:"updates_until"`
 	ValidFrom    string `json:"valid_from,omitempty"`
@@ -265,7 +265,7 @@ func parsePayload(raw map[string]any) (*Payload, string) {
 		return nil, "bad max_servers"
 	}
 	p.MaxServers = int(max)
-	if p.Kind, ok = oneOf(raw["kind"], "event", "year", "founder"); !ok {
+	if p.Kind, ok = oneOf(raw["kind"], "month", "event", "year", "founder"); !ok {
 		return nil, "bad kind"
 	}
 	if !validIssuedAt(raw["issued_at"]) {
