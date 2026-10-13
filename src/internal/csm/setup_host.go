@@ -45,7 +45,7 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	fmt.Fprintln(w, "Running servers are not started, stopped, restarted or updated.")
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[1/5] System dependencies")
+	fmt.Fprintln(w, "[1/4] System dependencies")
 	if opts.SkipDeps {
 		fmt.Fprintln(w, "  [i] Skipped (--skip-deps).")
 	} else if err := installDeps(ctx, w); err != nil {
@@ -53,7 +53,7 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[2/5] User")
+	fmt.Fprintln(w, "[2/4] User")
 	var ubuf bytes.Buffer
 	err := createCS2User(&ubuf, cs2User)
 	_, _ = w.Write(ubuf.Bytes())
@@ -62,7 +62,7 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[3/5] Lingering (keeps the user's systemd instance running without a login)")
+	fmt.Fprintln(w, "[3/4] Lingering (keeps the user's systemd instance running without a login)")
 	if opts.SkipLinger {
 		fmt.Fprintln(w, "  [i] Skipped (--skip-linger).")
 	} else if err := enableLinger(ctx, w, cs2User); err != nil {
@@ -71,19 +71,9 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintln(w, "[4/5] File ownership")
+	fmt.Fprintln(w, "[4/4] File ownership")
 	if err := chownStateForUserMode(w, cs2User); err != nil {
 		return err
-	}
-	fmt.Fprintln(w)
-
-	fmt.Fprintln(w, "[5/5] Auto-update monitor cron entry")
-	out, err := MigrateMonitorCronToUser(ctx, cs2User)
-	if out != "" {
-		fmt.Fprintf(w, "  [✓] %s", out)
-	}
-	if err != nil {
-		return fmt.Errorf("moving the monitor cron entry failed: %w", err)
 	}
 	fmt.Fprintln(w)
 

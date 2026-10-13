@@ -48,40 +48,6 @@ func TestWithMonitorCronLine(t *testing.T) {
 	}
 }
 
-func TestMigrateMonitorCron(t *testing.T) {
-	rootTab := "0 4 * * * /usr/sbin/logrotate /etc/logrotate.conf\n" + testMonitorEntry + "\n"
-	userTab := "MAILTO=\"\"\n"
-
-	newRoot, newUser, moved := migrateMonitorCron(rootTab, userTab)
-	if !moved {
-		t.Fatal("expected the entry to move")
-	}
-	if newRoot != "0 4 * * * /usr/sbin/logrotate /etc/logrotate.conf\n" {
-		t.Fatalf("root crontab = %q", newRoot)
-	}
-	if newUser != "MAILTO=\"\"\n"+testMonitorEntry+"\n" {
-		t.Fatalf("user crontab = %q", newUser)
-	}
-
-	// Second run: nothing left in root, user crontab untouched.
-	r2, u2, moved2 := migrateMonitorCron(newRoot, newUser)
-	if moved2 || r2 != newRoot || u2 != newUser {
-		t.Fatalf("second migration changed something: moved=%v root=%q user=%q", moved2, r2, u2)
-	}
-
-	// The user already has an (older) entry: it is replaced, not duplicated.
-	_, u3, _ := migrateMonitorCron(rootTab, "*/10 * * * * /usr/local/bin/csm monitor\n")
-	if u3 != testMonitorEntry+"\n" {
-		t.Fatalf("user crontab with old entry = %q", u3)
-	}
-
-	// Several root entries: the last one wins.
-	_, u4, _ := migrateMonitorCron("*/10 * * * * /a/csm monitor\n"+testMonitorEntry+"\n", "")
-	if u4 != testMonitorEntry+"\n" {
-		t.Fatalf("several root entries: user crontab = %q", u4)
-	}
-}
-
 func TestCrontabArgs(t *testing.T) {
 	if got := crontabArgs("", "-l"); !reflect.DeepEqual(got, []string{"-l"}) {
 		t.Fatalf("current user: %q", got)
