@@ -12,9 +12,9 @@ import (
 )
 
 // The Servers dashboard: a live fleet table fed by each server's Ready Up
-// /stream (csm.FleetWatcher). Process state (tmux) is re-read every
-// fleetProcInterval, because tmux knows nothing about Ready Up and the other
-// way round.
+// /stream (csm.FleetWatcher). The server list and process state (tmux) are
+// re-read every fleetProcInterval: tmux knows nothing about Ready Up and the
+// other way round, and the platform can add servers while the view is open.
 
 const fleetProcInterval = 10 * time.Second
 
@@ -37,6 +37,7 @@ type fleetProcTickMsg struct{ fleet *fleetState }
 
 type fleetProcMsg struct {
 	fleet   *fleetState
+	mgr     *csm.ServerSet // the servers read again, nil when that failed
 	targets []csm.FleetTarget
 	notes   string
 }
@@ -94,6 +95,11 @@ func refreshFleetProcs(f *fleetState) tea.Cmd {
 		if f.ctx.Err() != nil {
 			return nil
 		}
+		// Read the servers again: the platform may have created (or removed)
+		// some through csm while the dashboard is open.
+		if mgr, err := csm.OpenServerSet(); err == nil {
+			return fleetProcMsg{fleet: f, mgr: mgr, targets: mgr.FleetTargets(), notes: mgr.Notes()}
+		}
 		return fleetProcMsg{fleet: f, targets: f.mgr.FleetTargets(), notes: f.mgr.Notes()}
 	}
 }
@@ -131,10 +137,11 @@ func (m model) updateFleetMsg(msg tea.Msg) (model, tea.Cmd, bool) {
 		if m.fleet == nil || msg.fleet != m.fleet {
 			return m, nil, true
 		}
-		m.fleet.notes = msg.notes
-		for _, t := range msg.targets {
-			m.fleet.watcher.SetProcess(t)
+		if msg.mgr != nil {
+			m.fleet.mgr = msg.mgr
 		}
+		m.fleet.notes = msg.notes
+		m.fleet.watcher.Sync(msg.targets)
 		return m, nil, true
 	}
 	return m, nil, false

@@ -258,6 +258,33 @@ func TestFleetWatcherProcessChanges(t *testing.T) {
 	waitRow(t, w, 3, "stopped again", func(r FleetRow) bool { return r.State == ReadyUpStopped })
 }
 
+func TestFleetWatcherSyncAddsAndRemovesServers(t *testing.T) {
+	f := newFakeReadyUp(t, idleStatus())
+	f.mu.Lock()
+	f.noStream = true
+	f.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopped := FleetTarget{Server: 1, Dir: t.TempDir(), GamePort: freePort(t) - ReadyUpPortOffset, Running: false}
+	w := NewFleetWatcher([]FleetTarget{stopped}, fastWatch())
+	w.Run(ctx)
+
+	// The platform created server 2 through csm while the dashboard was open.
+	added := FleetTarget{Server: 2, Dir: t.TempDir(), GamePort: f.port() - ReadyUpPortOffset, Running: true}
+	w.Sync([]FleetTarget{stopped, added})
+	waitRow(t, w, 2, "the new server is watched", func(r FleetRow) bool { return r.State == ReadyUpOK })
+	if n := len(w.Rows()); n != 2 {
+		t.Fatalf("rows after add = %d, want 2", n)
+	}
+
+	// Server 1 was removed: its row goes, server 2 stays.
+	w.Sync([]FleetTarget{added})
+	rows := w.Rows()
+	if len(rows) != 1 || rows[0].Target.Server != 2 {
+		t.Fatalf("rows after remove = %+v", rows)
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)
