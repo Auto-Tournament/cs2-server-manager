@@ -231,7 +231,7 @@ func (a *Agent) currentCreds() *Credentials {
 
 func (a *Agent) reenroll(ctx context.Context, c *Credentials) error {
 	nc, err := Enroll(ctx, EnrollOptions{
-		PlatformURL: c.PlatformURL, CodeOrKey: c.FleetKey, MachineID: c.MachineID,
+		PlatformURL: c.PlatformURL, CodeOrKey: c.FleetKey, MachineID: c.MachineID, CSMUser: c.CSMUser,
 		Hostname: a.opts.Hostname, OS: a.opts.OS, CSMVersion: a.opts.CSMVersion,
 		InsecureDev: c.InsecureDev, CAFile: c.CAFile, HTTPClient: a.opts.HTTPClient,
 	})
