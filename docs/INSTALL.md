@@ -17,7 +17,7 @@ csm status
 csm                         # TUI
 ```
 
-Servers that are already running keep running: csm finds them in the same tmux server as before. Only `sudo csm install-deps`, `sudo csm self-update` and `sudo csm cleanup-all` still need root. On a host that already runs servers, use `sudo csm setup-host --skip-deps`: `apt-get install` can upgrade tmux, and a newer tmux client can't talk to the tmux server the running servers live in. `--skip-linger` skips `loginctl`. Only the legacy MatchZy Enhanced stack needs Docker (for its MySQL container): add `--docker` to start Docker and put your account in the `docker` group, then log out and back in. Members of that group can control every container on the host.
+Servers that are already running keep running: csm finds them in the same tmux server as before. Only `sudo csm install-deps`, `sudo csm self-update` and `sudo csm cleanup-all` still need root. On a host that already runs servers, use `sudo csm setup-host --skip-deps`: `apt-get install` can upgrade tmux, and a newer tmux client can't talk to the tmux server the running servers live in. `--skip-linger` skips `loginctl`.
 
 `csm self-update` run as the user can't replace `/usr/local/bin/csm`, so it installs the new binary into `~/.local/bin/csm`, which login shells put first in `PATH`. Run `csm install-monitor-cron` afterwards so cron uses it too.
 

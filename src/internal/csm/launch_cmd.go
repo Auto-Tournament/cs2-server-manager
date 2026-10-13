@@ -22,10 +22,6 @@ type launchSpec struct {
 	TVPort     int
 	MaxPlayers int
 	GSLT       string
-
-	// ConfigScope is the MatchZy persistent config scope for this server (see
-	// MatchzyConfigScope). Empty omits the argument.
-	ConfigScope string
 }
 
 // ApplyLaunchModeFlags turns the --alternate/--binary flags of `csm start`,
@@ -87,9 +83,9 @@ func (s launchSpec) usesCSMLauncherSh() bool {
 //   - `+map` to load a map at startup
 //   - `+maxplayers` for the player limit
 //
-// followed by `+matchzy_config_scope <scope>` and the optional GSLT.
+// followed by the optional GSLT.
 func buildLaunchCommand(s launchSpec) string {
-	extra := matchzyScopeLaunchArg(s.ConfigScope)
+	extra := ""
 	if s.GSLT != "" {
 		extra += fmt.Sprintf(" -gslt %s", s.GSLT)
 	}
@@ -123,7 +119,7 @@ func buildLaunchCommand(s launchSpec) string {
 }
 
 // wrapSteamRuntimeLaunch runs launch inside Steam Runtime (SteamRT3) for
-// newer-distro CounterStrikeSharp compatibility. It prefers the common
+// newer-distro compatibility. It prefers the common
 // "-- <command>" form and falls back to a direct invocation if the wrapper
 // rejects the extra separator/args on some builds.
 func wrapSteamRuntimeLaunch(rtRun, launch string) string {

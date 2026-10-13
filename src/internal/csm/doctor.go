@@ -105,6 +105,6 @@ func FixLibV8WithContext(ctx context.Context, server int) (string, error) {
 	}
 
 	fmt.Fprintf(&buf, "[OK] Done.\n")
-	fmt.Fprintf(&buf, "If the server still fails, it may be a launch-environment issue (LD_LIBRARY_PATH) or an incompatible Metamod/CSS plugin build.\n")
+	fmt.Fprintf(&buf, "If the server still fails, it may be a launch-environment issue (LD_LIBRARY_PATH) or an incompatible plugin build.\n")
 	return buf.String(), nil
 }

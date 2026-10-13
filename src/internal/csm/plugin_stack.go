@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,25 +15,10 @@ import (
 	"github.com/sivert-io/cs2-server-manager/src/internal/readyup"
 )
 
-// Which plugin stack csm installs
-//
-// Two stacks:
-//
-//   - readyup: Ready Up (github.com/Auto-Tournament/ready-up), a native CS2
-//     plugin suite. No Metamod, no CounterStrikeSharp. What the Auto
-//     Tournament platform 3.x talks to.
-//   - legacy: Metamod:Source + CounterStrikeSharp + the MatchZy Enhanced
-//     plugin (MatchZy-era, matchzy_* cvars). What platform 2.x talks to.
-//
-// The choice is <csm root>/plugins.json (`csm plugins stack ...`), or
-// CSM_PLUGIN_STACK. Without a choice:
-//
-//   - a host that already has the legacy stack (CounterStrikeSharp in
-//     cs2-config or on a server) stays legacy: csm never switches an existing
-//     install by itself (README, "Moving to Ready Up");
-//   - a fresh install gets Ready Up: its stable channel, or its beta channel
-//     while there is no stable release. Only when no Ready Up release can be
-//     found at all (offline) does it fall back to the legacy stack.
+// Which plugin stack csm installs: Ready Up (github.com/Auto-Tournament/ready-up),
+// a native CS2 plugin suite. No Metamod, no CounterStrikeSharp. It is the only
+// stack: the MatchZy Enhanced one (platform 2.x) is gone, and a host on it
+// reinstalls.
 //
 // Ready Up settings in the same file: the channel (stable | beta), a pinned
 // version (overrides the channel), the bundle (essentials | full) and the
@@ -47,7 +30,6 @@ import (
 // Plugin stacks.
 const (
 	PluginStackReadyUp = "readyup"
-	PluginStackLegacy  = "legacy"
 )
 
 // Environment overrides.
@@ -85,7 +67,7 @@ type PluginSettings struct {
 }
 
 // PluginSettingKeys are the keys `csm plugins set` accepts.
-var PluginSettingKeys = []string{"stack", "channel", "version", "bundle", "license", "auto"}
+var PluginSettingKeys = []string{"channel", "version", "bundle", "license", "auto"}
 
 func pluginSettingsPath() string { return filepath.Join(ResolveRoot(), "plugins.json") }
 
@@ -117,10 +99,10 @@ func savePluginSettings(s PluginSettings) error {
 }
 
 // Resolved applies the environment and the defaults (channel stable, bundle
-// essentials). Stack stays "" when nothing chose one.
+// essentials). The stack is always Ready Up, the only one csm installs.
 func (s PluginSettings) Resolved() PluginSettings {
 	r := s
-	r.Stack = strings.ToLower(strings.TrimSpace(getenvDefault(EnvPluginStack, s.Stack)))
+	r.Stack = PluginStackReadyUp
 	if ch, err := readyup.NormalizeChannel(getenvDefault(EnvReadyUpChannel, s.ReadyUpChannel)); err == nil {
 		r.ReadyUpChannel = ch
 	} else {
@@ -207,16 +189,6 @@ func SetPluginSetting(key, value string) (PluginSettings, error) {
 	}
 	value = strings.TrimSpace(value)
 	switch key {
-	case "stack":
-		v := strings.ToLower(value)
-		switch v {
-		case PluginStackReadyUp, PluginStackLegacy:
-			s.Stack, s.StackSetBy = v, "operator"
-		case "", "auto":
-			s.Stack, s.StackSetBy = "", ""
-		default:
-			return s, fmt.Errorf("stack is readyup or legacy (got %q)", value)
-		}
 	case "channel":
 		ch, err := readyup.NormalizeChannel(value)
 		if err != nil {
@@ -263,29 +235,9 @@ func SetPluginSetting(key, value string) (PluginSettings, error) {
 	return s, savePluginSettings(s)
 }
 
-// legacyStackPresent reports whether this host already runs the legacy stack.
-func legacyStackPresent(user string) bool {
-	home := filepath.Join("/home", user)
-	paths := []string{filepath.Join(home, "cs2-config", "game", "csgo", "addons", "counterstrikesharp")}
-	if entries, err := os.ReadDir(home); err == nil {
-		for _, e := range entries {
-			if e.IsDir() && strings.HasPrefix(e.Name(), "server-") {
-				paths = append(paths, filepath.Join(home, e.Name(), "game", "csgo", "addons", "counterstrikesharp"))
-			}
-		}
-	}
-	for _, p := range paths {
-		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
-			return true
-		}
-	}
-	return false
-}
-
 // instanceReadyUpPresent reports whether this host runs instances on a
 // Ready Up layer (instance mode: `csm instance update` built one). Such a
-// host is on Ready Up even when CounterStrikeSharp is still in its old
-// server dirs. A variable so tests can stand in for the layer.
+// host is on Ready Up. A variable so tests can stand in for the layer.
 var instanceReadyUpPresent = func() bool {
 	m, err := NewInstanceManager()
 	if err != nil {
@@ -295,47 +247,13 @@ var instanceReadyUpPresent = func() bool {
 	return err == nil && layerCore(dir) != ""
 }
 
-// PluginStack returns the stack to install and why. It may ask GitHub (a
-// fresh install without a choice) and then saves the answer.
-func PluginStack(ctx context.Context, w io.Writer, user string) (string, string) {
-	s, _ := LoadPluginSettings()
-	r := s.Resolved()
-	switch r.Stack {
-	case PluginStackReadyUp, PluginStackLegacy:
-		if os.Getenv(EnvPluginStack) != "" {
-			return r.Stack, EnvPluginStack
-		}
-		return r.Stack, "csm plugins stack"
-	}
+// PluginStack is the plugin stack csm installs and why: always Ready Up (the
+// MatchZy Enhanced stack is gone; a host on it reinstalls).
+func PluginStack(_ context.Context, _ io.Writer, _ string) (string, string) {
 	if instanceReadyUpPresent() {
 		return PluginStackReadyUp, "instance mode: the instances run a Ready Up layer"
 	}
-	if legacyStackPresent(user) {
-		return PluginStackLegacy, "existing install (switch with: csm plugins stack readyup)"
-	}
-	// Fresh install: Ready Up, the stack platform 3.x is built for. Its
-	// stable channel when there is a stable release, else the beta channel
-	// (unless a channel was chosen already).
-	rel, err := readyUpClient().Resolve(ctx, readyup.ChannelStable, "")
-	if err != nil && channelIsDefault(s, r) {
-		if beta, berr := readyUpClient().Resolve(ctx, readyup.ChannelBeta, ""); berr == nil {
-			fmt.Fprintf(w, "[plugins] Fresh install: Ready Up has no stable release yet, so csm follows its beta channel (%s).\n", beta.TagName)
-			s.ReadyUpChannel = readyup.ChannelBeta
-			rel, err = beta, nil
-		}
-	}
-	if err != nil {
-		fmt.Fprintf(w, "[plugins] Fresh install: could not find a Ready Up release, so csm installs the legacy stack.\n")
-		fmt.Fprintf(w, "[plugins]   (%v)\n", err)
-		fmt.Fprintf(w, "[plugins]   To choose Ready Up anyway: csm plugins stack readyup\n")
-		return PluginStackLegacy, "fresh install, no Ready Up release found"
-	}
-	s.Stack, s.StackSetBy = PluginStackReadyUp, "fresh-install"
-	if err := savePluginSettings(s); err != nil {
-		fmt.Fprintf(w, "[plugins] [WARN] could not save the plugin stack choice: %v\n", err)
-	}
-	fmt.Fprintf(w, "[plugins]   For the legacy MatchZy Enhanced stack (platform 2.x) instead: csm plugins stack legacy\n")
-	return PluginStackReadyUp, "fresh install, Ready Up " + rel.TagName
+	return PluginStackReadyUp, "the only plugin stack"
 }
 
 // readyUpClient is the GitHub client (CSM_READYUP_API / _REPO for mirrors and tests).
@@ -555,7 +473,7 @@ func updateReadyUpOnServers(ctx context.Context, w io.Writer, servers []int) err
 		if len(targets) == 0 {
 			return fmt.Errorf("none of the servers exist")
 		}
-		if err := CheckDiskSpaceForPluginUpdate(targets[0].Dir); err != nil {
+		if err := requireFreeDiskGB(targets[0].Dir, 1.0); err != nil {
 			return fmt.Errorf("plugin update pre-check failed: %w", err)
 		}
 		b, err := ReadyUpPlanFor(ctx, w, s)
@@ -653,17 +571,9 @@ func PluginsReport(ctx context.Context, lookup bool) string {
 		fmt.Fprintf(&b, "Could not read %s: %v\n", pluginSettingsPath(), err)
 	}
 	r := s.Resolved()
-	user := configuredCS2User()
 	stack := r.Stack
-	switch {
-	case stack == "" && instanceReadyUpPresent():
-		stack = "readyup (not chosen; the instances run a Ready Up layer)"
-	case stack == "" && legacyStackPresent(user):
-		stack = "legacy (not chosen; this host has the legacy stack, so it stays)"
-	case stack == "":
-		stack = "not chosen (a fresh install gets Ready Up: stable, or beta until a stable release exists)"
-	case r.Stack != s.Stack:
-		stack += " (" + EnvPluginStack + ")"
+	if instanceReadyUpPresent() {
+		stack += " (the instances run a Ready Up layer)"
 	}
 	fmt.Fprintf(&b, "Plugin stack    : %s\n", stack)
 	fmt.Fprintf(&b, "Ready Up channel: %s\n", r.ReadyUpChannel)
@@ -719,7 +629,7 @@ func HostReadyUpDefaults() hostagent.ReadyUpDefaults {
 	}
 }
 
-// --- legacy stack and the platform version ------------------------------------
+// --- the platform ---------------------------------------------------------------
 
 // platformVersionPath is the platform's public version endpoint.
 const platformVersionPath = "/api/settings/version"
@@ -736,65 +646,6 @@ func platformBaseURL() string {
 		return strings.TrimRight(c.PlatformURL, "/")
 	}
 	return ""
-}
-
-// fetchPlatformVersion asks the platform for its version ("" = no answer).
-func fetchPlatformVersion(ctx context.Context, base string) (string, error) {
-	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(cctx, http.MethodGet, base+platformVersionPath, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "csm")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("%s answered %d", platformVersionPath, resp.StatusCode)
-	}
-	var body struct {
-		Version string `json:"version"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
-		return "", err
-	}
-	return strings.TrimPrefix(strings.TrimSpace(body.Version), "v"), nil
-}
-
-func majorVersion(v string) int {
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	if i := strings.IndexByte(v, '.'); i > 0 {
-		v = v[:i]
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return -1
-	}
-	return n
-}
-
-// checkLegacyPlatform refuses the legacy stack for a 3.x platform, which
-// talks to Ready Up only. An unknown platform (none configured, unreachable)
-// is allowed with a note.
-func checkLegacyPlatform(ctx context.Context, w io.Writer, base string) error {
-	if base == "" {
-		return nil
-	}
-	v, err := fetchPlatformVersion(ctx, base)
-	if err != nil || v == "" {
-		fmt.Fprintf(w, "[MatchZy] Could not read the platform version from %s (%v); installing the legacy plugin anyway.\n", base, err)
-		return nil
-	}
-	if majorVersion(v) >= 3 {
-		return fmt.Errorf("the Auto Tournament platform at %s is %s, which only talks to Ready Up; "+
-			"the legacy MatchZy-era plugin stack does not work with it. Switch this host to Ready Up: "+
-			"csm plugins stack readyup (README: \"Moving to Ready Up\")", base, v)
-	}
-	fmt.Fprintf(w, "[MatchZy] Platform %s is %s: the legacy plugin stack fits.\n", base, v)
-	return nil
 }
 
 // AutoUpdateOn reports whether `csm monitor` keeps Ready Up up to date.

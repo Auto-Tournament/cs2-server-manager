@@ -86,7 +86,6 @@ func (b *HostBackend) BootstrapFirstServers(ctx context.Context, count int, befo
 		BaseGamePort:   DefaultBaseGamePort,
 		BaseTVPort:     DefaultBaseTVPort,
 		HostnamePrefix: "CS2 Server",
-		EnableMetamod:  true,
 		UpdateMaster:   true,
 		Progress:       &stepWriter{progress: progress},
 	}
@@ -97,14 +96,12 @@ func (b *HostBackend) BootstrapFirstServers(ctx context.Context, count int, befo
 	if err != nil {
 		return nil, out.String(), err
 	}
-	if !UsesLegacyStack(user) {
-		progress("installing Ready Up on the new servers", 82)
-		plog, perr := UpdateAndDeployPluginsWithContext(ctx)
-		out.WriteString(plog)
-		LogAction("agent", "first install (Ready Up)", plog, perr)
-		if perr != nil {
-			return nil, out.String(), fmt.Errorf("the servers were created, but installing Ready Up failed: %w", perr)
-		}
+	progress("installing Ready Up on the new servers", 82)
+	plog, perr := UpdateAndDeployPluginsWithContext(ctx)
+	out.WriteString(plog)
+	LogAction("agent", "first install (Ready Up)", plog, perr)
+	if perr != nil {
+		return nil, out.String(), fmt.Errorf("the servers were created, but installing Ready Up failed: %w", perr)
 	}
 	mgr, err := NewTmuxManager()
 	if err != nil {

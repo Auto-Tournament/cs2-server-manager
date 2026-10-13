@@ -91,14 +91,12 @@ func main() {
 			hfs := flag.NewFlagSet("setup-host", flag.ExitOnError)
 			skipDeps := hfs.Bool("skip-deps", false, "don't apt-get install dependencies (use on a host that already runs servers)")
 			skipLinger := hfs.Bool("skip-linger", false, "don't run loginctl enable-linger")
-			docker := hfs.Bool("docker", false, "start Docker and add the user to the docker group (legacy MatchZy Enhanced stack's MySQL)")
 			_ = hfs.Parse(args[1:])
 			var buf strings.Builder
 			err := csm.SetupHost(context.Background(), &buf, csm.SetupHostOptions{
 				CS2User:    strings.TrimSpace(os.Getenv("SUDO_USER")),
 				SkipDeps:   *skipDeps,
 				SkipLinger: *skipLinger,
-				Docker:     *docker,
 			})
 			csm.LogAction("cli", "setup-host", buf.String(), err)
 			fmt.Print(buf.String())
@@ -147,17 +145,12 @@ func main() {
 				BaseGamePort:   intFromEnv("BASE_GAME_PORT", csm.DefaultBaseGamePort),
 				BaseTVPort:     intFromEnv("BASE_TV_PORT", csm.DefaultBaseTVPort),
 				HostnamePrefix: getenvDefault("HOSTNAME_PREFIX", "CS2 Server"),
-				EnableMetamod:  intFromEnv("ENABLE_METAMOD", 1) != 0,
 				FreshInstall:   intFromEnv("FRESH_INSTALL", 0) != 0,
 				UpdateMaster:   intFromEnv("UPDATE_MASTER", 1) != 0,
 				// Empty keeps the password already in cs2-config's
 				// server.cfg (falls back to the default on a first install).
 				RCONPassword: getenvDefault("RCON_PASSWORD", ""),
 
-				MatchzySkipDocker: intFromEnv("MATCHZY_SKIP_DOCKER", 0) != 0,
-				// MATCHZY_DB_ENGINE=sqlite gives each server its own SQLite
-				// database; mysql (or unset) keeps the shared MySQL database.
-				DBEngine:     getenvDefault("MATCHZY_DB_ENGINE", ""),
 				GameFilesDir: getenvDefault("GAME_FILES_DIR", ""),
 				OverridesDir: getenvDefault("OVERRIDES_DIR", ""),
 				// Each step prints as it happens; out is only kept for the
@@ -178,11 +171,9 @@ func main() {
 			_ = cfs.Parse(args[1:])
 			invoking := strings.TrimSpace(os.Getenv("SUDO_USER"))
 			cfg := csm.CleanupConfig{
-				CS2User:          strings.TrimSpace(*target),
-				InvokingUser:     invoking,
-				DeleteUser:       *deleteUser,
-				MatchzyContainer: getenvDefault("MATCHZY_DB_CONTAINER", csm.DefaultMatchzyContainerName),
-				MatchzyVolume:    getenvDefault("MATCHZY_DB_VOLUME", csm.DefaultMatchzyVolumeName),
+				CS2User:      strings.TrimSpace(*target),
+				InvokingUser: invoking,
+				DeleteUser:   *deleteUser,
 			}
 			if cfg.CS2User == "" {
 				cfg.CS2User = invoking
@@ -943,32 +934,19 @@ func main() {
 			if mgr, merr := csm.NewTmuxManager(); merr == nil {
 				gateOrExit(mgr, "update-plugins", nil, pluginsForce)
 			}
-			if stack, why := csm.PluginStack(context.Background(), os.Stdout, csm.ConfiguredCS2User()); stack == csm.PluginStackReadyUp {
-				fmt.Printf("Plugin stack: Ready Up (%s)\n", why)
-				updateReadyUpCLI()
+			// Ready Up is the only plugin stack: instance hosts get a new Ready Up
+			// layer, server-N hosts Ready Up in each server folder.
+			if csm.InstanceBackendOn() {
+				fmt.Println("Servers: instances (csm instance update)")
+				out, err := csm.UpdateAndDeployPluginsWithContext(context.Background())
+				csm.LogAction("cli", "update-plugins", out, err)
+				fmt.Print(out)
+				if err != nil {
+					os.Exit(1)
+				}
 				return
 			}
-			// For CLI convenience, perform both the download and deploy steps.
-			if out, err := csm.UpdatePlugins(); out != "" || err != nil {
-				csm.LogAction("cli", "update-plugins-download", out, err)
-				if out != "" {
-					fmt.Print(out)
-				}
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "plugin download failed: %v\n", err)
-					os.Exit(1)
-				}
-			}
-			if out, err := csm.DeployPluginsToServers(); out != "" || err != nil {
-				csm.LogAction("cli", "update-plugins-deploy", out, err)
-				if out != "" {
-					fmt.Print(out)
-				}
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "plugin deployment failed: %v\n", err)
-					os.Exit(1)
-				}
-			}
+			updateReadyUpCLI()
 			return
 		case "monitor":
 			err := csm.RunAutoUpdateMonitor()
@@ -1181,7 +1159,7 @@ func printUsage() {
 	fmt.Println("  to go ahead anyway; forced runs are logged. Servers without Ready Up are not held.")
 	fmt.Println()
 	fmt.Printf("%sMore commands (CS2 user or root):%s\n", cyan, reset)
-	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive; the Docker MySQL step needs root)")
+	fmt.Println("  bootstrap              Install/redeploy servers (non-interactive)")
 	fmt.Println("  doctor                 Diagnose and offer fixes for common issues")
 	fmt.Println("  reinstall <server>     Rebuild a single server from master (fixes corrupted files)")
 	fmt.Println("  update-config <server> Regenerate server configs without reinstalling")
@@ -1212,9 +1190,9 @@ func printUsage() {
 	fmt.Println()
 	fmt.Printf("%sCommands that need root (sudo):%s\n", yellow, reset)
 	fmt.Println("  setup-host             One-time host setup for user mode: deps, CS2 user, linger, file ownership,")
-	fmt.Println("                         monitor cron in the user's crontab (--skip-deps, --skip-linger, --docker). Never touches servers")
+	fmt.Println("                         monitor cron in the user's crontab (--skip-deps, --skip-linger). Never touches servers")
 	fmt.Println("  install-deps           Install system dependencies")
-	fmt.Println("  cleanup-all            (sudo) Remove all servers, their files and the MatchZy MySQL container of the account")
+	fmt.Println("  cleanup-all            (sudo) Remove all servers and their files of the account")
 	fmt.Println("                         that ran sudo (--user <name>); --delete-user also deletes a dedicated service account")
 	fmt.Println()
 	fmt.Println("If no command is given, the interactive TUI is started.")
