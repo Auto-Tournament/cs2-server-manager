@@ -42,7 +42,7 @@ csm license clear
 sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger)
 sudo csm install-deps      # install system dependencies
 csm bootstrap              # install or redeploy servers without the TUI
-csm doctor                 # diagnose common problems and offer fixes
+csm doctor                 # diagnose common problems and offer fixes (only the servers and instances csm manages for this account)
 csm reinstall <server>     # rebuild one server from master-install
 csm update-config <server> # regenerate server configs without reinstalling
 csm dedupe-vpk [server]    # hardlink server VPKs to master-install
@@ -163,7 +163,7 @@ csm agent config                                     # show all settings
 `csm ci` turns a csm host into the test host for [Ready Up](https://github.com/Auto-Tournament/ready-up)'s real-server compatibility check: a CI server plus a GitHub Actions self-hosted runner labelled `readyup-live`. Run it as the CS2 user after the one-time `sudo csm setup-host` (it refuses root, so the runner never runs as root):
 
 ```bash
-sudo -iu cs2servermanager
+sudo -iu <cs2 user>
 csm ci setup --instance 9 --token <registration token>   # the CI server is instance 9 (port 27095)
 csm ci status
 csm ci remove --token <removal token>       # [--purge] also deletes the runner files and the CI server
@@ -180,13 +180,13 @@ The CS2 build is the shared game version: csm keeps it updated for every instanc
 
 **On a CS2 install of its own (`--dir`, no `--instance`).** `setup` checks linger, downloads and registers the runner, writes `CS2_CI_DIR` and `CS2_CI_PORT` (`--port`, 27095 by default) into `.env`, copies the master install into `--dir` (default `~/ru-ci`, about 70 GB) and updates it with SteamCMD; `csm ci update` updates it later. In detail, `setup`:
 
-1. checks that lingering is on for the user (`setup-host` enables it; otherwise `sudo loginctl enable-linger cs2servermanager`), since `systemd --user` services stop at logout without it;
+1. checks that lingering is on for the user (`setup-host` enables it; otherwise `sudo loginctl enable-linger <cs2 user>`), since `systemd --user` services stop at logout without it;
 2. downloads the latest `linux-x64` runner from [actions/runner](https://github.com/actions/runner/releases), checks the SHA256 published with the release, unpacks it into `~/actions-runner-readyup` and registers it as `<hostname>-readyup-live` with the label `readyup-live`;
 3. writes `CS2_CI_DIR=<dir>` and `CS2_CI_PORT=<port>` into the runner's `.env`, so every job sees them;
 4. installs CS2 into `--dir` with SteamCMD (`app_update 730 validate`, anonymous);
 5. writes the user unit `~/.config/systemd/user/actions.runner.readyup.service` (it runs `run.sh`) and enables and starts it with `systemctl --user`.
 
-It is safe to run again: an unpacked or registered runner is kept, the install is updated, and the service is restarted to pick up a new `--dir` or `--port`. If `config.sh` reports missing .NET dependencies, run `sudo ~cs2servermanager/actions-runner-readyup/bin/installdependencies.sh` once.
+It is safe to run again: an unpacked or registered runner is kept, the install is updated, and the service is restarted to pick up a new `--dir` or `--port`. If `config.sh` reports missing .NET dependencies, run `sudo ~<cs2 user>/actions-runner-readyup/bin/installdependencies.sh` once.
 
 The CI server is **not one of the numbered servers**. A `--dir` install does not live in a `server-N` directory, so it is not in the server list or `csm status`, and `csm monitor`, auto-update, `update-game` and start/stop/restart never touch it; a CI instance is private (above). `csm ci` never starts, stops, restarts or updates a numbered server or another instance. The Ready Up workflow starts and stops the CI server itself. Give it a port that the numbered servers don't use (27095 by default). `--dir` must not be a server directory, the master install or the home directory, and `--purge` only deletes a directory that `csm ci setup` created.
 
