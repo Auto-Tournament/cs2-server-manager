@@ -76,6 +76,7 @@ type FleetWatcher struct {
 	mu      sync.Mutex
 	entries map[int]*watchEntry
 	changed chan struct{}
+	ctx     context.Context // set by Run; servers added later watch under it
 }
 
 type watchEntry struct {
@@ -83,6 +84,7 @@ type watchEntry struct {
 	row    FleetRow
 	doc    map[string]any // the /status document, kept current by the stream
 	lastID string
+	cancel context.CancelFunc // stops this server's goroutine (Sync removed it)
 }
 
 // NewFleetWatcher creates a watcher for targets. Call Run to start it.
@@ -94,14 +96,7 @@ func NewFleetWatcher(targets []FleetTarget, opts WatchOptions) *FleetWatcher {
 		changed: make(chan struct{}, 1),
 	}
 	for _, t := range targets {
-		state := ReadyUpNoResponse
-		if !t.Running {
-			state = ReadyUpStopped
-		}
-		w.entries[t.Server] = &watchEntry{
-			target: t,
-			row:    FleetRow{Target: t, StatusPort: t.GamePort + ReadyUpPortOffset, State: state, Err: "connecting"},
-		}
+		w.entries[t.Server] = newEntry(t)
 	}
 	return w
 }
@@ -109,13 +104,82 @@ func NewFleetWatcher(targets []FleetTarget, opts WatchOptions) *FleetWatcher {
 // Run starts one goroutine per server. They stop when ctx is done.
 func (w *FleetWatcher) Run(ctx context.Context) {
 	w.mu.Lock()
-	servers := make([]int, 0, len(w.entries))
-	for n := range w.entries {
-		servers = append(servers, n)
+	w.ctx = ctx
+	starts := make([]func(), 0, len(w.entries))
+	for n, e := range w.entries {
+		starts = append(starts, w.startLocked(n, e))
 	}
 	w.mu.Unlock()
-	for _, n := range servers {
-		go w.watchServer(ctx, n)
+	for _, start := range starts {
+		start()
+	}
+}
+
+// startLocked gives an entry its own context under Run's and returns the
+// call that starts its goroutine (run it after unlocking).
+func (w *FleetWatcher) startLocked(n int, e *watchEntry) func() {
+	ctx, cancel := context.WithCancel(w.ctx)
+	e.cancel = cancel
+	return func() { go w.watchServer(ctx, n) }
+}
+
+func newEntry(t FleetTarget) *watchEntry {
+	state := ReadyUpNoResponse
+	if !t.Running {
+		state = ReadyUpStopped
+	}
+	return &watchEntry{
+		target: t,
+		row:    FleetRow{Target: t, StatusPort: t.GamePort + ReadyUpPortOffset, State: state, Err: "connecting"},
+	}
+}
+
+// Sync brings the watcher to this list of servers: a new one (the platform
+// created it through csm while the dashboard was open) starts being watched,
+// one that is gone stops, and the rest get SetProcess. Call it after Run.
+func (w *FleetWatcher) Sync(targets []FleetTarget) {
+	w.mu.Lock()
+	if w.ctx == nil {
+		w.mu.Unlock()
+		for _, t := range targets {
+			w.SetProcess(t)
+		}
+		return
+	}
+	seen := make(map[int]bool, len(targets))
+	var starts []func()
+	var known []FleetTarget
+	changed := false
+	for _, t := range targets {
+		seen[t.Server] = true
+		if _, ok := w.entries[t.Server]; ok {
+			known = append(known, t)
+			continue
+		}
+		e := newEntry(t)
+		w.entries[t.Server] = e
+		starts = append(starts, w.startLocked(t.Server, e))
+		changed = true
+	}
+	for n, e := range w.entries {
+		if seen[n] {
+			continue
+		}
+		if e.cancel != nil {
+			e.cancel()
+		}
+		delete(w.entries, n)
+		changed = true
+	}
+	w.mu.Unlock()
+	for _, start := range starts {
+		start()
+	}
+	for _, t := range known {
+		w.SetProcess(t)
+	}
+	if changed {
+		w.notify()
 	}
 }
 
@@ -165,18 +229,29 @@ func (w *FleetWatcher) notify() {
 	}
 }
 
+// target is a server's target; a server Sync removed reads as stopped (its
+// goroutine is on its way out).
 func (w *FleetWatcher) target(n int) FleetTarget {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.entries[n].target
+	if e, ok := w.entries[n]; ok {
+		return e.target
+	}
+	return FleetTarget{Server: n}
 }
 
 // update runs fn on a server's entry under the lock and signals a change.
+// A server Sync removed is skipped.
 func (w *FleetWatcher) update(n int, fn func(e *watchEntry)) {
 	w.mu.Lock()
-	fn(w.entries[n])
+	e, ok := w.entries[n]
+	if ok {
+		fn(e)
+	}
 	w.mu.Unlock()
-	w.notify()
+	if ok {
+		w.notify()
+	}
 }
 
 // setDoc stores a fresh document for a server and rebuilds its row.
@@ -306,8 +381,8 @@ func (w *FleetWatcher) followStream(ctx context.Context, n int, d ReadyUpDiscove
 	}
 	req.Header.Set("Accept", "text/event-stream")
 	w.mu.Lock()
-	if id := w.entries[n].lastID; id != "" {
-		req.Header.Set("Last-Event-ID", id)
+	if e, ok := w.entries[n]; ok && e.lastID != "" {
+		req.Header.Set("Last-Event-ID", e.lastID)
 	}
 	w.mu.Unlock()
 
