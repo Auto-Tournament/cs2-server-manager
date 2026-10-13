@@ -478,3 +478,31 @@ func TestAdoptPlatformLicenseAnswer(t *testing.T) {
 		t.Fatal("platform answer used over AT_ACCEPT_LICENSE")
 	}
 }
+
+func TestInstanceReadyUpLayerMeansReadyUp(t *testing.T) {
+	pluginTestEnv(t)
+	t.Setenv(EnvReadyUpAPI, "http://127.0.0.1:1")
+	was := instanceReadyUpPresent
+	instanceReadyUpPresent = func() bool { return true }
+	defer func() { instanceReadyUpPresent = was }()
+
+	// No choice saved and GitHub unreachable: the Ready Up layer the
+	// instances run decides it, not the legacy fallback.
+	stack, why := PluginStack(context.Background(), io.Discard, "csm-test-no-such-user")
+	if stack != PluginStackReadyUp || !strings.Contains(why, "instance mode") {
+		t.Fatalf("instance host = %s (%s)", stack, why)
+	}
+	if UsesLegacyStack("csm-test-no-such-user") {
+		t.Fatal("an instance host on a Ready Up layer reads as legacy")
+	}
+	if r := PluginsReport(context.Background(), false); !strings.Contains(r, "readyup (not chosen; the instances run a Ready Up layer)") {
+		t.Fatalf("report:\n%s", r)
+	}
+	// A choice saved by the operator still wins.
+	if _, err := SetPluginSetting("stack", "legacy"); err != nil {
+		t.Fatal(err)
+	}
+	if stack, _ := PluginStack(context.Background(), io.Discard, "csm-test-no-such-user"); stack != PluginStackLegacy {
+		t.Fatalf("operator choice ignored: %s", stack)
+	}
+}

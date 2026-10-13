@@ -282,6 +282,19 @@ func legacyStackPresent(user string) bool {
 	return false
 }
 
+// instanceReadyUpPresent reports whether this host runs instances on a
+// Ready Up layer (instance mode: `csm instance update` built one). Such a
+// host is on Ready Up even when CounterStrikeSharp is still in its old
+// server dirs. A variable so tests can stand in for the layer.
+var instanceReadyUpPresent = func() bool {
+	m, err := NewInstanceManager()
+	if err != nil {
+		return false
+	}
+	dir, err := m.CurrentLayer()
+	return err == nil && layerCore(dir) != ""
+}
+
 // PluginStack returns the stack to install and why. It may ask GitHub (a
 // fresh install without a choice) and then saves the answer.
 func PluginStack(ctx context.Context, w io.Writer, user string) (string, string) {
@@ -293,6 +306,9 @@ func PluginStack(ctx context.Context, w io.Writer, user string) (string, string)
 			return r.Stack, EnvPluginStack
 		}
 		return r.Stack, "csm plugins stack"
+	}
+	if instanceReadyUpPresent() {
+		return PluginStackReadyUp, "instance mode: the instances run a Ready Up layer"
 	}
 	if legacyStackPresent(user) {
 		return PluginStackLegacy, "existing install (switch with: csm plugins stack readyup)"
@@ -640,6 +656,8 @@ func PluginsReport(ctx context.Context, lookup bool) string {
 	user := configuredCS2User()
 	stack := r.Stack
 	switch {
+	case stack == "" && instanceReadyUpPresent():
+		stack = "readyup (not chosen; the instances run a Ready Up layer)"
 	case stack == "" && legacyStackPresent(user):
 		stack = "legacy (not chosen; this host has the legacy stack, so it stays)"
 	case stack == "":
