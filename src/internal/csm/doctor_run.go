@@ -95,7 +95,8 @@ func FormatDoctorReport(meta DoctorMeta, checks []DoctorCheck) string {
 	fmt.Fprintln(&b, "CSM Doctor")
 	fmt.Fprintln(&b, "==========")
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "CS2 user: %s\n", meta.CS2User)
+	fmt.Fprintf(&b, "CS2 user: %s (home %s)\n", meta.CS2User, userHomeDir(meta.CS2User))
+	fmt.Fprintln(&b, "Checks cover the servers and instances csm manages for this account only.")
 	if len(meta.Servers) == 0 {
 		fmt.Fprintln(&b, "Servers: (none discovered)")
 	} else {
@@ -191,22 +192,24 @@ func checkOwnership(meta DoctorMeta) DoctorCheck {
 	if err != nil {
 		return DoctorCheck{
 			ID:     "ownership",
-			Title:  "Ownership under /home/" + meta.CS2User,
+			Title:  "Ownership under " + userHomeDir(meta.CS2User),
 			Status: DoctorWarn,
 			Detail: fmt.Sprintf("Could not look up user %q: %v", meta.CS2User, err),
 		}
 	}
 	uid, _ := strconv.Atoi(u.Uid)
 
+	home := userHomeDir(meta.CS2User)
 	paths := []string{
-		filepath.Join("/home", meta.CS2User),
-		filepath.Join("/home", meta.CS2User, "master-install"),
-		filepath.Join("/home", meta.CS2User, "cs2-config"),
-		filepath.Join("/home", meta.CS2User, "logs"),
+		home,
+		filepath.Join(home, "master-install"),
+		filepath.Join(home, "cs2-config"),
+		filepath.Join(home, "logs"),
+		filepath.Join(home, "instances"),
 	}
 	// Spot-check server-1 as a representative (if any servers exist).
 	if len(meta.Servers) > 0 {
-		paths = append(paths, filepath.Join("/home", meta.CS2User, fmt.Sprintf("server-%d", meta.Servers[0])))
+		paths = append(paths, filepath.Join(home, fmt.Sprintf("server-%d", meta.Servers[0])))
 	}
 
 	var bad []string
@@ -227,7 +230,7 @@ func checkOwnership(meta DoctorMeta) DoctorCheck {
 	if len(bad) == 0 {
 		return DoctorCheck{
 			ID:     "ownership",
-			Title:  "Ownership under /home/" + meta.CS2User,
+			Title:  "Ownership under " + userHomeDir(meta.CS2User),
 			Status: DoctorOK,
 			Detail: "No obvious ownership mismatches detected in key directories.",
 		}
@@ -235,12 +238,12 @@ func checkOwnership(meta DoctorMeta) DoctorCheck {
 
 	return DoctorCheck{
 		ID:     "ownership",
-		Title:  "Ownership under /home/" + meta.CS2User,
+		Title:  "Ownership under " + userHomeDir(meta.CS2User),
 		Status: DoctorFail,
 		Detail: "Some directories are not owned by the CS2 user:\n- " + strings.Join(bad, "\n- "),
 		Fix: func(ctx context.Context) (string, error) {
 			var buf bytes.Buffer
-			fmt.Fprintf(&buf, "[*] Fixing ownership under /home/%s ...\n", meta.CS2User)
+			fmt.Fprintf(&buf, "[*] Fixing ownership under %s ...\n", userHomeDir(meta.CS2User))
 			err := fixServerOwnership(meta.CS2User)
 			if err == nil {
 				fmt.Fprintln(&buf, "[✓] Ownership fixed")
@@ -271,7 +274,7 @@ func checkSteamRT(meta DoctorMeta) DoctorCheck {
 		ID:     "steamrt",
 		Title:  "Steam Runtime installed (SteamRT3)",
 		Status: DoctorFail,
-		Detail: fmt.Sprintf("Steam Runtime is expected (%s) but /home/%s/steamrt/run was not found.", meta.SteamRTMode, meta.CS2User),
+		Detail: fmt.Sprintf("Steam Runtime is expected (%s) but %s was not found.", meta.SteamRTMode, filepath.Join(userHomeDir(meta.CS2User), "steamrt", "run")),
 		Fix: func(ctx context.Context) (string, error) {
 			var buf bytes.Buffer
 			err := ensureSteamRuntimeInstalled(ctx, &buf, meta.CS2User)
@@ -287,14 +290,14 @@ func checkLibV8(meta DoctorMeta, opts DoctorOptions) DoctorCheck {
 			ID:     "libv8",
 			Title:  "CS2 game files (cs2, libserver.so, libv8.so) present",
 			Status: DoctorWarn,
-			Detail: "No servers discovered; skipping libv8 check.",
+			Detail: noServersDetail(),
 		}
 	}
 
 	var missing []int
 	var hints []string
 	for _, n := range meta.Servers {
-		root := filepath.Join("/home", meta.CS2User, fmt.Sprintf("server-%d", n), "game")
+		root := filepath.Join(userHomeDir(meta.CS2User), fmt.Sprintf("server-%d", n), "game")
 		if libs := missingServerLibs(root); len(libs) > 0 {
 			missing = append(missing, n)
 			hints = append(hints, fmt.Sprintf("server-%d is missing %s (under %s)", n, strings.Join(libs, ", "), root))
@@ -325,4 +328,21 @@ func checkLibV8(meta DoctorMeta, opts DoctorOptions) DoctorCheck {
 		},
 		FixHint: "This runs SteamCMD validate on master-install and rsyncs master -> server(s).",
 	}
+}
+
+// userHomeDir is the account's home directory (its passwd entry), falling back
+// to /home/<user> when the account cannot be looked up.
+func userHomeDir(name string) string {
+	if u, err := user.Lookup(name); err == nil && u.HomeDir != "" {
+		return u.HomeDir
+	}
+	return filepath.Join("/home", name)
+}
+
+// noServersDetail says why the per-server game file check did not run.
+func noServersDetail() string {
+	if InstancesExist() {
+		return "Instance host: instances run the shared game version (`csm instance status` checks it); no server-N folders to check."
+	}
+	return "No servers discovered; skipping the game file check."
 }

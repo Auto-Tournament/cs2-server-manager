@@ -1166,7 +1166,7 @@ func printUsage() {
 	fmt.Println("  unban <server> <ip>    Remove IP from banned RCON requests (use 0 for all servers)")
 	fmt.Println("  unban-all <server>     Clear all IPs banned for RCON attempts (use 0 for all servers)")
 	fmt.Println("  update-game            Update CS2 game files after a Valve update")
-	fmt.Println("  update-plugins         Install/update the plugin stack on every server (Ready Up or legacy; csm plugins)")
+	fmt.Println("  update-plugins         Install/update Ready Up on every server (csm plugins)")
 	fmt.Println("  plugins [status]       Plugin stack, Ready Up channel/version/bundle/license (`csm plugins -h`)")
 	fmt.Println("  instance ...           Instance mode: many servers from one read-only install (`csm instance -h`)")
 	fmt.Println("  self-update            Update csm itself to the latest release")

@@ -20,8 +20,8 @@ type CleanupConfig struct {
 	// never deleted: in user mode it is a person's login.
 	InvokingUser string
 	// DeleteUser also deletes CS2User and its home directory (userdel -r),
-	// for a dedicated service account such as the cs2servermanager user of
-	// older installs. Without it only csm's files in the home are removed.
+	// for a dedicated service account. Without it only csm's files in the
+	// home are removed.
 	DeleteUser bool
 }
 

@@ -14,12 +14,12 @@ import (
 	"time"
 )
 
-// fixServerOwnership ensures all files in the cs2servermanager home directory
+// fixServerOwnership ensures all files in the CS2 user's home directory
 // are owned by the correct user. This is called at the end of all major
 // operations (bootstrap, reinstall, add server, update plugins) to prevent
 // ownership issues that can break server functionality.
 func fixServerOwnership(user string) error {
-	homeDir := filepath.Join("/home", user)
+	homeDir := userHomeDir(user)
 
 	// Check if home directory exists
 	if _, err := os.Stat(homeDir); os.IsNotExist(err) {

@@ -46,7 +46,7 @@ const (
 
 // PluginSettings is <csm root>/plugins.json.
 type PluginSettings struct {
-	// Stack is readyup, legacy or "" (not chosen).
+	// Stack is always readyup.
 	Stack string `json:"stack,omitempty"`
 	// StackSetBy is "operator" or "fresh-install".
 	StackSetBy string `json:"stack_set_by,omitempty"`
