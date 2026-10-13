@@ -21,8 +21,8 @@ func holdServer(t *testing.T, status int, body any) (url string, token *string) 
 			return
 		}
 		seen = r.Header.Get("X-Auto-Tournament-Token")
-		if legacy := r.Header.Get("X-MatchZy-Token"); legacy != seen {
-			t.Errorf("X-MatchZy-Token %q differs from X-Auto-Tournament-Token %q", legacy, seen)
+		if legacy := r.Header.Get("X-MatchZy-Token"); legacy != "" {
+			t.Errorf("the legacy X-MatchZy-Token header is still sent: %q", legacy)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)

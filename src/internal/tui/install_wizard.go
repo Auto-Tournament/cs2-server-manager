@@ -235,16 +235,11 @@ func (w *installWizard) applyWizardNumericFields() {
 	if p, err := strconv.Atoi(strings.TrimSpace(w.tvPortStr)); err == nil && p > 0 {
 		w.cfg.tvPort = p
 	}
-	if p, err := strconv.Atoi(strings.TrimSpace(w.dbPortStr)); err == nil && p > 0 {
-		w.cfg.externalDBPort = p
-	}
 }
 
 // Wizard field indices for the multi-step install wizard view.
 const (
-	wizardFieldDBMode = iota
-	wizardFieldDBEngine
-	wizardFieldNumServers
+	wizardFieldNumServers = iota
 	wizardFieldBasePort
 	wizardFieldTVPort
 	wizardFieldCS2User
@@ -252,19 +247,12 @@ const (
 	wizardFieldRCONPassword
 	wizardFieldMaxPlayers
 	wizardFieldGSLT
-	wizardFieldMetamod
 	wizardFieldFreshInstall
 	wizardFieldUpdateMaster
 	wizardFieldFastCopy
 	wizardFieldSteamValidate
 	wizardFieldUpdatePlugins
 	wizardFieldInstallMonitor
-	wizardFieldDBExternalHost
-	wizardFieldDBExternalPort
-	wizardFieldDBExternalName
-	wizardFieldDBExternalUser
-	wizardFieldDBExternalPassword
-	wizardFieldStack
 	wizardFieldLicense
 	wizardFieldNext
 	wizardFieldPrevious
@@ -273,58 +261,18 @@ const (
 	wizardFieldCount
 )
 
-// toggleDBEngine flips the MatchZy storage choice between shared MySQL and
-// SQLite per server.
-func toggleDBEngine(engine string) string {
-	if engine == csm.MatchzyDBEngineSQLite {
-		return csm.MatchzyDBEngineMySQL
-	}
-	return csm.MatchzyDBEngineSQLite
-}
-
 // wizardPage defines which fields appear on each page
 type wizardPage []int
 
-// getWizardPages returns the pages for the chosen plugin stack. Ready Up
-// needs no database and no Metamod, so those fields only show for the legacy
-// MatchZy Enhanced stack (external DB fields only in external DB mode).
-func getWizardPages(cfg installConfig) []wizardPage {
-	legacy := cfg.stack == csm.PluginStackLegacy
-	first := wizardPage{wizardFieldStack, wizardFieldLicense, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort}
-	core := wizardPage{wizardFieldGSLT, wizardFieldFreshInstall, wizardFieldUpdateMaster}
-	if legacy {
-		first = wizardPage{wizardFieldStack, wizardFieldDBEngine, wizardFieldDBMode, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort}
-		core = wizardPage{wizardFieldGSLT, wizardFieldMetamod, wizardFieldFreshInstall, wizardFieldUpdateMaster}
-	}
-	pages := []wizardPage{
-		first,
+// getWizardPages returns the pages of the install wizard (Ready Up servers:
+// nothing else to install).
+func getWizardPages(_ installConfig) []wizardPage {
+	return []wizardPage{
+		{wizardFieldLicense, wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort},
 		{wizardFieldCS2User, wizardFieldHostnamePrefix, wizardFieldRCONPassword, wizardFieldMaxPlayers},
-		core,
+		{wizardFieldGSLT, wizardFieldFreshInstall, wizardFieldUpdateMaster},
 		{wizardFieldSteamValidate, wizardFieldFastCopy, wizardFieldUpdatePlugins, wizardFieldInstallMonitor},
 	}
-
-	// Add external DB page if using external mode
-	if legacy && strings.EqualFold(cfg.dbMode, "external") {
-		externalPage := wizardPage{
-			wizardFieldDBExternalHost,
-			wizardFieldDBExternalPort,
-			wizardFieldDBExternalName,
-			wizardFieldDBExternalUser,
-			wizardFieldDBExternalPassword,
-		}
-		// Insert before final page (which has Start install)
-		pages = append(pages[:len(pages)-1], externalPage, pages[len(pages)-1])
-	}
-
-	return pages
-}
-
-// toggleStack flips between Ready Up and the legacy stack.
-func toggleStack(stack string) string {
-	if stack == csm.PluginStackLegacy {
-		return csm.PluginStackReadyUp
-	}
-	return csm.PluginStackLegacy
 }
 
 // nextLicense cycles the Ready Up license answer.
@@ -535,13 +483,6 @@ func (m model) viewInstallWizard() string {
 	// Render all visible fields
 	for _, fieldIdx := range visibleFields {
 		switch fieldIdx {
-		case wizardFieldStack:
-			stackLabel := "Ready Up (for Auto Tournament 3.x)"
-			if m.wizard.cfg.stack == csm.PluginStackLegacy {
-				stackLabel = "Legacy: MatchZy Enhanced (Auto Tournament 2.x)"
-			}
-			renderRow(wizardFieldStack, "Plugins:", stackLabel)
-
 		case wizardFieldLicense:
 			licenseLabel := "not chosen (press Enter)"
 			switch m.wizard.cfg.license {
@@ -551,20 +492,6 @@ func (m model) viewInstallWizard() string {
 				licenseLabel = "Commercial (needs a paid license key)"
 			}
 			renderRow(wizardFieldLicense, "Ready Up license:", licenseLabel)
-
-		case wizardFieldDBMode:
-			dbLabel := "Docker-managed MySQL (recommended)"
-			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				dbLabel = "External MySQL (no Docker provisioning)"
-			}
-			renderRow(wizardFieldDBMode, "MatchZy DB:", dbLabel)
-
-		case wizardFieldDBEngine:
-			engineLabel := "Shared MySQL (stats shared across servers)"
-			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
-				engineLabel = "SQLite per server (safe with any MatchZy build)"
-			}
-			renderRow(wizardFieldDBEngine, "MatchZy storage:", engineLabel)
 
 		case wizardFieldNumServers:
 			numServersVal := m.wizard.numServersStr
@@ -625,15 +552,6 @@ func (m model) viewInstallWizard() string {
 			}
 			renderRow(wizardFieldGSLT, "GSLT token (optional):", gsltVal)
 
-		case wizardFieldMetamod:
-			boolLabel := func(v bool) string {
-				if v {
-					return "[x] Yes"
-				}
-				return "[ ] No"
-			}
-			renderRow(wizardFieldMetamod, "Enable Metamod:", boolLabel(m.wizard.cfg.enableMetamod))
-
 		case wizardFieldFreshInstall:
 			boolLabel := func(v bool) string {
 				if v {
@@ -688,44 +606,6 @@ func (m model) viewInstallWizard() string {
 			}
 			renderRow(wizardFieldInstallMonitor, "Install auto-update:", boolLabel(m.wizard.cfg.installMonitor))
 
-		case wizardFieldDBExternalHost:
-			dbHostVal := m.wizard.cfg.externalDBHost
-			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalHost && m.wizard.editing {
-				dbHostVal = m.wizard.input.View()
-			}
-			renderRow(wizardFieldDBExternalHost, "DB host (external):", dbHostVal)
-
-		case wizardFieldDBExternalPort:
-			dbPortVal := m.wizard.dbPortStr
-			if strings.TrimSpace(dbPortVal) == "" && m.wizard.cfg.externalDBPort > 0 {
-				dbPortVal = fmt.Sprintf("%d", m.wizard.cfg.externalDBPort)
-			}
-			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalPort && m.wizard.editing {
-				dbPortVal = m.wizard.input.View()
-			}
-			renderRow(wizardFieldDBExternalPort, "DB port (external):", dbPortVal)
-
-		case wizardFieldDBExternalName:
-			dbNameVal := m.wizard.cfg.externalDBName
-			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalName && m.wizard.editing {
-				dbNameVal = m.wizard.input.View()
-			}
-			renderRow(wizardFieldDBExternalName, "DB name (external):", dbNameVal)
-
-		case wizardFieldDBExternalUser:
-			dbUserVal := m.wizard.cfg.externalDBUser
-			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalUser && m.wizard.editing {
-				dbUserVal = m.wizard.input.View()
-			}
-			renderRow(wizardFieldDBExternalUser, "DB user (external):", dbUserVal)
-
-		case wizardFieldDBExternalPassword:
-			dbPassVal := m.wizard.cfg.externalDBPassword
-			if m.wizard.cursor < len(visibleFields) && visibleFields[m.wizard.cursor] == wizardFieldDBExternalPassword && m.wizard.editing {
-				dbPassVal = m.wizard.input.View()
-			}
-			renderRow(wizardFieldDBExternalPassword, "DB password (external):", dbPassVal)
-
 		case wizardFieldNext:
 			renderRow(wizardFieldNext, "", "Next →")
 
@@ -749,21 +629,8 @@ func (m model) viewInstallWizard() string {
 	if m.wizard.cursor < len(visibleFields) {
 		selectedField := visibleFields[m.wizard.cursor]
 		switch selectedField {
-		case wizardFieldDBMode:
-			desc = "Choose Docker-managed MySQL (recommended) or an existing external MySQL server."
-			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
-				desc += " Not used while storage is SQLite per server."
-			}
-		case wizardFieldDBEngine:
-			if m.wizard.cfg.dbEngine == csm.MatchzyDBEngineSQLite {
-				desc = "Each server keeps its own matchzy.db. Stats are not shared, but servers can never load each other's server id or bootstrap URL, on any MatchZy build."
-			} else {
-				desc = "One MySQL database for every server, so stats are shared. With 2+ servers this needs " + csm.MatchzyScopingRequirement() + "; older builds make every server load the same matchzy_server_id. Pick SQLite per server if you are on an older build."
-			}
 		case wizardFieldNumServers:
 			desc = "How many CS2 game servers to create on this machine."
-		case wizardFieldStack:
-			desc = "Ready Up is what Auto Tournament 3.x is built for. The legacy MatchZy Enhanced stack is for 2.x."
 		case wizardFieldLicense:
 			desc = "Ready Up is free for noncommercial use (PolyForm Noncommercial 1.0.0). Commercial use needs a paid license: " + csm.LicensePricingURL
 		case wizardFieldBasePort:
@@ -774,13 +641,11 @@ func (m model) viewInstallWizard() string {
 			desc = "The account the servers run as: the one running csm."
 		case wizardFieldHostnamePrefix:
 			desc = "Base name for your servers, e.g. \"My CS2 Server\" (CSM will append server numbers automatically)."
-		case wizardFieldMetamod:
-			desc = "Install Metamod so you can run SourceMod and other plugins."
 		case wizardFieldFreshInstall:
 			if m.wizard.cfg.freshInstall {
-				desc = "Perform a full fresh install: delete existing master install, MatchZy DB container/volume, and all server-* directories before recreating everything."
+				desc = "Perform a full fresh install: delete the existing master install and all server-* directories before recreating everything."
 			} else {
-				desc = "Reuse the existing master install, MatchZy DB, and servers; only update what is needed."
+				desc = "Reuse the existing master install and servers; only update what is needed."
 			}
 		case wizardFieldUpdateMaster:
 			desc = "Run SteamCMD to update the master CS2 install before deploying servers."
@@ -794,26 +659,6 @@ func (m model) viewInstallWizard() string {
 			desc = "Maximum number of players (0 or empty = use CS2 default, typically 10)."
 		case wizardFieldGSLT:
 			desc = "Steam Game Server Login Token (GSLT) for server authentication. Optional but recommended for public servers."
-		case wizardFieldDBExternalHost:
-			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL host for MatchZy (used when MatchZy DB is set to external)."
-			}
-		case wizardFieldDBExternalPort:
-			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL port for MatchZy (typically 3306)."
-			}
-		case wizardFieldDBExternalName:
-			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL database name for MatchZy (e.g. \"matchzy\")."
-			}
-		case wizardFieldDBExternalUser:
-			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL username for MatchZy."
-			}
-		case wizardFieldDBExternalPassword:
-			if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-				desc = "External MySQL password for MatchZy."
-			}
 		case wizardFieldNext:
 			desc = "Continue to the next page."
 		case wizardFieldPrevious:
@@ -963,39 +808,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.tvPortStr = fmt.Sprintf("%d", p-1)
 					m.wizard.errMsg = ""
 				}
-			case wizardFieldDBExternalPort:
-				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.dbPortStr)); err == nil && p > 1 {
-					m.wizard.dbPortStr = fmt.Sprintf("%d", p-1)
-					m.wizard.errMsg = ""
-				}
-			case wizardFieldDBEngine:
-				m.wizard.cfg.dbEngine = toggleDBEngine(m.wizard.cfg.dbEngine)
-				m.wizard.errMsg = ""
-			case wizardFieldDBMode:
-				// Left/right both toggle DB mode between docker and external.
-				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-					m.wizard.cfg.dbMode = "docker"
-				} else {
-					m.wizard.cfg.dbMode = "external"
-				}
-				// Recalculate pages if DB mode changed
-				pages = getWizardPages(m.wizard.cfg)
-				if m.wizard.currentPage >= len(pages) {
-					m.wizard.currentPage = len(pages) - 1
-				}
-				m.wizard.errMsg = ""
-			case wizardFieldStack:
-				m.wizard.cfg.stack = toggleStack(m.wizard.cfg.stack)
-				pages = getWizardPages(m.wizard.cfg)
-				if m.wizard.currentPage >= len(pages) {
-					m.wizard.currentPage = len(pages) - 1
-				}
-				m.wizard.cursor = 0
 			case wizardFieldLicense:
 				m.wizard.cfg.license = nextLicense(m.wizard.cfg.license)
-			case wizardFieldMetamod:
-				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
-				m.wizard.errMsg = ""
 			case wizardFieldFreshInstall:
 				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
 				m.wizard.errMsg = ""
@@ -1035,38 +849,8 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 					m.wizard.tvPortStr = fmt.Sprintf("%d", p+1)
 					m.wizard.errMsg = ""
 				}
-			case wizardFieldDBExternalPort:
-				if p, err := strconv.Atoi(strings.TrimSpace(m.wizard.dbPortStr)); err == nil {
-					m.wizard.dbPortStr = fmt.Sprintf("%d", p+1)
-					m.wizard.errMsg = ""
-				}
-			case wizardFieldDBEngine:
-				m.wizard.cfg.dbEngine = toggleDBEngine(m.wizard.cfg.dbEngine)
-				m.wizard.errMsg = ""
-			case wizardFieldDBMode:
-				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-					m.wizard.cfg.dbMode = "docker"
-				} else {
-					m.wizard.cfg.dbMode = "external"
-				}
-				// Recalculate pages if DB mode changed
-				pages = getWizardPages(m.wizard.cfg)
-				if m.wizard.currentPage >= len(pages) {
-					m.wizard.currentPage = len(pages) - 1
-				}
-				m.wizard.errMsg = ""
-			case wizardFieldStack:
-				m.wizard.cfg.stack = toggleStack(m.wizard.cfg.stack)
-				pages = getWizardPages(m.wizard.cfg)
-				if m.wizard.currentPage >= len(pages) {
-					m.wizard.currentPage = len(pages) - 1
-				}
-				m.wizard.cursor = 0
 			case wizardFieldLicense:
 				m.wizard.cfg.license = nextLicense(m.wizard.cfg.license)
-			case wizardFieldMetamod:
-				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
-				m.wizard.errMsg = ""
 			case wizardFieldFreshInstall:
 				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
 				m.wizard.errMsg = ""
@@ -1108,16 +892,6 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				}
 			case wizardFieldGSLT:
 				m.wizard.cfg.gslt = value
-			case wizardFieldDBExternalHost:
-				m.wizard.cfg.externalDBHost = value
-			case wizardFieldDBExternalPort:
-				m.wizard.dbPortStr = value
-			case wizardFieldDBExternalName:
-				m.wizard.cfg.externalDBName = value
-			case wizardFieldDBExternalUser:
-				m.wizard.cfg.externalDBUser = value
-			case wizardFieldDBExternalPassword:
-				m.wizard.cfg.externalDBPassword = value
 			case wizardFieldCS2User:
 				m.wizard.cfg.cs2User = value
 				m.wizard.diskEstimating = true
@@ -1147,35 +921,13 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				m.wizard.cursor = 0
 			}
 			return m, nil
-		case wizardFieldStack, wizardFieldLicense, wizardFieldDBMode, wizardFieldDBEngine, wizardFieldMetamod, wizardFieldFreshInstall,
+		case wizardFieldLicense, wizardFieldFreshInstall,
 			wizardFieldUpdateMaster, wizardFieldSteamValidate, wizardFieldFastCopy,
 			wizardFieldUpdatePlugins, wizardFieldInstallMonitor:
 			// Toggle boolean fields or DB mode on Enter
 			switch currentField {
-			case wizardFieldDBEngine:
-				m.wizard.cfg.dbEngine = toggleDBEngine(m.wizard.cfg.dbEngine)
-			case wizardFieldDBMode:
-				if strings.EqualFold(m.wizard.cfg.dbMode, "external") {
-					m.wizard.cfg.dbMode = "docker"
-				} else {
-					m.wizard.cfg.dbMode = "external"
-				}
-				// Recalculate pages
-				pages = getWizardPages(m.wizard.cfg)
-				if m.wizard.currentPage >= len(pages) {
-					m.wizard.currentPage = len(pages) - 1
-				}
-			case wizardFieldStack:
-				m.wizard.cfg.stack = toggleStack(m.wizard.cfg.stack)
-				pages = getWizardPages(m.wizard.cfg)
-				if m.wizard.currentPage >= len(pages) {
-					m.wizard.currentPage = len(pages) - 1
-				}
-				m.wizard.cursor = 0
 			case wizardFieldLicense:
 				m.wizard.cfg.license = nextLicense(m.wizard.cfg.license)
-			case wizardFieldMetamod:
-				m.wizard.cfg.enableMetamod = !m.wizard.cfg.enableMetamod
 			case wizardFieldFreshInstall:
 				m.wizard.cfg.freshInstall = !m.wizard.cfg.freshInstall
 				m.wizard.diskEstimating = true
@@ -1197,9 +949,7 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 			return m, nil
 		case wizardFieldNumServers, wizardFieldBasePort, wizardFieldTVPort,
 			wizardFieldHostnamePrefix, wizardFieldRCONPassword, wizardFieldMaxPlayers,
-			wizardFieldGSLT, wizardFieldDBExternalHost, wizardFieldDBExternalPort,
-			wizardFieldDBExternalName, wizardFieldDBExternalUser, wizardFieldDBExternalPassword,
-			wizardFieldCS2User:
+			wizardFieldGSLT, wizardFieldCS2User:
 			// Enter on a text/numeric field: start editing.
 			m.wizard.editing = true
 			m.wizard.errMsg = ""
@@ -1223,35 +973,15 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 				}
 			case wizardFieldGSLT:
 				currentValue = m.wizard.cfg.gslt
-			case wizardFieldDBExternalHost:
-				currentValue = m.wizard.cfg.externalDBHost
-			case wizardFieldDBExternalPort:
-				currentValue = m.wizard.dbPortStr
-			case wizardFieldDBExternalName:
-				currentValue = m.wizard.cfg.externalDBName
-			case wizardFieldDBExternalUser:
-				currentValue = m.wizard.cfg.externalDBUser
-			case wizardFieldDBExternalPassword:
-				currentValue = m.wizard.cfg.externalDBPassword
 			case wizardFieldCS2User:
 				currentValue = m.wizard.cfg.cs2User
 			}
 
 			m.wizard.input.SetValue(currentValue)
 			m.wizard.input.Focus()
-			if currentField == wizardFieldDBExternalPassword {
-				m.wizard.input.EchoMode = textinput.EchoPassword
-			} else {
-				m.wizard.input.EchoMode = textinput.EchoNormal
-			}
+			m.wizard.input.EchoMode = textinput.EchoNormal
 			m.wizard.input.CharLimit = 0
-			if currentField == wizardFieldMaxPlayers || currentField == wizardFieldNumServers ||
-				currentField == wizardFieldBasePort || currentField == wizardFieldTVPort ||
-				currentField == wizardFieldDBExternalPort {
-				m.wizard.input.Prompt = "> "
-			} else {
-				m.wizard.input.Prompt = "> "
-			}
+			m.wizard.input.Prompt = "> "
 
 			return m, textinput.Blink
 		case wizardFieldStartInstall:
@@ -1274,19 +1004,13 @@ func (m model) updateInstallWizard(msg tea.Msg) (model, tea.Cmd) {
 
 			// Ready Up installs only with a license answer; save the choices
 			// so the plugin step (and later updates) use them.
-			if m.wizard.cfg.stack == csm.PluginStackReadyUp && m.wizard.cfg.license == "" {
+			if m.wizard.cfg.license == "" {
 				m.wizard.errMsg = "Choose the Ready Up license on the first page (noncommercial is free)."
 				return m, nil
 			}
-			if _, err := csm.SetPluginSetting("stack", m.wizard.cfg.stack); err != nil {
-				m.wizard.errMsg = fmt.Sprintf("Saving the plugin choice failed: %v", err)
+			if _, err := csm.SetPluginSetting("license", m.wizard.cfg.license); err != nil {
+				m.wizard.errMsg = fmt.Sprintf("Saving the license answer failed: %v", err)
 				return m, nil
-			}
-			if m.wizard.cfg.stack == csm.PluginStackReadyUp {
-				if _, err := csm.SetPluginSetting("license", m.wizard.cfg.license); err != nil {
-					m.wizard.errMsg = fmt.Sprintf("Saving the license answer failed: %v", err)
-					return m, nil
-				}
 			}
 
 			// Parse numeric fields into cfg.
@@ -1345,7 +1069,7 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 		var err error
 		switch step {
 		case installStepPlugins:
-			if cfg.updatePlugins && cfg.stack == csm.PluginStackReadyUp {
+			if cfg.updatePlugins {
 				// Ready Up installs into the servers, which bootstrap creates
 				// in the next step; it is installed right after that.
 				log("Ready Up is installed after the servers are created (next step).")
@@ -1389,30 +1113,18 @@ func runInstallStep(cfg installConfig, step installStep) tea.Cmd {
 				BaseTVPort:     cfg.tvPort,
 				CS2User:        cfg.cs2User,
 				HostnamePrefix: cfg.hostnamePrefix,
-				EnableMetamod:  cfg.enableMetamod,
 				FreshInstall:   cfg.freshInstall,
 				UpdateMaster:   cfg.updateMaster,
 				RCONPassword:   cfg.rconPassword,
 				MaxPlayers:     cfg.maxPlayers,
 				GSLT:           cfg.gslt,
-
-				// MatchZy database choices. database.json is only rewritten
-				// when it carries CSM's managed note.
-				DBMode:             cfg.dbMode,
-				DBEngine:           cfg.dbEngine,
-				MatchzySkipDocker:  cfg.matchzySkipDocker,
-				ExternalDBHost:     cfg.externalDBHost,
-				ExternalDBPort:     cfg.externalDBPort,
-				ExternalDBName:     cfg.externalDBName,
-				ExternalDBUser:     cfg.externalDBUser,
-				ExternalDBPassword: cfg.externalDBPassword,
 			}
 			_, err = csm.BootstrapWithContext(ctx, bootstrapCfg)
 			if err != nil {
 				log("Bootstrap failed: %v", err)
 			} else {
 				log("Bootstrap completed successfully.")
-				if cfg.updatePlugins && cfg.stack == csm.PluginStackReadyUp {
+				if cfg.updatePlugins {
 					_, err = withPluginsLogTail(func() (string, error) {
 						return csm.UpdateAndDeployPluginsWithContext(ctx)
 					})

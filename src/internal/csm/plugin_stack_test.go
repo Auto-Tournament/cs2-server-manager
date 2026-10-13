@@ -86,10 +86,10 @@ func pluginTestEnv(t *testing.T) {
 func TestPluginSettingsRoundTrip(t *testing.T) {
 	pluginTestEnv(t)
 	r := PluginSettings{}.Resolved()
-	if r.Stack != "" || r.ReadyUpChannel != "stable" || r.ReadyUpBundle != "essentials" || r.AcceptLicense != "" || !r.AutoUpdateOn() {
+	if r.Stack != PluginStackReadyUp || r.ReadyUpChannel != "stable" || r.ReadyUpBundle != "essentials" || r.AcceptLicense != "" || !r.AutoUpdateOn() {
 		t.Fatalf("defaults = %+v", r)
 	}
-	for _, kv := range [][2]string{{"stack", "readyup"}, {"channel", "beta"}, {"version", "0.1.0-beta.2"}, {"bundle", "full"}, {"license", "noncommercial"}, {"auto", "off"}} {
+	for _, kv := range [][2]string{{"channel", "beta"}, {"version", "0.1.0-beta.2"}, {"bundle", "full"}, {"license", "noncommercial"}, {"auto", "off"}} {
 		if _, err := SetPluginSetting(kv[0], kv[1]); err != nil {
 			t.Fatalf("%s %s: %v", kv[0], kv[1], err)
 		}
@@ -98,19 +98,18 @@ func TestPluginSettingsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Stack != "readyup" || s.StackSetBy != "operator" || s.ReadyUpChannel != "beta" || s.ReadyUpVersion != "v0.1.0-beta.2" ||
+	if s.ReadyUpChannel != "beta" || s.ReadyUpVersion != "v0.1.0-beta.2" ||
 		s.ReadyUpBundle != "full" || s.AcceptLicense != "noncommercial" || s.AcceptLicenseBy != "operator" || s.AutoUpdateOn() {
 		t.Fatalf("saved = %+v", s)
 	}
-	for _, bad := range [][2]string{{"stack", "metamod"}, {"channel", "nightly"}, {"version", "1.0"}, {"license", "yes"}, {"auto", "maybe"}, {"colour", "red"}} {
+	for _, bad := range [][2]string{{"stack", "readyup"}, {"channel", "nightly"}, {"version", "1.0"}, {"license", "yes"}, {"auto", "maybe"}, {"colour", "red"}} {
 		if _, err := SetPluginSetting(bad[0], bad[1]); err == nil {
 			t.Fatalf("%v accepted", bad)
 		}
 	}
 	// The environment wins, like on the platform.
 	t.Setenv(EnvAcceptLicense, "commercial")
-	t.Setenv(EnvPluginStack, "legacy")
-	if r := s.Resolved(); r.AcceptLicense != "commercial" || r.Stack != "legacy" {
+	if r := s.Resolved(); r.AcceptLicense != "commercial" || r.Stack != PluginStackReadyUp {
 		t.Fatalf("env = %+v", r)
 	}
 	if _, err := SetPluginSetting("version", "latest"); err != nil {
@@ -118,42 +117,6 @@ func TestPluginSettingsRoundTrip(t *testing.T) {
 	}
 	if s, _ := LoadPluginSettings(); s.ReadyUpVersion != "" {
 		t.Fatalf("latest did not clear the pin: %q", s.ReadyUpVersion)
-	}
-}
-
-func TestPluginStackFreshInstall(t *testing.T) {
-	pluginTestEnv(t)
-	fakeReadyUpGitHub(t, "", readyup.Release{TagName: "v0.1.0-beta.1", Prerelease: true, PublishedAt: "2026-09-28T00:00:00Z"})
-	var log bytes.Buffer
-	stack, why := PluginStack(context.Background(), &log, "csm-test-no-such-user")
-	if stack != PluginStackReadyUp || !strings.Contains(why, "v0.1.0-beta.1") || !strings.Contains(log.String(), "beta channel") {
-		t.Fatalf("pre-releases only = %s (%s)\n%s", stack, why, log.String())
-	}
-	if s, _ := LoadPluginSettings(); s.Stack != PluginStackReadyUp || s.ReadyUpChannel != "beta" || s.StackSetBy != "fresh-install" {
-		t.Fatalf("beta fallback saved = %+v", s)
-	}
-
-	// No release reachable at all (offline): the legacy stack, not saved.
-	pluginTestEnv(t)
-	t.Setenv(EnvReadyUpAPI, "http://127.0.0.1:1")
-	if stack, _ := PluginStack(context.Background(), io.Discard, "csm-test-no-such-user"); stack != PluginStackLegacy {
-		t.Fatalf("offline = %s", stack)
-	}
-	if s, _ := LoadPluginSettings(); s.Stack != "" {
-		t.Fatalf("a legacy fallback was saved: %+v", s)
-	}
-	t.Setenv(EnvReadyUpAPI, "")
-	pluginTestEnv(t)
-
-	fakeReadyUpGitHub(t, "v0.1.0", readyup.Release{TagName: "v0.1.0", PublishedAt: "2026-10-01T00:00:00Z"})
-	stack, _ = PluginStack(context.Background(), io.Discard, "csm-test-no-such-user")
-	if s, _ := LoadPluginSettings(); stack != PluginStackReadyUp || s.Stack != PluginStackReadyUp || s.StackSetBy != "fresh-install" {
-		t.Fatalf("stable release = %s %+v", stack, s)
-	}
-	// Once chosen it is not asked again.
-	t.Setenv(EnvReadyUpAPI, "http://127.0.0.1:1")
-	if stack, _ := PluginStack(context.Background(), io.Discard, "csm-test-no-such-user"); stack != PluginStackReadyUp {
-		t.Fatalf("saved choice ignored: %s", stack)
 	}
 }
 
@@ -300,68 +263,6 @@ func TestPromptReadyUpLicense(t *testing.T) {
 	}
 }
 
-func TestLegacyPluginIsPinned(t *testing.T) {
-	var asked []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		asked = append(asked, r.URL.Path)
-		switch r.URL.Path {
-		case "/repos/Auto-Tournament/matchzy-enhanced/releases/tags/v1.4.35":
-			_, _ = w.Write([]byte(`{"tag_name":"v1.4.35","assets":[{"name":"MatchZy-1.4.35.zip","browser_download_url":"https://example.invalid/MatchZy-1.4.35.zip"}]}`))
-		case "/repos/Auto-Tournament/matchzy-enhanced/releases/latest":
-			_, _ = w.Write([]byte(`{"tag_name":"v2.0.0","assets":[{"name":"AutoTournamentCS2-2.0.0.zip","browser_download_url":"https://example.invalid/AutoTournamentCS2-2.0.0.zip"}]}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-	old := githubAPI
-	githubAPI = srv.URL
-	defer func() { githubAPI = old }()
-	t.Setenv(legacyPluginVersionEnv, "")
-
-	up := &PluginUpdater{}
-	rel, u, err := up.resolveLegacyPlugin(io.Discard)
-	if err != nil || rel.TagName != LegacyPluginPinnedVersion || !strings.HasSuffix(u, "MatchZy-1.4.35.zip") {
-		t.Fatalf("pinned = %s %s %v", rel.TagName, u, err)
-	}
-	for _, p := range asked {
-		if strings.HasSuffix(p, "/latest") {
-			t.Fatalf("asked for releases/latest: %v", asked)
-		}
-	}
-	t.Setenv(legacyPluginVersionEnv, "latest")
-	if rel, _, err := up.resolveLegacyPlugin(io.Discard); err != nil || rel.TagName != "v2.0.0" {
-		t.Fatalf("latest override = %s %v", rel.TagName, err)
-	}
-}
-
-func TestCheckLegacyPlatform(t *testing.T) {
-	version := "3.0.0-beta.13"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != platformVersionPath {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write([]byte(`{"success":true,"version":"` + version + `"}`))
-	}))
-	defer srv.Close()
-	err := checkLegacyPlatform(context.Background(), io.Discard, srv.URL)
-	if err == nil || !strings.Contains(err.Error(), "only talks to Ready Up") || !strings.Contains(err.Error(), "csm plugins stack readyup") {
-		t.Fatalf("3.x = %v", err)
-	}
-	version = "2.4.15"
-	if err := checkLegacyPlatform(context.Background(), io.Discard, srv.URL); err != nil {
-		t.Fatalf("2.x = %v", err)
-	}
-	var w bytes.Buffer
-	if err := checkLegacyPlatform(context.Background(), &w, "http://127.0.0.1:1"); err != nil || !strings.Contains(w.String(), "anyway") {
-		t.Fatalf("unreachable = %v %q", err, w.String())
-	}
-	if err := checkLegacyPlatform(context.Background(), io.Discard, ""); err != nil {
-		t.Fatalf("no platform = %v", err)
-	}
-}
-
 // Instance mode builds its shared layer with the full bundle unless the
 // operator chose one; classic servers keep essentials as the default.
 func TestLayerBundle(t *testing.T) {
@@ -492,17 +393,7 @@ func TestInstanceReadyUpLayerMeansReadyUp(t *testing.T) {
 	if stack != PluginStackReadyUp || !strings.Contains(why, "instance mode") {
 		t.Fatalf("instance host = %s (%s)", stack, why)
 	}
-	if UsesLegacyStack("csm-test-no-such-user") {
-		t.Fatal("an instance host on a Ready Up layer reads as legacy")
-	}
-	if r := PluginsReport(context.Background(), false); !strings.Contains(r, "readyup (not chosen; the instances run a Ready Up layer)") {
+	if r := PluginsReport(context.Background(), false); !strings.Contains(r, "the instances run a Ready Up layer") {
 		t.Fatalf("report:\n%s", r)
-	}
-	// A choice saved by the operator still wins.
-	if _, err := SetPluginSetting("stack", "legacy"); err != nil {
-		t.Fatal(err)
-	}
-	if stack, _ := PluginStack(context.Background(), io.Discard, "csm-test-no-such-user"); stack != PluginStackLegacy {
-		t.Fatalf("operator choice ignored: %s", stack)
 	}
 }

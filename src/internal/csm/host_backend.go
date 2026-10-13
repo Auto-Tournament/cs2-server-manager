@@ -289,7 +289,7 @@ func (b *HostBackend) updateAvailable(mgr *TmuxManager) bool {
 	b.updVal = false
 	state := loadAutoUpdateState()
 	for i := 1; i <= mgr.NumServers; i++ {
-		marker, _, err := logHasMarkerAfter(mgr.ServerLogPath(i), state.server(i).LogOffset, autoUpdaterShutdownMarker, matchzyUpdateAvailableMarker)
+		marker, _, err := logHasMarkerAfter(mgr.ServerLogPath(i), state.server(i).LogOffset, autoUpdaterShutdownMarker)
 		if err == nil && marker != "" {
 			b.updVal = true
 			break

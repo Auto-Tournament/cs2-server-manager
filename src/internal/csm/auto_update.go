@@ -13,11 +13,9 @@ import (
 
 // Smart auto-update
 //
-// The plugin's default auto-update mode is warn_only: when Valve ships a CS2
-// update it logs [MATCHZY_UPDATE_AVAILABLE] but keeps the server running, so
-// a monitor that only updates stopped servers never updates anything. The
-// monitor now updates running servers itself, but only when a server is
-// idle:
+// When Valve ships a CS2 update the servers keep running, so a monitor that
+// only updates stopped servers never updates anything. The monitor updates
+// running servers itself, but only when a server is idle:
 //
 //   - no human players connected (RCON `status`),
 //   - no match loaded (the plugin's `get5_status` reports gamestate "none";
