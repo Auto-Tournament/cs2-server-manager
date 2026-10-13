@@ -3,7 +3,6 @@ package csm
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -46,37 +45,18 @@ func fixServerOwnership(user string) error {
 // BootstrapConfig mirrors the high-level options used by the original
 // bootstrap_cs2.sh script.
 type BootstrapConfig struct {
-	CS2User           string
-	NumServers        int
-	BaseGamePort      int
-	BaseTVPort        int
-	HostnamePrefix    string
-	EnableMetamod     bool
-	FreshInstall      bool
-	UpdateMaster      bool
-	RCONPassword      string
-	MaxPlayers        int    // 0 means use default
-	GSLT              string // Game Server Login Token (optional)
-	MatchzySkipDocker bool
-	GameFilesDir      string // typically <root>/game_files
-	OverridesDir      string // typically <root>/overrides
-
-	// Optional MatchZy DB wiring from the install wizard. When DBMode is set
-	// to "docker" or "external", setupMatchZyDatabaseGo will treat
-	// database.json as wizard-managed and overwrite it using these values
-	// before proceeding. When DBMode is empty, the legacy behaviour of reading
-	// overrides/database.json as-is is preserved for CLI and VerifyMatchzyDB.
-	DBMode string
-	// DBEngine selects what the wizard writes into database.json:
-	// MatchzyDBEngineMySQL (one shared database, the default) or
-	// MatchzyDBEngineSQLite (one SQLite file per server). Empty keeps the
-	// legacy behaviour unless DBMode is set, in which case MySQL is used.
-	DBEngine           string
-	ExternalDBHost     string
-	ExternalDBPort     int
-	ExternalDBName     string
-	ExternalDBUser     string
-	ExternalDBPassword string
+	CS2User        string
+	NumServers     int
+	BaseGamePort   int
+	BaseTVPort     int
+	HostnamePrefix string
+	FreshInstall   bool
+	UpdateMaster   bool
+	RCONPassword   string
+	MaxPlayers     int    // 0 means use default
+	GSLT           string // Game Server Login Token (optional)
+	GameFilesDir   string // typically <root>/game_files
+	OverridesDir   string // typically <root>/overrides
 
 	// Progress, when set, receives every log line as it is written (the CLI
 	// passes os.Stdout). The returned log has the same lines.
@@ -143,11 +123,6 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	if cfg.NumServers <= 0 {
 		cfg.NumServers = DefaultNumServers
 	}
-	// Ready Up runs without Metamod; only the legacy stack loads it.
-	legacyStack := UsesLegacyStack(cfg.CS2User)
-	if !legacyStack {
-		cfg.EnableMetamod = false
-	}
 	if cfg.BaseGamePort == 0 {
 		cfg.BaseGamePort = DefaultBaseGamePort
 	}
@@ -195,7 +170,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 
 	// If no overrides directory exists yet, seed it with the built-in defaults.
 	var createdOverrideFiles []string
-	if err := ensureDefaultOverridesWithTracking(cfg.OverridesDir, &createdOverrideFiles, legacyStack); err != nil {
+	if err := ensureDefaultOverridesWithTracking(cfg.OverridesDir, &createdOverrideFiles); err != nil {
 		log("  [!] Failed to write default overrides to %s: %v", cfg.OverridesDir, err)
 	}
 
@@ -228,14 +203,14 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("[*] Setting up %d CS2 servers...", cfg.NumServers)
 	log("")
 
-	log("[1/5] Creating CS2 user...")
+	log("[1/4] Creating CS2 user...")
 	if err := createCS2User(out, cfg.CS2User); err != nil {
 		log("  [!] Failed to create CS2 user: %v", err)
 		return buf.String(), err
 	}
 	log("")
 
-	log("[2/5] Installing/updating master CS2 installation...")
+	log("[2/4] Installing/updating master CS2 installation...")
 	// Add timeout to SteamCMD operation to prevent indefinite hanging
 	steamCtx, steamCancel := contextWithTimeout(ctx, TimeoutSteamCMD)
 	defer steamCancel()
@@ -253,25 +228,14 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	}
 	log("")
 
-	log("[3/5] Setting up Steam SDK symlinks...")
+	log("[3/4] Setting up Steam SDK symlinks...")
 	if err := setupSteamSDKLinksGo(out, cfg.CS2User); err != nil {
 		log("  [!] Failed to set up Steam SDK links: %v", err)
 		// Non-fatal; continue.
 	}
 	log("")
 
-	if legacyStack {
-		log("[4/5] Provisioning MatchZy database (Docker)...")
-		if err := setupMatchZyDatabaseGo(out, cfg); err != nil {
-			log("  [!] MatchZy database provisioning skipped or failed: %v", err)
-			log("      Fix that and run bootstrap again, or choose SQLite (MATCHZY_DB_ENGINE=sqlite) or your own MySQL server.")
-		}
-	} else {
-		log("[4/5] Database: none needed. Ready Up sends match data to the platform; only the legacy MatchZy Enhanced stack uses MySQL.")
-	}
-	log("")
-
-	log("[5/5] Setting up shared configuration...")
+	log("[4/4] Setting up shared configuration...")
 	if err := setupSharedConfigGo(out, cfg); err != nil {
 		log("  [!] Failed to set up shared config: %v", err)
 		return buf.String(), err
@@ -340,10 +304,6 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 			log("  [!] Ensure csm.sh for server-%d failed: %v", i, err)
 		}
 
-		if err := configureMetamodGo(out, cfg.CS2User, i, cfg.EnableMetamod); err != nil {
-			log("  [!] Configure Metamod for server-%d failed: %v", i, err)
-		}
-
 		if err := customizeServerCfgGo(out, cfg.CS2User, i, cfg.RCONPassword, cfg.HostnamePrefix, gamePort, tvPort, cfg.MaxPlayers); err != nil {
 			log("  [!] Customize server.cfg for server-%d failed: %v", i, err)
 		}
@@ -374,7 +334,6 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("RCON password : %s (override with RCON_PASSWORD=xxxxx)", cfg.RCONPassword)
 	log("Plugin source : %s/game -> /home/%s/cs2-config/game", cfg.GameFilesDir, cfg.CS2User)
 	log("Custom configs: %s/game -> /home/%s/cs2-config/game", cfg.OverridesDir, cfg.CS2User)
-	log("Metamod       : %v", cfg.EnableMetamod)
 
 	// Avoid an expensive recursive chown over /home/<user>. We ensure the
 	// directories we create are owned by the CS2 user at creation time and
@@ -463,7 +422,7 @@ func parseDebianMajor(versionID string) (major int, ok bool) {
 }
 
 // shouldUseSteamRuntimeLauncher reports whether we should prefer launching the
-// CS2 server via Steam Runtime (SteamRT3) for CounterStrikeSharp compatibility.
+// CS2 server via Steam Runtime (SteamRT3).
 //
 // It can be overridden via CSM_STEAMRT:
 //   - "1"/"true"/"on"  => force enable
@@ -875,69 +834,6 @@ func setupSharedConfigGo(w io.Writer, cfg BootstrapConfig) error {
 }
 
 // copyMasterToServerGo and overlayConfigToServerGo are now in server_deployment.go
-
-func configureMetamodGo(w io.Writer, user string, serverNum int, enable bool) error {
-	gameinfo := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game", "csgo", "gameinfo.gi")
-
-	data, err := os.ReadFile(gameinfo)
-	if err != nil {
-		fmt.Fprintf(w, "  [!] gameinfo.gi not found for server-%d — cannot configure Metamod\n", serverNum)
-		return nil
-	}
-
-	backup := gameinfo + ".backup"
-	if err := os.WriteFile(backup, data, 0o644); err != nil {
-		fmt.Fprintf(w, "  [!] Warning: Failed to create backup %s: %v\n", backup, err)
-	}
-
-	content := string(data)
-	const needle = "csgo/addons/metamod"
-
-	if enable {
-		fmt.Fprintf(w, "  [*] Enabling Metamod in gameinfo.gi for server-%d\n", serverNum)
-		if !strings.Contains(content, needle) {
-			// Simple insertion: append a new Game line after Game_LowViolence csgo_lv, similar to sed-based script.
-			lines := strings.Split(content, "\n")
-			var out []string
-			inserted := false
-			for _, line := range lines {
-				out = append(out, line)
-				if !inserted && strings.Contains(line, "Game_LowViolence") && strings.Contains(line, "csgo_lv") {
-					out = append(out, "                        Game    csgo/addons/metamod")
-					inserted = true
-				}
-			}
-			if !inserted {
-				out = append(out, "                        Game    csgo/addons/metamod")
-			}
-			content = strings.Join(out, "\n")
-		}
-	} else {
-		fmt.Fprintf(w, "  [*] Disabling Metamod in gameinfo.gi for server-%d\n", serverNum)
-		var out []string
-		for _, line := range strings.Split(content, "\n") {
-			if strings.Contains(line, needle) {
-				continue
-			}
-			out = append(out, line)
-		}
-		content = strings.Join(out, "\n")
-	}
-
-	if err := os.WriteFile(gameinfo, []byte(content), 0o644); err != nil {
-		return err
-	}
-	// Best-effort ownership fixes (non-fatal).
-	if os.Geteuid() == 0 {
-		_ = ensureOwnedByUser(user, gameinfo)
-		_ = ensureOwnedByUser(user, backup)
-	}
-	// Every caller reapplies gameinfo.gi after master's copy replaced it
-	// (bootstrap, add-server, update-game, plugin deploy): put Ready Up's
-	// line back too, on servers that have Ready Up.
-	ensureReadyUpGameinfo(w, user, serverNum)
-	return nil
-}
 
 // sharedServerConfigLines is the shared server.cfg: the RCON password and maxplayers first, then
 // the rest of the existing file, and `log on` when the file has none. This file is copied over
@@ -1436,329 +1332,6 @@ func storeGSLTGo(w io.Writer, user string, gslt string) error {
 	return nil
 }
 
-// --- MatchZy DB (Docker) helpers ---
-
-type matchzyDBConfig struct {
-	DatabaseType  string `json:"DatabaseType"`
-	MySQLHost     string `json:"MySqlHost"`
-	MySQLPort     int    `json:"MySqlPort"`
-	MySQLDatabase string `json:"MySqlDatabase"`
-	MySQLUsername string `json:"MySqlUsername"`
-	MySQLPassword string `json:"MySqlPassword"`
-}
-
-func setupMatchZyDatabaseGo(w io.Writer, cfg BootstrapConfig) error {
-	matchzyCfgPath := filepath.Join(cfg.OverridesDir, "game", "csgo", "cfg", "MatchZy", "database.json")
-
-	// When the install wizard (or MATCHZY_DB_ENGINE) provides an explicit DB
-	// choice, write database.json from those settings on every run so the
-	// config stays in sync even if the source defaults or old overrides drift.
-	// A database.json without CSM's managed note belongs to the operator and
-	// is left exactly as it is.
-	engine, engineErr := NormalizeMatchzyDBEngine(cfg.DBEngine)
-	if engineErr != nil {
-		return engineErr
-	}
-	if strings.TrimSpace(cfg.DBMode) != "" || engine != "" {
-		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
-			return err
-		}
-		if os.Geteuid() == 0 {
-			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(matchzyCfgPath))
-		}
-
-		desired, dbMode := wizardMatchzyDBConfig(cfg)
-		wrote, err := writeManagedMatchzyDBConfig(matchzyCfgPath, desired, dbMode)
-		if err != nil {
-			return err
-		}
-		if !wrote {
-			fmt.Fprintf(w, "  [i] %s exists and is not managed by CSM (no CSM __CSM_NOTE); leaving it unchanged\n", matchzyCfgPath)
-		} else {
-			if os.Geteuid() == 0 {
-				_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
-			}
-			switch dbMode {
-			case MatchzyDBEngineSQLite:
-				fmt.Fprintln(w, "  [i] MatchZy database: SQLite per server (each server keeps its own matchzy.db; stats are not shared)")
-				// No MySQL to provision.
-				return nil
-			case "external":
-				fmt.Fprintf(w, "  [i] Using external MatchZy database at %s:%d (db=%s, user=%s)\n",
-					desired.MySQLHost, desired.MySQLPort, desired.MySQLDatabase, desired.MySQLUsername)
-				if cfg.NumServers > 1 {
-					fmt.Fprintf(w, "  [!] %s\n", sharedMySQLScopingNotice(cfg.NumServers))
-				}
-				// External DB mode: skip Docker provisioning entirely.
-				return nil
-			default:
-				// Warn about default database passwords
-				if cfg.ExternalDBPassword == "" || cfg.ExternalDBPassword == DefaultMatchzyDBPassword {
-					fmt.Fprintf(w, "  [!] WARNING: Using default MatchZy database password!\n")
-					fmt.Fprintf(w, "  [!] SECURITY: Change the database password in production!\n")
-				}
-				if cfg.NumServers > 1 {
-					fmt.Fprintf(w, "  [!] %s\n", sharedMySQLScopingNotice(cfg.NumServers))
-				}
-			}
-		}
-	}
-
-	// Create default config if missing.
-	if _, err := os.Stat(matchzyCfgPath); err != nil {
-		if err := os.MkdirAll(filepath.Dir(matchzyCfgPath), 0o755); err != nil {
-			return err
-		}
-		if os.Geteuid() == 0 {
-			_ = ensureOwnedByUser(cfg.CS2User, filepath.Dir(matchzyCfgPath))
-		}
-		def := matchzyDBConfig{
-			DatabaseType:  "MySQL",
-			MySQLHost:     "127.0.0.1",
-			MySQLPort:     3306,
-			MySQLDatabase: DefaultMatchzyDBName,
-			MySQLUsername: DefaultMatchzyDBUser,
-			MySQLPassword: DefaultMatchzyDBPassword,
-		}
-
-		onDisk := struct {
-			matchzyDBConfig
-			CSMNote string `json:"__CSM_NOTE,omitempty"`
-		}{
-			matchzyDBConfig: def,
-			CSMNote:         "This file is managed by CSM's install wizard. Manual edits may be overwritten.",
-		}
-
-		data, err := json.MarshalIndent(onDisk, "", "  ")
-		if err != nil {
-			return fmt.Errorf("failed to marshal MatchZy database config: %w", err)
-		}
-		if err := os.WriteFile(matchzyCfgPath, data, 0o664); err != nil {
-			return fmt.Errorf("failed to write MatchZy database config to %s: %w", matchzyCfgPath, err)
-		}
-		if os.Geteuid() == 0 {
-			_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
-		}
-		fmt.Fprintf(w, "  [✓] Created %s with default values\n", matchzyCfgPath)
-	}
-
-	data, err := os.ReadFile(matchzyCfgPath)
-	if err != nil {
-		return err
-	}
-	var dbCfg matchzyDBConfig
-	if err := json.Unmarshal(data, &dbCfg); err != nil {
-		return fmt.Errorf("MatchZy database config is not valid JSON: %w", err)
-	}
-
-	if strings.ToLower(dbCfg.DatabaseType) != "mysql" {
-		fmt.Fprintf(w, "  [i] DatabaseType=%s; skipping Docker provisioning\n", dbCfg.DatabaseType)
-		return nil
-	}
-	if cfg.MatchzySkipDocker {
-		fmt.Fprintln(w, "  [i] MATCHZY_SKIP_DOCKER=1: Skipping Docker provisioning (using external database).")
-		return nil
-	}
-
-	if err := ensureDockerGo(w); err != nil {
-		return err
-	}
-
-	if dbCfg.MySQLPort == 0 {
-		dbCfg.MySQLPort = 3306
-	}
-
-	containerName := getenvDefault("MATCHZY_DB_CONTAINER", DefaultMatchzyContainerName)
-	volumeName := getenvDefault("MATCHZY_DB_VOLUME", DefaultMatchzyVolumeName)
-	imageName := getenvDefault("MATCHZY_DB_IMAGE", "mysql:8.0")
-	rootPass := getenvDefault("MATCHZY_DB_ROOT_PASSWORD", DefaultMatchzyRootPassword)
-	if rootPass == DefaultMatchzyRootPassword {
-		fmt.Fprintf(w, "  [!] WARNING: Using default MySQL root password!\n")
-		fmt.Fprintf(w, "  [!] SECURITY: Set MATCHZY_DB_ROOT_PASSWORD environment variable for production!\n")
-	}
-
-	containerExists := false
-	currentPort := ""
-
-	if out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}").CombinedOutput(); err == nil {
-		for _, line := range strings.Split(string(out), "\n") {
-			if strings.TrimSpace(line) == containerName {
-				containerExists = true
-				break
-			}
-		}
-	}
-
-	// For a full fresh install, drop any existing MatchZy container and volume
-	// so we start from a clean database state.
-	if cfg.FreshInstall {
-		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing MatchZy container %q (if present)\n", containerName)
-		if err := exec.Command("docker", "rm", "-f", containerName).Run(); err != nil {
-			fmt.Fprintf(w, "  [i] Container %q may not exist (this is fine): %v\n", containerName, err)
-		}
-		fmt.Fprintf(w, "  [*] FRESH_INSTALL=1: Deleting existing MatchZy volume %q (if present)\n", volumeName)
-		if err := exec.Command("docker", "volume", "rm", volumeName).Run(); err != nil {
-			fmt.Fprintf(w, "  [i] Volume %q may not exist (this is fine): %v\n", volumeName, err)
-		}
-		containerExists = false
-		currentPort = ""
-	}
-
-	// Recreating the container (for a port change below) must reuse the
-	// volume it has now, whatever MATCHZY_DB_VOLUME says, or the database
-	// would come back empty.
-	if containerExists {
-		if v := mysqlDataVolume(volumeName, containerDataVolume(containerName)); v != volumeName {
-			fmt.Fprintf(w, "  [i] %s keeps its data on volume %q; using that volume\n", containerName, v)
-			volumeName = v
-		}
-	}
-
-	if containerExists {
-		inspect := exec.Command("docker", "inspect", "-f", "{{range $p, $cfg := .NetworkSettings.Ports}}{{if eq $p \"3306/tcp\"}}{{(index $cfg 0).HostPort}}{{end}}{{end}}", containerName)
-		if out, err := inspect.CombinedOutput(); err == nil {
-			currentPort = strings.TrimSpace(string(out))
-		}
-	}
-
-	if isPortInUse(dbCfg.MySQLPort) {
-		if !containerExists || currentPort != strconv.Itoa(dbCfg.MySQLPort) {
-			fmt.Fprintf(w, "  [!] Port %d is already in use on this host.\n", dbCfg.MySQLPort)
-			return fmt.Errorf("mysql port %d in use", dbCfg.MySQLPort)
-		}
-	}
-
-	// For Docker mode, always use localhost since the MySQL container is
-	// exposed on the host's port 3306. The CS2 server runs on the same host
-	// and should connect via 127.0.0.1, not the detected primary IP (which
-	// might be a VPN interface like Wireguard that can't reach itself).
-	hostIP := detectPrimaryIPGo()
-	dbCfg.MySQLHost = "127.0.0.1" // Always use localhost for Docker mode
-
-	// Update database.json with host/port/db/user/pass, preserving the
-	// wizard-management note so users know manual edits may be overwritten.
-	// An operator-owned file (no CSM note) is not rewritten.
-	if wrote, err := writeManagedMatchzyDBConfig(matchzyCfgPath, dbCfg, "docker"); err != nil {
-		return err
-	} else if wrote && os.Geteuid() == 0 {
-		_ = ensureOwnedByUser(cfg.CS2User, matchzyCfgPath)
-	}
-
-	recreate := false
-	if containerExists {
-		if currentPort != strconv.Itoa(dbCfg.MySQLPort) {
-			fmt.Fprintf(w, "  [*] Recreating %s to use host port %d\n", containerName, dbCfg.MySQLPort)
-			if err := exec.Command("docker", "rm", "-f", containerName).Run(); err != nil {
-				fmt.Fprintf(w, "  [!] Warning: Failed to remove existing container: %v\n", err)
-			}
-			recreate = true
-		}
-	} else {
-		recreate = true
-	}
-
-	if recreate {
-		_ = runCmdLogged(w, "docker", "pull", imageName)
-		args := []string{
-			"run", "-d",
-			"--name", containerName,
-			"-e", "MYSQL_ROOT_PASSWORD=" + rootPass,
-			"-e", "MYSQL_DATABASE=" + dbCfg.MySQLDatabase,
-			"-e", "MYSQL_USER=" + dbCfg.MySQLUsername,
-			"-e", "MYSQL_PASSWORD=" + dbCfg.MySQLPassword,
-			"-p", fmt.Sprintf("%d:3306", dbCfg.MySQLPort),
-			"-v", volumeName + ":/var/lib/mysql",
-			"--restart", "unless-stopped",
-			imageName,
-		}
-		if err := runCmdLogged(w, "docker", args...); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "  [✓] Started MatchZy MySQL container (%s) on port %d\n", containerName, dbCfg.MySQLPort)
-	} else {
-		if err := runCmdLogged(w, "docker", "start", containerName); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "  [✓] MatchZy MySQL container (%s) already running\n", containerName)
-	}
-
-	// Wait for MySQL to be ready
-	ready := false
-	for i := 0; i < 30; i++ {
-		cmd := exec.Command("docker", "exec", containerName, "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p"+rootPass, "--silent")
-		if err := cmd.Run(); err == nil {
-			ready = true
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	if ready {
-		fmt.Fprintf(w, "  [✓] MatchZy database is ready at %s:%d\n", hostIP, dbCfg.MySQLPort)
-		if err := ensureMatchZyDatabaseExistsGo(w, containerName, dbCfg, rootPass); err != nil {
-			return err
-		}
-	} else {
-		fmt.Fprintln(w, "  [i] MatchZy database is starting up (Docker container is running)")
-	}
-
-	return nil
-}
-
-func ensureMatchZyDatabaseExistsGo(w io.Writer, containerName string, cfg matchzyDBConfig, rootPass string) error {
-	// Check if DB exists
-	dbExistsCmd := exec.Command("docker", "exec", containerName, "mysql", "-uroot", "-p"+rootPass,
-		"-e", "SHOW DATABASES LIKE '"+cfg.MySQLDatabase+"';", "-sN")
-	out, err := dbExistsCmd.CombinedOutput()
-	if err != nil {
-		return err
-	}
-	dbExists := strings.TrimSpace(string(out)) == cfg.MySQLDatabase
-
-	if !dbExists {
-		fmt.Fprintf(w, "  [*] Database '%s' not found, creating it...\n", cfg.MySQLDatabase)
-		createDB := exec.Command("docker", "exec", containerName, "mysql", "-uroot", "-p"+rootPass,
-			"-e", "CREATE DATABASE IF NOT EXISTS `"+cfg.MySQLDatabase+"` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
-		if err := createDB.Run(); err != nil {
-			fmt.Fprintf(w, "  [!] Failed to create database '%s'\n", cfg.MySQLDatabase)
-			return err
-		}
-		fmt.Fprintf(w, "  [✓] Database '%s' created successfully\n", cfg.MySQLDatabase)
-	} else {
-		fmt.Fprintf(w, "  [✓] Database '%s' already exists\n", cfg.MySQLDatabase)
-	}
-
-	// Ensure user exists and has permissions
-	checkUser := exec.Command("docker", "exec", containerName, "mysql", "-uroot", "-p"+rootPass,
-		"-e", "SELECT COUNT(*) FROM mysql.user WHERE User='"+cfg.MySQLUsername+"' AND Host='%';", "-sN")
-	out, err = checkUser.CombinedOutput()
-	if err != nil {
-		return err
-	}
-	countStr := strings.TrimSpace(string(out))
-	if countStr == "" {
-		countStr = "0"
-	}
-	userExists := countStr != "0"
-
-	if !userExists {
-		fmt.Fprintf(w, "  [*] User '%s' not found, creating it...\n", cfg.MySQLUsername)
-		createUser := exec.Command("docker", "exec", containerName, "mysql", "-uroot", "-p"+rootPass,
-			"-e", "CREATE USER IF NOT EXISTS '"+cfg.MySQLUsername+"'@'%' IDENTIFIED BY '"+cfg.MySQLPassword+"'; GRANT ALL PRIVILEGES ON `"+cfg.MySQLDatabase+"`.* TO '"+cfg.MySQLUsername+"'@'%'; FLUSH PRIVILEGES;")
-		if err := createUser.Run(); err != nil {
-			fmt.Fprintf(w, "  [!] Failed to create user '%s'\n", cfg.MySQLUsername)
-			return err
-		}
-		fmt.Fprintf(w, "  [✓] User '%s' created with permissions on '%s'\n", cfg.MySQLUsername, cfg.MySQLDatabase)
-	} else {
-		grant := exec.Command("docker", "exec", containerName, "mysql", "-uroot", "-p"+rootPass,
-			"-e", "GRANT ALL PRIVILEGES ON `"+cfg.MySQLDatabase+"`.* TO '"+cfg.MySQLUsername+"'@'%'; FLUSH PRIVILEGES;")
-		_ = grant.Run()
-		fmt.Fprintf(w, "  [✓] User '%s' has permissions on '%s'\n", cfg.MySQLUsername, cfg.MySQLDatabase)
-	}
-	return nil
-}
-
 // teeWriter mirrors writes into both the in-memory bootstrap buffer and an
 // on-disk log file so that the TUI can tail live output while steamcmd runs.
 type teeWriter struct {
@@ -1776,22 +1349,6 @@ func (t *teeWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// UsesLegacyStack reports whether this install is on the legacy
-// MatchZy Enhanced stack, the only one that needs the MatchZy database: the
-// stack chosen in plugins.json or CSM_PLUGIN_STACK, else an existing legacy
-// install that is not running instances on a Ready Up layer. A fresh install
-// gets Ready Up (see PluginStack).
-func UsesLegacyStack(user string) bool {
-	s, _ := LoadPluginSettings()
-	switch s.Resolved().Stack {
-	case PluginStackLegacy:
-		return true
-	case PluginStackReadyUp:
-		return false
-	}
-	return !instanceReadyUpPresent() && legacyStackPresent(user)
-}
-
 // steamLicenseSelections answers the steamcmd package's license questions.
 // Debian and Ubuntu name the question's owner differently, so both are set.
 const steamLicenseSelections = `steam steam/question select I AGREE
@@ -1805,26 +1362,6 @@ func preseedSteamLicense(ctx context.Context) error {
 	cmd.Stdin = strings.NewReader(steamLicenseSelections)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func ensureDockerGo(w io.Writer) error {
-	if _, err := exec.LookPath("docker"); err != nil {
-		fmt.Fprintln(w, "  [!] Docker is required for the MatchZy database. Please install Docker Engine.")
-		return fmt.Errorf("docker is required")
-	}
-	// As root, make sure the service is on. Otherwise the user needs access
-	// to the Docker daemon, which `sudo csm setup-host` gives (the docker
-	// group) and root never needs to run bootstrap for.
-	if os.Geteuid() == 0 {
-		_ = exec.Command("systemctl", "enable", "docker").Run()
-		_ = exec.Command("systemctl", "start", "docker").Run()
-		return nil
-	}
-	if err := exec.Command("docker", "info").Run(); err != nil {
-		fmt.Fprintf(w, "  [!] %s cannot use Docker: run `sudo csm setup-host --docker` (it adds you to the docker group), then log out and back in.\n", currentUsername())
-		return fmt.Errorf("docker is not usable by %s", currentUsername())
 	}
 	return nil
 }
@@ -2113,17 +1650,6 @@ func copyMasterToServerGo(ctx context.Context, w io.Writer, user string, serverN
 	return nil
 }
 
-// containerDataVolume returns the name of the volume a MySQL container keeps
-// /var/lib/mysql on, or "" when it cannot be read or is not a named volume.
-func containerDataVolume(container string) string {
-	out, err := exec.Command("docker", "inspect", "-f",
-		`{{range .Mounts}}{{if eq .Destination "/var/lib/mysql"}}{{.Name}}{{end}}{{end}}`, container).Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
 // overlayConfigToServerGo applies configuration overlays to a server instance.
 func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serverNum int) error {
 	sharedCfgDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg")
@@ -2151,28 +1677,19 @@ func overlayConfigToServerGo(ctx context.Context, w io.Writer, user string, serv
 		}
 	}
 
-	// Also sync addons (Metamod + CounterStrikeSharp + plugins) from the shared
-	// cs2-config tree. The master install sync explicitly excludes csgo/addons/,
-	// so without this step servers will not have Metamod/CSS installed.
-	// The plugin's SQLite database lives inside addons/, which --delete would
-	// remove, so it is moved aside and put back (withPluginSQLitePreserved).
+	// Also sync addons from the shared cs2-config tree: the master install
+	// sync explicitly excludes csgo/addons/.
 	if fi, err := os.Stat(sharedAddonsDir); err == nil && fi.IsDir() {
 		fmt.Fprintf(w, "  [*] Syncing addons to server-%d...\n", serverNum)
-		serverDir := filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum))
-		if err := withPluginSQLitePreserved(w, serverDir, func() error {
-			if err := os.MkdirAll(serverAddonsDir, 0o755); err != nil {
-				return fmt.Errorf("failed to create server addons directory: %w", err)
-			}
-			_ = ensureOwnedByUser(user, serverAddonsDir)
-			if err := runRsyncLoggedContext(ctx, w, user, "-a", "--delete",
-				sharedAddonsDir+string(os.PathSeparator),
-				serverAddonsDir+string(os.PathSeparator),
-			); err != nil {
-				return fmt.Errorf("rsync addons failed: %w", err)
-			}
-			return nil
-		}); err != nil {
-			return err
+		if err := os.MkdirAll(serverAddonsDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create server addons directory: %w", err)
+		}
+		_ = ensureOwnedByUser(user, serverAddonsDir)
+		if err := runRsyncLoggedContext(ctx, w, user, "-a", "--delete",
+			sharedAddonsDir+string(os.PathSeparator),
+			serverAddonsDir+string(os.PathSeparator),
+		); err != nil {
+			return fmt.Errorf("rsync addons failed: %w", err)
 		}
 	}
 

@@ -49,7 +49,6 @@ const (
 	itemUpdateNow
 	itemForceUpdateNow
 	itemServersStatusViewport
-	itemMatchzyDBViewport
 	itemLogsViewport
 	itemUpdateGameGo
 	itemDeployPluginsGo
@@ -67,9 +66,6 @@ const (
 	itemAttachServerGo
 	itemUpdateServerConfigs
 	itemViewServerConfig
-	itemEditMatchZyConfig
-	itemEditMatchZyDatabase
-	itemEditCSSAdmins
 	itemReadyUpStatus
 	itemPlatformLinkStatus
 	itemAgentInstall
@@ -111,31 +107,21 @@ type viewportFinishedMsg struct {
 }
 
 type installConfig struct {
-	stack              string // csm.PluginStackReadyUp or csm.PluginStackLegacy
-	license            string // Ready Up license answer: "", "noncommercial" or "commercial"
-	dbMode             string // "docker" or "external"
-	dbEngine           string // csm.MatchzyDBEngineMySQL (shared) or csm.MatchzyDBEngineSQLite (per server)
-	numServers         int
-	basePort           int
-	tvPort             int
-	cs2User            string
-	hostnamePrefix     string
-	enableMetamod      bool
-	freshInstall       bool
-	updateMaster       bool
-	rconPassword       string
-	maxPlayers         int    // 0 means use default
-	gslt               string // Game Server Login Token
-	fastCopy           bool   // enable fastest copy method (reflink/rsync auto)
-	steamcmdValidate   bool   // include "validate" in steamcmd app_update 730
-	updatePlugins      bool
-	installMonitor     bool
-	matchzySkipDocker  bool
-	externalDBHost     string
-	externalDBPort     int
-	externalDBName     string
-	externalDBUser     string
-	externalDBPassword string
+	license          string // Ready Up license answer: "", "noncommercial" or "commercial"
+	numServers       int
+	basePort         int
+	tvPort           int
+	cs2User          string
+	hostnamePrefix   string
+	freshInstall     bool
+	updateMaster     bool
+	rconPassword     string
+	maxPlayers       int    // 0 means use default
+	gslt             string // Game Server Login Token
+	fastCopy         bool   // enable fastest copy method (reflink/rsync auto)
+	steamcmdValidate bool   // include "validate" in steamcmd app_update 730
+	updatePlugins    bool
+	installMonitor   bool
 }
 
 type installWizard struct {
@@ -146,7 +132,6 @@ type installWizard struct {
 	numServersStr string
 	basePortStr   string
 	tvPortStr     string
-	dbPortStr     string
 
 	// Cursor + editing/page state for the multi-step wizard view.
 	cursor      int
@@ -332,7 +317,7 @@ func initialModel() model {
 // rebuildItems rebuilds the menu for the current tab, optionally appending
 // dynamic items like the self-update action at the bottom.
 func (m *model) rebuildItems() {
-	items := buildItemsForTab(m.tab, tuiLegacyStack())
+	items := buildItemsForTab(m.tab)
 
 	// Append self-update item at the bottom of the Install tab when an update is
 	// available. This keeps the main actions visually grouped and the update
@@ -383,20 +368,8 @@ func menuWindowSizeFor(height int) int {
 	return rowsForItems
 }
 
-// tuiLegacyStack reports whether this host runs the legacy MatchZy Enhanced
-// stack; the Ready Up stack gets no MatchZy / CounterStrikeSharp menu items.
-func tuiLegacyStack() bool {
-	user := ""
-	if mgr, err := csm.NewTmuxManager(); err == nil {
-		user = mgr.CS2User
-	}
-	return csm.UsesLegacyStack(user)
-}
-
-// buildItemsForTab returns the menu items for a given top-level tab. With the
-// Ready Up stack (`legacy` false) the MatchZy and CounterStrikeSharp items are
-// left out: Ready Up ignores those files (issue #108).
-func buildItemsForTab(t tab, legacy bool) []menuItem {
+// buildItemsForTab returns the menu items for a given top-level tab.
+func buildItemsForTab(t tab) []menuItem {
 	switch t {
 	case tabInstall:
 		return []menuItem{
@@ -490,40 +463,12 @@ func buildItemsForTab(t tab, legacy bool) []menuItem {
 				kind:        itemViewServerConfig,
 			},
 		}
-		if legacy {
-			items = append(items,
-				menuItem{
-					title:       "Edit MatchZy config.cfg",
-					description: "Edit shared MatchZy configuration (applies to all servers).",
-					kind:        itemEditMatchZyConfig,
-				},
-				menuItem{
-					title:       "Edit MatchZy database.json",
-					description: "Edit MatchZy database connection settings.",
-					kind:        itemEditMatchZyDatabase,
-				},
-				menuItem{
-					title:       "Edit CounterStrikeSharp admins.json",
-					description: "Edit CSS admin permissions (applies to all servers).",
-					kind:        itemEditCSSAdmins,
-				},
-			)
-		}
 		return items
 	case tabTools:
-		var lead []menuItem
-		if legacy {
-			lead = append(lead, menuItem{
-				title:       "MatchZy DB: verify/repair",
-				description: "Verify MatchZy database setup and repair in a scrollable view.",
-				kind:        itemMatchzyDBViewport,
-			})
-		} else {
-			lead = append(lead,
-				menuItem{title: "Ready Up: plugin status", kind: itemReadyUpStatus},
-				menuItem{title: "Auto Tournament link and host agent", kind: itemPlatformLinkStatus},
-				menuItem{title: "Install the host agent (systemd service)", kind: itemAgentInstall},
-			)
+		lead := []menuItem{
+			{title: "Ready Up: plugin status", kind: itemReadyUpStatus},
+			{title: "Auto Tournament link and host agent", kind: itemPlatformLinkStatus},
+			{title: "Install the host agent (systemd service)", kind: itemAgentInstall},
 		}
 		return append(lead, []menuItem{
 			{
@@ -580,38 +525,24 @@ func buildItemsForTab(t tab, legacy bool) []menuItem {
 func (m *model) initWizardDefaults() {
 	// Start with defaults
 	cfg := installConfig{
-		dbMode:         "docker",
-		dbEngine:       csm.MatchzyDBEngineMySQL,
 		numServers:     csm.DefaultNumServers,
 		basePort:       csm.DefaultBaseGamePort,
 		tvPort:         csm.DefaultBaseTVPort,
 		cs2User:        csm.DefaultCS2User,
 		hostnamePrefix: "CS2 Server",
-		enableMetamod:  true,
 		freshInstall:   false,
 		updateMaster:   true,
 		// Leave RCON password empty by default so the wizard can require the
 		// user to set a value explicitly instead of relying on a baked-in
 		// event-specific default.
-		rconPassword:       "",
-		maxPlayers:         15, // Default max players per server
-		fastCopy:           true,
-		steamcmdValidate:   true,
-		updatePlugins:      true,
-		installMonitor:     true,
-		matchzySkipDocker:  false,
-		externalDBHost:     "127.0.0.1",
-		externalDBPort:     3306,
-		externalDBName:     "matchzy",
-		externalDBUser:     "matchzy",
-		externalDBPassword: "matchzy",
+		rconPassword:     "",
+		maxPlayers:       15, // Default max players per server
+		fastCopy:         true,
+		steamcmdValidate: true,
+		updatePlugins:    true,
+		installMonitor:   true,
 	}
 
-	// Ready Up unless this host is on (or chose) the legacy stack.
-	cfg.stack = csm.PluginStackReadyUp
-	if csm.UsesLegacyStack(cfg.cs2User) {
-		cfg.stack = csm.PluginStackLegacy
-	}
 	if ps, err := csm.LoadPluginSettings(); err == nil {
 		cfg.license = ps.Resolved().AcceptLicense
 	}
@@ -638,7 +569,6 @@ func (m *model) initWizardDefaults() {
 		// Detect other config values
 		cfg.cs2User = user
 		cfg.hostnamePrefix = csm.DetectHostnamePrefix(user)
-		cfg.enableMetamod = csm.DetectMetamodEnabled(user)
 		cfg.rconPassword = csm.DetectRCONPassword(user)
 		maxPlayers := csm.DetectMaxPlayers(user)
 		if maxPlayers > 0 {
@@ -659,7 +589,6 @@ func (m *model) initWizardDefaults() {
 		numServersStr: fmt.Sprintf("%d", cfg.numServers),
 		basePortStr:   fmt.Sprintf("%d", cfg.basePort),
 		tvPortStr:     fmt.Sprintf("%d", cfg.tvPort),
-		dbPortStr:     fmt.Sprintf("%d", cfg.externalDBPort),
 		cursor:        0,
 		currentPage:   0,
 		input:         ti,
@@ -910,7 +839,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
-		// While in a scrollable viewport (servers dashboard, logs, MatchZy DB,
+		// While in a scrollable viewport (servers dashboard, logs,
 		// etc.), delegate navigation keys to the viewport component and use
 		// Enter/q/Esc to return to the main menu.
 		if m.view == viewViewport {
@@ -1125,11 +1054,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Loading servers (tmux sessions and Ready Up status)..."
 				m.lastOutput = ""
 				cmds = append(cmds, startFleetCmd(), m.spin.Tick)
-			case itemMatchzyDBViewport:
-				m.running = true
-				m.status = "Verifying MatchZy database..."
-				m.lastOutput = ""
-				cmds = append(cmds, runMatchzyDBDetail(), m.spin.Tick)
 			case itemLogsViewport:
 				m.view = viewLogsPrompt
 				m.status = "Logs: enter server number."
@@ -1268,12 +1192,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.view = viewDoctorConfirm
 				m.status = ""
 				m.lastOutput = ""
-			case itemEditMatchZyConfig:
-				cmds = append(cmds, runEditConfigFile("MatchZy config.cfg", "game/csgo/cfg/MatchZy/config.cfg"))
-			case itemEditMatchZyDatabase:
-				cmds = append(cmds, runEditConfigFile("MatchZy database.json", "game/csgo/cfg/MatchZy/database.json"))
-			case itemEditCSSAdmins:
-				cmds = append(cmds, runEditConfigFile("CounterStrikeSharp admins.json", "game/csgo/addons/counterstrikesharp/configs/admins.json"))
 			case itemCLIHelp:
 				// Pure documentation/cheatsheet page; no long-running command.
 				m.detailTitle = "CLI commands & advanced usage"
@@ -1332,8 +1250,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					"  sudo csm cleanup-all",
 					"",
 					"It stops your servers and deletes them, the master install,",
-					"cs2-config, game_files, overrides and the MatchZy MySQL container",
-					"and its data. Your account and the rest of your home stay.",
+					"cs2-config, game_files and overrides. Your account and the rest",
+					"of your home stay.",
 					"",
 					"A dedicated service account (such as cs2servermanager from older",
 					"installs) can be deleted with it, home and all:",
@@ -1615,7 +1533,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}()),
 				fmt.Sprintf("  Copy observed  : %s", csm.CopyStatsSummary()),
 				fmt.Sprintf("  Base ports     : game %d, GOTV %d", m.wizard.cfg.basePort, m.wizard.cfg.tvPort),
-				fmt.Sprintf("  Metamod        : %v", m.wizard.cfg.enableMetamod),
 				fmt.Sprintf("  Fresh install  : %v", m.wizard.cfg.freshInstall),
 				fmt.Sprintf("  Update master  : %v", m.wizard.cfg.updateMaster),
 				fmt.Sprintf("  Update plugins : %v", m.wizard.cfg.updatePlugins),
@@ -1627,7 +1544,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				gamePort := m.wizard.cfg.basePort + (i-1)*10
 				tvPort := m.wizard.cfg.tvPort + (i-1)*10
 				lines = append(lines,
-					fmt.Sprintf("  Server %d: game %d, GOTV %d, Metamod: %v", i, gamePort, tvPort, m.wizard.cfg.enableMetamod))
+					fmt.Sprintf("  Server %d: game %d, GOTV %d", i, gamePort, tvPort))
 			}
 
 			m.detailTitle = "Install wizard summary"
@@ -1661,10 +1578,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentInstallStep == installStepBootstrap && m.wizard.cfg.freshInstall {
 				header := []string{
 					"[2/4] Performing fresh CS2 install (cleanup + steamcmd + bootstrap)...",
-					"  • Run full cleanup (same as Danger zone: remove CS2 user, home, MatchZy DB container/volume)",
+					"  • Run full cleanup (same as Danger zone: remove the servers, master install and configs)",
 					"  • Recreate CS2 user",
 					"  • Reinstall master via SteamCMD",
-					"  • Provision a clean MatchZy database (Docker mode)",
 					"  • Recreate all servers from the new master",
 					"",
 					fmt.Sprintf("Live output (showing last %d lines):", len(m.logLines)),
@@ -2077,9 +1993,7 @@ func (m model) View() string {
 		case itemUpdateGameGo:
 			desc = "Run SteamCMD to update the master CS2 install and sync updated game files to all servers."
 		case itemDeployPluginsGo:
-			desc = "Download the latest plugin bundle, then sync plugins/configs to all servers."
-		case itemMatchzyDBViewport:
-			desc = "Verify and (if needed) repair the MatchZy MySQL database in a scrollable view."
+			desc = "Update Ready Up on every server (instances: a new Ready Up layer)."
 		case itemPublicIPGo:
 			desc = "Resolve and show the server's public IP on a dedicated screen."
 		case itemForceUpdateNow:

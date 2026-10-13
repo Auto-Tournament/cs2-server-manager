@@ -43,10 +43,10 @@ func TestNearestExistingDir(t *testing.T) {
 
 // A missing game_files/game directory must not fail the plugin pre-check,
 // and must not create the directory as a side effect.
-func TestCheckDiskSpaceForPluginUpdateMissingDir(t *testing.T) {
+func TestRequireFreeDiskMissingDir(t *testing.T) {
 	gameDir := filepath.Join(t.TempDir(), "cs2-server-manager", "game_files", "game")
-	if err := CheckDiskSpaceForPluginUpdate(gameDir); err != nil {
-		t.Fatalf("CheckDiskSpaceForPluginUpdate on missing dir: %v", err)
+	if err := requireFreeDiskGB(gameDir, 1.0); err != nil {
+		t.Fatalf("requireFreeDiskGB on missing dir: %v", err)
 	}
 	if _, err := os.Stat(gameDir); !os.IsNotExist(err) {
 		t.Fatalf("pre-check created %s (stat err = %v)", gameDir, err)
