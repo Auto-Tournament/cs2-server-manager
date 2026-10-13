@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -227,24 +226,6 @@ func runRestartAllServers() tea.Cmd {
 		}
 		return commandFinishedMsg{
 			item:   menuItem{title: "Restart all servers", kind: itemRestartAllGo},
-			output: out,
-			err:    err,
-		}
-	}
-}
-
-// runMatchzyDBDetail runs the MatchZy DB verification/repair flow via the
-// Go-native csm.VerifyMatchzyDB helper and shows the output on a simple
-// action-result page instead of a scrollable viewport. The content is
-// typically short enough that scrolling is unnecessary.
-func runMatchzyDBDetail() tea.Cmd {
-	return func() tea.Msg {
-		out, err := csm.VerifyMatchzyDB()
-		return commandFinishedMsg{
-			item: menuItem{
-				title: "MatchZy DB: verify/repair",
-				kind:  itemMatchzyDBViewport,
-			},
 			output: out,
 			err:    err,
 		}
@@ -556,150 +537,13 @@ func runExtractThumbnailsGo() tea.Cmd {
 	}
 }
 
-// runEditConfigFile quits the TUI and opens a config file in nano for editing.
-// After editing, it fixes ownership to the cs2servermanager user.
-func runEditConfigFile(title, configPath string) tea.Cmd {
-	return func() tea.Msg {
-		// Get CS2 user
-		mgr, err := csm.NewTmuxManager()
-		if err != nil {
-			return commandFinishedMsg{
-				item: menuItem{
-					title: title,
-					kind:  itemEditMatchZyConfig, // placeholder
-				},
-				output: fmt.Sprintf("Failed to detect CS2 user: %v", err),
-				err:    err,
-			}
-		}
-
-		// Determine the full path - check if it's in overrides or shared config
-		var fullPath string
-
-		// Use the same overrides folder update-plugins reads, after copying
-		// over anything older builds left in the legacy <root>/overrides.
-		csm.EnsureOverridesMigrated(mgr.CS2User)
-
-		// Try overrides first (user's custom configs)
-		overridePath := filepath.Join(csm.OverridesDir(mgr.CS2User), configPath)
-		if _, err := os.Stat(overridePath); err == nil {
-			fullPath = overridePath
-		} else {
-			// Fall back to shared config (cs2-config)
-			sharedPath := filepath.Join("/home", mgr.CS2User, "cs2-config", configPath)
-			if _, err := os.Stat(sharedPath); err == nil {
-				fullPath = sharedPath
-			} else {
-				// Try server-1 as fallback
-				serverPath := filepath.Join("/home", mgr.CS2User, "server-1", configPath)
-				if _, err := os.Stat(serverPath); err == nil {
-					fullPath = serverPath
-				} else {
-					// Create in overrides if it doesn't exist
-					fullPath = overridePath
-					// Create the directory (as root or as the CS2 user)
-					if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-						return commandFinishedMsg{
-							item:   menuItem{title: title},
-							output: fmt.Sprintf("Failed to create config directory: %v", err),
-							err:    err,
-						}
-					}
-					// Create empty file if it doesn't exist
-					if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-						if f, err := os.Create(fullPath); err == nil {
-							f.Close()
-						}
-					}
-				}
-			}
-		}
-
-		// We need to sync the edited file to all servers
-		// Copy from wherever it was edited to cs2-config, then sync to all servers
-		configPathInCs2Config := filepath.Join("/home", mgr.CS2User, "cs2-config", configPath)
-
-		// Create a shell script that runs nano, fixes ownership, and syncs to all servers
-		// We'll use syscall.Exec to replace the current process with this script
-		// This ensures nano gets full terminal control (stdin/stdout/stderr)
-
-		// Build sync commands to copy to cs2-config and then sync to all servers
-		syncCmds := fmt.Sprintf(`echo ""
-echo "Syncing config to all servers..."
-# Ensure cs2-config has the edited file
-mkdir -p "%s"
-cp "%s" "%s" 2>/dev/null || true
-chown -R "%s:%s" "%s" 2>/dev/null || true
-
-# Sync to all servers using rsync (same as overlayConfigToServerGo)
-for server_dir in /home/%s/server-*/; do
-  if [ -d "$server_dir/game" ]; then
-    # Sync the entire cs2-config/game structure to server
-    rsync -a --exclude ".git/" /home/%s/cs2-config/game/ "$server_dir/game/" 2>/dev/null || true
-    chown -R "%s:%s" "$server_dir/game" 2>/dev/null || true
-  fi
-done
-`, filepath.Dir(configPathInCs2Config), fullPath, configPathInCs2Config, mgr.CS2User, mgr.CS2User, filepath.Dir(configPathInCs2Config), mgr.CS2User, mgr.CS2User, mgr.CS2User, mgr.CS2User)
-
-		script := fmt.Sprintf(`#!/bin/bash
-clear
-echo "Opening %s in nano..."
-echo ""
-echo "Press Ctrl+X to save and exit, Ctrl+O to save, Ctrl+K to exit without saving"
-echo ""
-sleep 1
-nano "%s"
-chown "%s:%s" "%s" 2>/dev/null
-chown -R "%s:%s" "%s" 2>/dev/null || true
-%s
-echo ""
-echo "Config file saved. Ownership fixed."
-echo "Config synced to all servers."
-echo "Run 'csm' to restart the TUI."
-`, fullPath, fullPath, mgr.CS2User, mgr.CS2User, fullPath, mgr.CS2User, mgr.CS2User, csm.OverridesDir(mgr.CS2User), syncCmds)
-
-		// Write temp script
-		scriptPath := filepath.Join(os.TempDir(), fmt.Sprintf("csm-edit-%d.sh", os.Getpid()))
-		if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
-			return commandFinishedMsg{
-				item:   menuItem{title: title},
-				output: fmt.Sprintf("Failed to create edit script: %v", err),
-				err:    err,
-			}
-		}
-
-		// Use syscall.Exec to replace the current process with the script
-		// This quits the TUI and gives nano full control of the terminal
-		// Note: syscall.Exec never returns if successful
-		fmt.Printf("\nQuitting CSM TUI to edit %s...\n", title)
-		time.Sleep(200 * time.Millisecond)
-
-		// Replace this process with bash running our script
-		// This gives nano full terminal control
-		if err := syscall.Exec("/bin/bash", []string{"bash", scriptPath}, os.Environ()); err != nil {
-			// If exec fails, fall back to just quitting
-			fmt.Fprintf(os.Stderr, "Failed to exec script: %v\n", err)
-			fmt.Println("TUI will exit. Run nano manually:")
-			fmt.Printf("  nano %s\n", fullPath)
-			fmt.Printf("  sudo chown %s:%s %s\n", mgr.CS2User, mgr.CS2User, fullPath)
-			os.Remove(scriptPath)
-			return tea.Quit()
-		}
-
-		// This should never be reached (syscall.Exec replaces the process)
-		return tea.Quit()
-	}
-}
-
 // runCleanupAllGo runs the dangerous "cleanup all" operation that removes all
 // CS2 servers, data, and the CS2 user. This should only be exposed behind a
 // clear confirmation step in the TUI.
 func runCleanupAllGo() tea.Cmd {
 	return func() tea.Msg {
 		cfg := csm.CleanupConfig{
-			CS2User:          csm.DefaultCS2User,
-			MatchzyContainer: os.Getenv("MATCHZY_DB_CONTAINER"),
-			MatchzyVolume:    os.Getenv("MATCHZY_DB_VOLUME"),
+			CS2User: csm.DefaultCS2User,
 		}
 		out, err := csm.CleanupAll(cfg)
 		return commandFinishedMsg{

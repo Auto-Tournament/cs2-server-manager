@@ -117,11 +117,6 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 		// Continue anyway - the check is conservative and users may have enough space
 	}
 
-	// Preserve the current Metamod enabled/disabled state so we can re-apply
-	// it after refreshing game files from the master install. Valve updates
-	// may overwrite gameinfo.gi, which would otherwise drop the Metamod line.
-	enableMetamod := detectMetamodEnabled(cs2User)
-
 	log("=== Update CS2 Game Files (After Valve Update) ===")
 	if mgr.NumServers <= 0 && InstancesExist() {
 		log("Instances: SteamCMD updates a new CS2 version next to the running one; idle instances")
@@ -243,10 +238,6 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 			log("  [!] server-%d game files are incomplete and it will not boot: %v (try: csm fix-libv8 %d)", i, err, i)
 		}
 
-		// Ensure Metamod remains in sync with the pre-update setting.
-		if err := configureMetamodGo(&buf, cs2User, i, enableMetamod); err != nil {
-			log("  [!] Configure Metamod for server-%d failed after game update: %v", i, err)
-		}
 	}
 
 	if err := checkCtx(); err != nil {
@@ -273,261 +264,6 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	logOut := buf.String()
 	AppendLog("update-game.log", logOut)
 	return logOut, nil
-}
-
-// DeployPluginsToServers stops all servers, rsyncs plugin content from the
-// shared game_files tree into each server instance, then restarts servers.
-// It assumes plugins are already staged under game_files/.
-// This function is protected by a mutex to prevent concurrent deployments.
-func DeployPluginsToServers() (string, error) {
-	return DeployPluginsToServersWithContext(context.Background())
-}
-
-// DeployPluginsToServersWithContext is like DeployPluginsToServers but accepts
-// a context for cancellation. If the context is cancelled mid-way, further
-// servers are skipped and the partial log plus ctx.Err() are returned.
-// This function is protected by a mutex to prevent concurrent deployments.
-func DeployPluginsToServersWithContext(ctx context.Context) (string, error) {
-	return withPluginDeployLock(func() (string, error) {
-		return deployPluginsToServersWithContextLocked(ctx)
-	})
-}
-
-func deployPluginsToServersWithContextLocked(ctx context.Context) (string, error) {
-	var buf bytes.Buffer
-	var w io.Writer = &buf
-
-	// When CSM_PLUGINS_LOG is set (used by the TUI plugin update action),
-	// mirror deploy logs into that file so the UI can show a live tail while
-	// rsync runs across servers.
-	if logPath := strings.TrimSpace(os.Getenv("CSM_PLUGINS_LOG")); logPath != "" {
-		if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
-			defer func() {
-				_ = f.Close()
-			}()
-			if bufPtr, ok := w.(*bytes.Buffer); ok {
-				w = &teeWriter{buf: bufPtr, file: f}
-			} else {
-				w = io.MultiWriter(w, f)
-			}
-		}
-	}
-
-	log := func(format string, args ...any) {
-		fmt.Fprintf(w, format, args...)
-		if !strings.HasSuffix(format, "\n") {
-			fmt.Fprintln(w)
-		}
-	}
-
-	checkCtx := func() error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			return nil
-		}
-	}
-
-	if err := checkCtx(); err != nil {
-		return buf.String(), err
-	}
-
-	mgr, err := NewTmuxManager()
-	if err != nil {
-		return "", err
-	}
-
-	up := NewPluginUpdater()
-	gameDir := up.GameDir
-	sharedCfgDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "cfg")
-	sharedAddonsDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "addons")
-
-	// Preserve the current Metamod enabled/disabled state so we can re-apply
-	// it on each server after syncing updated plugins/configs.
-	enableMetamod := detectMetamodEnabled(mgr.CS2User)
-
-	log("=== Update Plugins on All Servers ===")
-	log("This will:")
-	log("  • Stop all servers")
-	log("  • Replace all files under each server's game/csgo/addons directory with the latest plugin bundle")
-	log("  • Sync plugin configs from %s to each server", sharedCfgDir)
-	log("  • Restart all servers")
-	log("")
-
-	if mgr.NumServers <= 0 {
-		log("No CS2 servers found for user %s (no /home/%s/server-* directories).", mgr.CS2User, mgr.CS2User)
-		log("Nothing to update. Run the install wizard from the TUI first.")
-		out := buf.String()
-		AppendLog("deploy-plugins.log", out)
-		return out, nil
-	}
-
-	if err := checkCtx(); err != nil {
-		return buf.String(), err
-	}
-
-	if err := mgr.StopAll(); err != nil {
-		log("Error stopping servers: %v", err)
-		return buf.String(), err
-	}
-	log("All servers stopped.")
-
-	// Keep cs2-config's addons in sync with the plugin bundle so bootstrap and
-	// other flows that use cs2-config as the canonical overlay have the full
-	// Metamod + CounterStrikeSharp tree available.
-	if err := checkCtx(); err != nil {
-		return buf.String(), err
-	}
-	srcAddons := filepath.Join(gameDir, "csgo", "addons")
-	if fi, err := os.Stat(srcAddons); err == nil && fi.IsDir() {
-		log("Syncing plugin addons into shared cs2-config...")
-		if err := os.MkdirAll(sharedAddonsDir, 0o755); err != nil {
-			log("  [WARN] Failed to create %s: %v", sharedAddonsDir, err)
-		} else {
-			if os.Geteuid() == 0 {
-				_ = ensureOwnedByUser(mgr.CS2User, sharedAddonsDir)
-			}
-			cfgRsyncCtx, cfgRsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
-			if err := runRsyncLoggedContext(cfgRsyncCtx, w, mgr.CS2User, "-a", "--delete",
-				srcAddons+string(os.PathSeparator),
-				sharedAddonsDir+string(os.PathSeparator),
-			); err != nil {
-				log("  [WARN] Failed to sync addons to cs2-config: %v", err)
-			} else {
-				log("  [OK] Shared addons updated (%s)", sharedAddonsDir)
-			}
-			cfgRsyncCancel()
-		}
-	} else {
-		log("  [i] Plugin bundle addons directory not found at %s; skipping shared addons sync", srcAddons)
-	}
-
-	for i := 1; i <= mgr.NumServers; i++ {
-		if err := checkCtx(); err != nil {
-			return buf.String(), err
-		}
-
-		serverDir := mgr.serverDir(i)
-		if fi, err := os.Stat(serverDir); err != nil || !fi.IsDir() {
-			log("  Server-%d not found at %s, skipping", i, serverDir)
-			continue
-		}
-		log("  Updating plugins on server-%d ...", i)
-		dstGame := filepath.Join(serverDir, "game", "csgo")
-		dstAddons := filepath.Join(dstGame, "addons")
-
-		// Fully replace the server's addons tree so no stale plugin files linger
-		// between updates. The plugin keeps its SQLite database inside its own
-		// plugin folder, so that file is moved aside first and put back after
-		// (withPluginSQLitePreserved).
-		addonsOK := true
-		replaceAddons := func() error {
-			if err := os.RemoveAll(dstAddons); err != nil && !os.IsNotExist(err) {
-				log("  [WARN] Failed to clean addons for server-%d at %s: %v", i, dstAddons, err)
-			}
-			if err := os.MkdirAll(dstAddons, 0o755); err != nil {
-				log("  [ERROR] Failed to recreate addons directory for server-%d at %s: %v", i, dstAddons, err)
-				addonsOK = false
-				return nil
-			}
-			if os.Geteuid() == 0 {
-				_ = ensureOwnedByUser(mgr.CS2User, dstAddons)
-			}
-
-			// Add timeout for rsync operations
-			rsyncCtx, rsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
-			defer rsyncCancel()
-			// Prefer the shared cs2-config addons as the canonical source (keeps
-			// server copies consistent with what bootstrap overlays).
-			src := sharedAddonsDir
-			if fi, err := os.Stat(src); err != nil || !fi.IsDir() {
-				src = filepath.Join(gameDir, "csgo", "addons")
-			}
-			if err := runRsyncLoggedContext(rsyncCtx, w, mgr.CS2User, "-a", "--delete",
-				src+string(os.PathSeparator),
-				dstAddons+string(os.PathSeparator),
-			); err != nil {
-				if rsyncCtx.Err() == context.DeadlineExceeded {
-					log("  [ERROR] rsync addons for server-%d timed out after %v", i, TimeoutRsync)
-				} else {
-					log("  [ERROR] rsync addons for server-%d failed: %v", i, err)
-				}
-			} else {
-				log("  [OK] Updated addons on server-%d", i)
-			}
-			return nil
-		}
-		if err := withPluginSQLitePreserved(w, serverDir, replaceAddons); err != nil {
-			log("  [ERROR] server-%d: %v", i, err)
-		}
-		if !addonsOK {
-			continue
-		}
-
-		// For configs, treat the shared cs2-config tree as the canonical source
-		// so that any MatchZy or other plugin configs maintained there are
-		// propagated to all servers.
-		if fi, err := os.Stat(sharedCfgDir); err == nil && fi.IsDir() {
-			cfgRsyncCtx, cfgRsyncCancel := contextWithTimeout(ctx, TimeoutRsync)
-			dstCfgDir := filepath.Join(dstGame, "cfg")
-			if os.Geteuid() == 0 {
-				_ = ensureOwnedByUser(mgr.CS2User, dstCfgDir)
-			}
-			if err := runRsyncLoggedContext(cfgRsyncCtx, w, mgr.CS2User,
-				"-a",
-				sharedCfgDir+string(os.PathSeparator),
-				dstCfgDir+"/",
-			); err != nil {
-				if cfgRsyncCtx.Err() == context.DeadlineExceeded {
-					log("  [ERROR] rsync cfg for server-%d timed out after %v", i, TimeoutRsync)
-				} else {
-					log("  [ERROR] rsync cfg for server-%d failed: %v", i, err)
-				}
-			} else {
-				log("  [OK] Synced cfg from %s to server-%d", sharedCfgDir, i)
-			}
-			cfgRsyncCancel()
-		} else {
-			log("  [i] Shared cfg directory %s not found; skipping cfg sync for server-%d", sharedCfgDir, i)
-		}
-
-		// Re-apply Metamod configuration for each server so that any changes
-		// to plugins/configs do not drop the Metamod line from gameinfo.gi.
-		if err := configureMetamodGo(&buf, mgr.CS2User, i, enableMetamod); err != nil {
-			log("  [!] Configure Metamod for server-%d failed after plugin deploy: %v", i, err)
-		}
-	}
-
-	if err := checkCtx(); err != nil {
-		return buf.String(), err
-	}
-
-	// Avoid an expensive recursive chown over /home/<user>. Ensure the shared
-	// cs2-config directory stays writable.
-	_ = ensureHomeWritable(mgr.CS2User)
-	_ = ensureOwnedByUser(mgr.CS2User, filepath.Join("/home", mgr.CS2User, "cs2-config"))
-
-	// Safety net: repair any root-owned config/plugin trees so servers can read
-	// and write configs without requiring doctor/manual chown.
-	if err := autoRepairOwnershipIfNeeded(mgr.CS2User, mgr.NumServers); err != nil {
-		log("  [WARN] Automatic ownership repair reported an error: %v", err)
-	}
-
-	if err := checkCtx(); err != nil {
-		return buf.String(), err
-	}
-
-	log("")
-	if err := mgr.StartAll(); err != nil {
-		log("Error starting servers: %v", err)
-		return buf.String(), err
-	}
-	log("[OK] All servers restarted after plugin update.")
-
-	out := buf.String()
-	AppendLog("deploy-plugins.log", out)
-	return out, nil
 }
 
 // UpdateAndDeployPlugins downloads the latest plugin bundle into game_files/
@@ -581,153 +317,38 @@ func UpdateAndDeployPluginsWithContext(ctx context.Context) (string, error) {
 		return buf.String(), err
 	}
 
-	stack, why := PluginStack(ctx, w, configuredCS2User())
-	if stack == PluginStackReadyUp {
-		log("Plugin stack: Ready Up (%s)", why)
-		out, err := UpdateReadyUpOnServers(ctx, nil)
-		if out != "" {
-			log("%s", out)
+	// Instance hosts update the shared Ready Up layer; server-N hosts update
+	// Ready Up in each server folder. Ready Up is the only plugin stack.
+	var out string
+	var err error
+	if InstanceBackendOn() {
+		log("Servers: instances (a new Ready Up layer)")
+		m, merr := NewInstanceManager()
+		if merr != nil {
+			err = merr
+		} else {
+			var lb bytes.Buffer
+			err = m.UpdateReadyUp(ctx, &lb, InstanceHoldNow(ctx), nil)
+			out = lb.String()
 		}
-		if err != nil {
-			log("[ERROR] Ready Up update failed: %v", err)
-		}
-		all := buf.String()
-		AppendLog("update-and-deploy-plugins.log", all)
-		return all, err
+	} else {
+		out, err = UpdateReadyUpOnServers(ctx, nil)
 	}
-	log("Plugin stack: legacy Metamod + CounterStrikeSharp + MatchZy Enhanced (%s)", why)
-
-	out, err := UpdatePlugins()
 	if out != "" {
 		log("%s", out)
 	}
 	if err != nil {
-		log("[ERROR] Plugin download failed: %v", err)
-		all := buf.String()
-		AppendLog("update-and-deploy-plugins.log", all)
-		return all, err
-	}
-
-	if err := checkCtx(); err != nil {
-		all := buf.String()
-		AppendLog("update-and-deploy-plugins.log", all)
-		return all, err
-	}
-
-	// Update cs2-config with new default configs from plugin bundles, then apply overrides
-	mgr, err := NewTmuxManager()
-	if err == nil {
-		log("")
-		log("Updating shared configs with new plugin defaults...")
-		if err := updateSharedConfigsFromPluginBundle(w, mgr); err != nil {
-			log("[WARN] Failed to update shared configs: %v", err)
-		} else {
-			log("[OK] Shared configs updated")
-		}
-
-		log("")
-		log("Applying user overrides to shared configs...")
-		if err := applyOverridesToSharedConfigs(w, mgr); err != nil {
-			log("[WARN] Failed to apply overrides: %v", err)
-		} else {
-			log("[OK] User overrides applied")
-		}
-	}
-
-	if err := checkCtx(); err != nil {
-		all := buf.String()
-		AppendLog("update-and-deploy-plugins.log", all)
-		return all, err
-	}
-
-	log("")
-	log("Now syncing updated plugins to all servers...")
-	out2, err := DeployPluginsToServersWithContext(ctx)
-	if out2 != "" {
-		log("%s", out2)
+		log("[ERROR] Ready Up update failed: %v", err)
 	}
 	all := buf.String()
-	if err != nil {
-		log("[ERROR] Deploying plugins to servers failed: %v", err)
-		AppendLog("update-and-deploy-plugins.log", all)
-		return all, err
-	}
-
 	AppendLog("update-and-deploy-plugins.log", all)
-	return all, nil
-}
-
-// updateSharedConfigsFromPluginBundle updates cs2-config with new default configs
-// from the plugin bundle (game_files/cfg). Only copies files that don't exist in
-// cs2-config, preserving user customizations.
-func updateSharedConfigsFromPluginBundle(w io.Writer, mgr *TmuxManager) error {
-	up := NewPluginUpdater()
-	srcCfgDir := filepath.Join(up.GameDir, "csgo", "cfg")
-	dstCfgDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "cfg")
-
-	// Ensure destination exists
-	if err := os.MkdirAll(dstCfgDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create cs2-config cfg directory: %w", err)
-	}
-	if os.Geteuid() == 0 {
-		_ = ensureOwnedByUser(mgr.CS2User, dstCfgDir)
-	}
-
-	// Check if source has any config files
-	if fi, err := os.Stat(srcCfgDir); err != nil || !fi.IsDir() {
-		fmt.Fprintf(w, "  [i] No default configs found in plugin bundle\n")
-		return nil
-	}
-
-	// Use rsync with --update to only copy files that are newer or don't exist.
-	// However, we also use --ignore-existing=false to ensure files from the plugin
-	// bundle are copied even if they exist, as long as the source is newer.
-	// This allows plugin updates to bring in new config options while still
-	// preserving user customizations that are newer.
-	fmt.Fprintf(w, "  [*] Syncing new default configs from plugin bundle to cs2-config...\n")
-	fmt.Fprintf(w, "  [i] Note: Existing configs are preserved unless plugin bundle has newer defaults\n")
-	if err := runRsyncLogged(w, mgr.CS2User, "-a", "--update", srcCfgDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
-		return fmt.Errorf("failed to sync configs: %w", err)
-	}
-
-	return nil
-}
-
-// applyOverridesToSharedConfigs applies user overrides from overrides/game/csgo/cfg
-// to cs2-config/game/csgo/cfg. This ensures user customizations always win.
-func applyOverridesToSharedConfigs(w io.Writer, mgr *TmuxManager) error {
-	up := NewPluginUpdater()
-	srcOverridesDir := filepath.Join(up.OverridesDir, "csgo", "cfg")
-	dstCfgDir := filepath.Join("/home", mgr.CS2User, "cs2-config", "game", "csgo", "cfg")
-
-	// Check if overrides directory exists
-	if fi, err := os.Stat(srcOverridesDir); err != nil || !fi.IsDir() {
-		fmt.Fprintf(w, "  [i] No overrides directory found, skipping\n")
-		return nil
-	}
-
-	// Ensure destination exists
-	if err := os.MkdirAll(dstCfgDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create cs2-config cfg directory: %w", err)
-	}
-	if os.Geteuid() == 0 {
-		_ = ensureOwnedByUser(mgr.CS2User, dstCfgDir)
-	}
-
-	// Apply overrides - this will overwrite any matching files in cs2-config
-	// with user customizations from overrides/
-	fmt.Fprintf(w, "  [*] Applying user overrides to cs2-config...\n")
-	if err := runRsyncLogged(w, mgr.CS2User, "-a", srcOverridesDir+string(os.PathSeparator), dstCfgDir+string(os.PathSeparator)); err != nil {
-		return fmt.Errorf("failed to apply user overrides from %s to %s: %w (check permissions and ensure override files are readable)", srcOverridesDir, dstCfgDir, err)
-	}
-
-	return nil
+	return all, err
 }
 
 // UpdateServerWithContext updates the game files for a single server via
 // SteamCMD (against the shared master install) and rsync, without touching
 // other servers. It is intended for targeted update flows such as reacting to
-// a MatchZy-driven update shutdown of a specific server.
+// an update shutdown of a specific server.
 func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 	var buf bytes.Buffer
 
@@ -745,10 +366,6 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 	}
 	cs2User := mgr.CS2User
 	masterDir := filepath.Join("/home", cs2User, "master-install")
-
-	// Preserve the current Metamod enabled/disabled state so we can re-apply
-	// it on this server after refreshing game files from the master install.
-	enableMetamod := detectMetamodEnabled(cs2User)
 
 	// Track a transient "UPDATING" status for this server so the TUI/CLI status
 	// view can show that work is in progress rather than simply "STOPPED".
@@ -845,11 +462,6 @@ func UpdateServerWithContext(ctx context.Context, server int) (string, error) {
 	}
 	if err := newServerLibRepair(cs2User, masterDir).ensure(ctx, &buf, fmt.Sprintf("server-%d", server), filepath.Join(mgr.serverDir(server), "game")); err != nil {
 		log("  [!] server-%d game files are incomplete and it will not boot: %v (try: csm fix-libv8 %d)", server, err, server)
-	}
-
-	// Ensure Metamod remains in sync with the pre-update setting.
-	if err := configureMetamodGo(&buf, cs2User, server, enableMetamod); err != nil {
-		log("Error configuring Metamod for server-%d after update: %v", server, err)
 	}
 
 	if err := checkCtx(); err != nil {

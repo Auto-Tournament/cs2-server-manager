@@ -27,23 +27,6 @@ const (
 	DefaultMasterDiskGB          = 71.0
 	DefaultPerServerLinkedDiskGB = 2.0
 
-	// DefaultMatchzyContainerName and DefaultMatchzyVolumeName define the
-	// Docker resources used for the MatchZy MySQL database when running in
-	// Docker-managed mode.
-	DefaultMatchzyContainerName = "matchzy-mysql"
-	DefaultMatchzyVolumeName    = "matchzy-mysql-data"
-
-	// DefaultMatchzyDBName / User / Password are the defaults used when
-	// provisioning a fresh MatchZy database, both for Docker-managed and
-	// external DB setups when the user has not supplied explicit values.
-	DefaultMatchzyDBName     = "matchzy"
-	DefaultMatchzyDBUser     = "matchzy"
-	DefaultMatchzyDBPassword = "matchzy"
-
-	// DefaultMatchzyRootPassword is the default MySQL root password used for the
-	// Docker-managed MatchZy database unless overridden via environment.
-	DefaultMatchzyRootPassword = "MatchZyRoot!2025"
-
 	// DefaultRootDir is the default on-disk root where CSM stores its state
 	// (overrides, game_files, logs, etc.) when CSM_ROOT is not explicitly set.
 	// This is created on demand during installs and updates.
