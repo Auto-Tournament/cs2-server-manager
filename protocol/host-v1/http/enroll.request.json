@@ -38,6 +38,11 @@
     "machine_id": {
       "$ref": "../defs.json#/$defs/machineId"
     },
+    "csm_user": {
+      "type": "string",
+      "pattern": "^[a-z_][a-z0-9_.-]{0,31}$",
+      "description": "The Unix user csm runs the servers as. One machine can run csm for several users; each (machine_id, csm_user) is its own host. Optional: an older csm sends none and gets the machine's host."
+    },
     "hostname": {
       "type": "string",
       "minLength": 1,
