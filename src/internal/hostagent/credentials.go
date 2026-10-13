@@ -38,8 +38,11 @@ type Credentials struct {
 	// FleetKey is the fleet enrollment key (rfk_…) when the host enrolled
 	// with one. It is reused to re-enroll after a revoked token and handed
 	// to the servers csm creates (FLEET.md §18.1). Empty after a code.
-	FleetKey   string `json:"fleet_key,omitempty"`
-	MachineID  string `json:"machine_id"`
+	FleetKey  string `json:"fleet_key,omitempty"`
+	MachineID string `json:"machine_id"`
+	// CSMUser is the Unix user csm runs the servers as: one machine can run
+	// csm for several users, each its own host on the platform.
+	CSMUser    string `json:"csm_user,omitempty"`
 	EnrolledAt string `json:"enrolled_at"`
 	RotatedAt  string `json:"rotated_at,omitempty"`
 	// InsecureDev allows ws:// and http:// (csm link --insecure), to any host.
