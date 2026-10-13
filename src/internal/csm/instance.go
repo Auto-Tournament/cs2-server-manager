@@ -233,7 +233,25 @@ func InstanceBackendOn() bool {
 	if err != nil {
 		return false
 	}
-	return s.Resolved().Backend == ServerBackendInstances
+	if s.Resolved().Backend == ServerBackendInstances {
+		return true
+	}
+	// No backend chosen (instances.json `{}`, no env): a host that has instances and no
+	// server-N folders runs instances. It read as a server-N host before, so status listed
+	// 0 servers and update-plugins ran the legacy stack on it (2026-10-13).
+	if strings.TrimSpace(s.Backend) != "" || strings.TrimSpace(os.Getenv(EnvServerBackend)) != "" {
+		return false
+	}
+	return instanceHostDetected()
+}
+
+// instanceHostDetected: instance folders exist and no server-N folders do.
+var instanceHostDetected = func() bool {
+	if mgr, err := NewTmuxManager(); err == nil && mgr.NumServers > 0 {
+		return false
+	}
+	m, err := NewInstanceManager()
+	return err == nil && len(m.List()) > 0
 }
 
 // --- layout ------------------------------------------------------------------
