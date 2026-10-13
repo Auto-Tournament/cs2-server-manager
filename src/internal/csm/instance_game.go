@@ -402,6 +402,7 @@ func (m *InstanceManager) updateGameVersion(ctx context.Context, w io.Writer) (s
 	if err := m.mkdirs(m.L.GamesDir()); err != nil {
 		return "", err
 	}
+	m.removeUnfinishedGameBuilds(w)
 	id := m.newGameID(time.Now())
 	build := filepath.Join(m.L.GamesDir(), ".update-"+id)
 	upper, work, mnt := filepath.Join(build, "upper"), filepath.Join(build, "work"), filepath.Join(build, "mnt")
@@ -454,6 +455,27 @@ func (m *InstanceManager) updateGameVersion(ctx context.Context, w io.Writer) (s
 	}
 	fmt.Fprintf(w, "[✓] CS2 game version %s (build %d -> %d, %s copy of %s) is current.\n", id, before, after, mode, filepath.Base(src))
 	return final, nil
+}
+
+// removeUnfinishedGameBuilds removes .update-* and .new-* folders an interrupted update left
+// (Ctrl-C, a reboot: the deferred cleanup never ran). Only called under the game update lock, so
+// no other update is using them.
+func (m *InstanceManager) removeUnfinishedGameBuilds(w io.Writer) {
+	entries, err := os.ReadDir(m.L.GamesDir())
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !e.IsDir() || !(strings.HasPrefix(name, ".update-") || strings.HasPrefix(name, ".new-")) {
+			continue
+		}
+		if err := removeTreeForce(filepath.Join(m.L.GamesDir(), name)); err != nil {
+			fmt.Fprintf(w, "[CS2 update] could not remove %s, left by an interrupted update: %v\n", name, err)
+			continue
+		}
+		fmt.Fprintf(w, "[CS2 update] removed %s, left by an interrupted update.\n", name)
+	}
 }
 
 // newGameID is a sortable, unique game version name.

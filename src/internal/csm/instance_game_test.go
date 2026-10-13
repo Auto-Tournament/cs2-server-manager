@@ -330,3 +330,28 @@ func TestNewGameID(t *testing.T) {
 		t.Fatalf("id = %s", id)
 	}
 }
+
+// An interrupted update leaves .update-*/.new-* folders; the next update removes them and keeps
+// real game versions.
+func TestRemoveUnfinishedGameBuilds(t *testing.T) {
+	m := testInstanceManager(t)
+	g := m.L.GamesDir()
+	for _, d := range []string{".update-20261013-182705/upper/x", ".new-20261013-182705", "20261008-224020/game"} {
+		if err := os.MkdirAll(filepath.Join(g, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out strings.Builder
+	m.removeUnfinishedGameBuilds(&out)
+	for _, gone := range []string{".update-20261013-182705", ".new-20261013-182705"} {
+		if _, err := os.Stat(filepath.Join(g, gone)); !os.IsNotExist(err) {
+			t.Fatalf("%s still there", gone)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(g, "20261008-224020", "game")); err != nil {
+		t.Fatalf("game version removed: %v", err)
+	}
+	if strings.Count(out.String(), "left by an interrupted update") != 2 {
+		t.Fatalf("output: %s", out.String())
+	}
+}

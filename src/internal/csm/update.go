@@ -144,13 +144,17 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 		log("No server-N folders; updating for instances instead.")
 		im, ierr := NewInstanceManager()
 		if ierr == nil {
-			var ibuf bytes.Buffer
-			ierr = im.updateGameLocked(ctx, &ibuf)
-			if ierr == nil {
-				im.RestartIdleInstances(ctx, &ibuf, instanceHoldNow(ctx))
-				im.GC(&ibuf)
+			// Live, like the server-N path: SteamCMD can run for minutes, and output held
+			// back until the end looked like a hang (2026-10-13).
+			var iw io.Writer = &buf
+			if logFile != nil {
+				iw = io.MultiWriter(&buf, logFile)
 			}
-			log("%s", ibuf.String())
+			ierr = im.updateGameLocked(ctx, iw)
+			if ierr == nil {
+				im.RestartIdleInstances(ctx, iw, instanceHoldNow(ctx))
+				im.GC(iw)
+			}
 		}
 		logOut := buf.String()
 		AppendLog("update-game.log", logOut)
