@@ -22,6 +22,7 @@ type EnrollRequest struct {
 	Code       string `json:"code,omitempty"`
 	Key        string `json:"key,omitempty"`
 	MachineID  string `json:"machine_id"`
+	CSMUser    string `json:"csm_user,omitempty"`
 	Hostname   string `json:"hostname"`
 	OS         string `json:"os"`
 	CSMVersion string `json:"csm_version"`
@@ -43,8 +44,11 @@ type EnrollResponse struct {
 type EnrollOptions struct {
 	PlatformURL string
 	// CodeOrKey is a one-time code (RUE-…) or a fleet enrollment key (rfk_…).
-	CodeOrKey   string
-	MachineID   string
+	CodeOrKey string
+	MachineID string
+	// CSMUser is the Unix user csm runs the servers as (a second csm user on
+	// the same machine is a second host, not a takeover of the first).
+	CSMUser     string
 	Hostname    string
 	OS          string
 	CSMVersion  string
@@ -94,7 +98,7 @@ func Enroll(ctx context.Context, o EnrollOptions) (*Credentials, error) {
 	}
 	secret := strings.TrimSpace(o.CodeOrKey)
 	req := EnrollRequest{
-		Kind: "host", MachineID: o.MachineID, Hostname: o.Hostname, OS: o.OS,
+		Kind: "host", MachineID: o.MachineID, CSMUser: o.CSMUser, Hostname: o.Hostname, OS: o.OS,
 		CSMVersion: o.CSMVersion, TenantID: "default",
 	}
 	isKey := strings.HasPrefix(secret, "rfk_")
@@ -182,6 +186,7 @@ func Enroll(ctx context.Context, o EnrollOptions) (*Credentials, error) {
 		TenantID:    "default",
 		Token:       out.Token,
 		MachineID:   o.MachineID,
+		CSMUser:     o.CSMUser,
 		EnrolledAt:  nowRFC3339(),
 		InsecureDev: o.InsecureDev,
 		CAFile:      o.CAFile,

@@ -119,7 +119,7 @@ func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	creds, err := hostagent.Enroll(ctx, hostagent.EnrollOptions{
-		PlatformURL: pos[0], CodeOrKey: secret, MachineID: machineID, Hostname: hostname,
+		PlatformURL: pos[0], CodeOrKey: secret, MachineID: machineID, CSMUser: csm.ConfiguredCS2User(), Hostname: hostname,
 		OS: csm.HostOSDescription(), CSMVersion: tui.Version(), InsecureDev: insecure, CAFile: caFile,
 		Log: func(s string) { fmt.Fprintln(os.Stderr, s) },
 	})
