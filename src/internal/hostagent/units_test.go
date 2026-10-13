@@ -499,3 +499,25 @@ func TestInventoryCarriesTheMachineAddress(t *testing.T) {
 		t.Fatalf("an unknown address is left out: %s", b)
 	}
 }
+
+func TestEnrollSendsTheCSMUser(t *testing.T) {
+	var got EnrollRequest
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "host_id": "host_8", "tenant_id": "default", "token": testToken})
+	}))
+	defer srv.Close()
+	c, err := Enroll(context.Background(), EnrollOptions{
+		PlatformURL: srv.URL, CodeOrKey: "RUE-7F3K-9QX2-LM4D-P8TW", MachineID: "0123456789abcdef0123456789abcdef",
+		CSMUser: "cs2servermanager", Hostname: "box", OS: "linux", CSMVersion: "1.11.0", HTTPClient: srv.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second csm user on the same machine is its own host, so the platform needs the user;
+	// re-enrolling (a revoked token) sends it again from the saved credentials.
+	if got.CSMUser != "cs2servermanager" || c.CSMUser != "cs2servermanager" {
+		t.Fatalf("request csm_user = %q, saved = %q", got.CSMUser, c.CSMUser)
+	}
+}
