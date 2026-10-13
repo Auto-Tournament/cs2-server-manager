@@ -14,11 +14,7 @@ import (
 
 const pluginsUsage = `usage: csm plugins [status | <setting> <value>]
 
-  csm plugins status              Stack, Ready Up channel/version/bundle/license, what each server has
-  csm plugins stack readyup|legacy
-                                  readyup: Ready Up (no Metamod). legacy: Metamod + CounterStrikeSharp
-                                  + the MatchZy-era plugin. Unset: an existing legacy host stays legacy,
-                                  a fresh install gets Ready Up (beta until it has a stable release).
+  csm plugins status              Ready Up channel/version/bundle/license, what each server has
   csm plugins channel stable|beta stable: the latest stable release. beta: pre-releases too
   csm plugins version vX.Y.Z[-beta.N]|latest
                                   pin a release (overrides the channel); latest follows the channel
@@ -59,7 +55,7 @@ func runPluginsCommand(args []string, stdin io.Reader, stdout io.Writer, termina
 	}
 	msg := fmt.Sprintf("Saved %s = %s.\n", key, args[1])
 	switch key {
-	case "stack", "channel", "version", "bundle":
+	case "channel", "version", "bundle":
 		msg += "Run csm update-plugins to apply it (or let csm monitor do it on idle servers).\n"
 	}
 	return msg + "\n" + csm.PluginsReport(context.Background(), key == "channel" || key == "version"), nil

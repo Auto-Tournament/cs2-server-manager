@@ -12,7 +12,7 @@ import (
 )
 
 // AddServers creates one or more additional CS2 server instances based on the
-// existing layout. It reuses the master install, shared config and MatchZy
+// existing layout. It reuses the master install, shared config and
 // setup from previous installs so users can scale up without rerunning the
 // full wizard.
 func AddServers(count int) (string, error) {
@@ -107,7 +107,6 @@ func addServerInstance(ctx context.Context, beforeStart func(serverDir string) e
 
 	rcon := detectRCONPassword(user)
 	hostnamePrefix := detectHostnamePrefix(user)
-	enableMetamod := detectMetamodEnabled(user)
 	maxPlayers := detectMaxPlayers(user)
 	gslt := detectGSLT(user)
 
@@ -140,12 +139,6 @@ func addServerInstance(ctx context.Context, beforeStart func(serverDir string) e
 	// Ensure alternate launcher exists after master->server sync.
 	if err := ensureCSMLauncherSh(ctx, &buf, user, filepath.Join("/home", user, fmt.Sprintf("server-%d", newIdx), "game")); err != nil {
 		log("  [!] Ensure csm.sh for server-%d failed: %v", newIdx, err)
-		cleanupPartialServerDir(&buf, user, newIdx)
-		return 0, buf.String(), err
-	}
-
-	if err := configureMetamodGo(&buf, user, newIdx, enableMetamod); err != nil {
-		log("  [!] Configure Metamod for server-%d failed: %v", newIdx, err)
 		cleanupPartialServerDir(&buf, user, newIdx)
 		return 0, buf.String(), err
 	}
@@ -327,13 +320,11 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 	gamePort, tvPort := detectServerPorts(user, serverNum)
 	rcon := detectRCONPassword(user)
 	hostnamePrefix := detectHostnamePrefix(user)
-	enableMetamod := detectMetamodEnabled(user)
 	maxPlayers := detectMaxPlayers(user)
 	gslt := detectGSLT(user)
 
 	// Debug output
 	fmt.Printf("[DEBUG] Detected settings:\n")
-	fmt.Printf("  Metamod enabled: %v\n", enableMetamod)
 	fmt.Printf("  RCON password: %s\n", rcon)
 	fmt.Printf("  Hostname prefix: %s\n", hostnamePrefix)
 	fmt.Printf("  Max players: %d\n", maxPlayers)
@@ -423,12 +414,6 @@ func ReinstallServerInstanceWithContext(ctx context.Context, serverNum int) (str
 	// Ensure alternate launcher exists after master->server sync.
 	if err := ensureCSMLauncherSh(ctx, writer, user, filepath.Join("/home", user, fmt.Sprintf("server-%d", serverNum), "game")); err != nil {
 		log("  [!] Ensure csm.sh for server-%d failed: %v", serverNum, err)
-		return buf.String(), err
-	}
-
-	// Configure Metamod
-	if err := configureMetamodGo(writer, user, serverNum, enableMetamod); err != nil {
-		log("  [!] Configure Metamod for server-%d failed: %v", serverNum, err)
 		return buf.String(), err
 	}
 
@@ -592,30 +577,6 @@ func detectRCONBanSettings(user string) (maxFailures, minFailures, minFailureTim
 		}
 	}
 	return maxFailures, minFailures, minFailureTime
-}
-
-// DetectMetamodEnabled inspects server-1's gameinfo.gi to see whether the
-// Metamod line is present. New servers follow the same setting.
-func DetectMetamodEnabled(user string) bool {
-	return detectMetamodEnabled(user)
-}
-
-// detectMetamodEnabled is the internal implementation.
-func detectMetamodEnabled(user string) bool {
-	// Check master-install instead of server-1 to avoid chicken-and-egg problem
-	// where server-1 is broken and we're trying to detect if we should fix it
-	gameinfo := filepath.Join("/home", user, "master-install", "game", "csgo", "gameinfo.gi")
-	data, err := os.ReadFile(gameinfo)
-	if err != nil {
-		// If master doesn't exist or can't be read, default to enabled
-		return true
-	}
-	metamodEnabled := strings.Contains(string(data), "csgo/addons/metamod")
-	// If not in master, still default to true (metamod should be enabled)
-	if !metamodEnabled {
-		return true
-	}
-	return metamodEnabled
 }
 
 // DetectMaxPlayers reads server-1's server.cfg and extracts the maxplayers value.

@@ -102,9 +102,6 @@ func TestServerLaunchHonoursModeForStartAndDebug(t *testing.T) {
 			if !strings.HasPrefix(start, tt.wantPrefix) {
 				t.Fatalf("command %q does not start with %q", start, tt.wantPrefix)
 			}
-			if c := strings.Count(start, MatchzyConfigScopeArg+" box-server-2"); c != 1 {
-				t.Fatalf("command has %d scope args, want 1: %q", c, start)
-			}
 			_, err := os.Stat(filepath.Join(gameDir, "csm.sh"))
 			if gotCSMSh := err == nil; gotCSMSh != tt.wantCSMSh {
 				t.Fatalf("csm.sh installed = %v, want %v", gotCSMSh, tt.wantCSMSh)
@@ -127,8 +124,18 @@ func TestServerLaunchCommandSteamRuntimeKeepsModeAndScope(t *testing.T) {
 			t.Fatalf("%s: wrapped command %q does not run %q", mode, wrapped, plain)
 		}
 		// The wrapper repeats the command once for its fallback.
-		if c := strings.Count(wrapped, MatchzyConfigScopeArg+" cs2-server-1"); c != 2 {
-			t.Fatalf("%s: wrapped command has %d scope args, want 2: %q", mode, c, wrapped)
+		if c := strings.Count(wrapped, "-port 27015"); c != 2 {
+			t.Fatalf("%s: wrapped command has %d port args, want 2: %q", mode, c, wrapped)
 		}
+	}
+}
+
+func baseSpec(mode string, server int) launchSpec {
+	return launchSpec{
+		Mode:       mode,
+		GamePort:   DefaultBaseGamePort + (server-1)*10,
+		TVPort:     DefaultBaseTVPort + (server-1)*10,
+		MaxPlayers: 10,
+		GSLT:       "ABCDEF0123456789",
 	}
 }

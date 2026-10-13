@@ -39,7 +39,7 @@ csm license status         # check it offline
 csm license clear
 
 # Setup and maintenance
-sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger, --docker for the legacy stack's MySQL)
+sudo csm setup-host        # one-time root setup for user mode (--skip-deps, --skip-linger)
 sudo csm install-deps      # install system dependencies
 csm bootstrap              # install or redeploy servers without the TUI
 csm doctor                 # diagnose common problems and offer fixes
@@ -58,7 +58,7 @@ csm debug 1                # run server 1 in the foreground
 csm logs 1 100             # last 100 log lines for server 1
 csm logs-file 1            # path to server 1's log file
 
-# Removes your servers, their files and the MySQL container (your account stays)
+# Removes your servers and their files (your account stays)
 sudo csm cleanup-all
 ```
 
@@ -100,7 +100,7 @@ The TUI dashboard and `csm status --watch` follow each server's `/stream` and up
 
 `SAFE` is Ready Up's `update_safe`: `NO` from the moment a match loads until the series is over and its demo is uploaded. While it says `NO`, `stop`, `restart`, `update-game`, `update-server` and `update-plugins` refuse to run and name the match that is in the way. The auto-update monitor skips that server too. Add `--force` to go ahead anyway; forced runs are written to `csm.log`. The TUI never forces; it tells you the command to run.
 
-Servers without Ready Up (for example with MatchZy Enhanced) show `no Ready Up` and behave exactly as before.
+Servers without Ready Up show `no Ready Up` until `csm update-plugins` installs it.
 
 ## Host agent: control this machine from Auto Tournament (`csm link`)
 

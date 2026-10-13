@@ -26,7 +26,7 @@ import (
 // The platform knows. csm asks it:
 //
 //	GET <base>/api/servers/update-hold
-//	X-Auto-Tournament-Token: <server token>   (also sent as X-MatchZy-Token for older platforms)
+//	X-Auto-Tournament-Token: <server token>
 //	-> {"success":true,"hold":true,"reason":"tournament \"X\" is in progress ...",
 //	    "license":{"key":"ATL1....","revision":"sha256:0123456789abcdef"}}
 //
@@ -55,9 +55,8 @@ import (
 type PlatformSettings struct {
 	// BaseURL is the platform's public base URL, e.g. https://cs.example.io.
 	BaseURL string `json:"base_url,omitempty"`
-	// Token is the platform's SERVER_TOKEN, sent as X-Auto-Tournament-Token
-	// (and as X-MatchZy-Token for platforms from before the rename). It is the
-	// same fleet-wide token the plugin uses, not a per-host secret.
+	// Token is the platform's SERVER_TOKEN, sent as X-Auto-Tournament-Token.
+	// It is the same fleet-wide token the plugin uses, not a per-host secret.
 	Token string `json:"token,omitempty"`
 }
 
@@ -178,10 +177,7 @@ func FetchPlatformHold(ctx context.Context, p PlatformSettings) (PlatformHoldAns
 		// as a csm host, not as the fleet-wide server token.
 		req.Header.Set("Authorization", "Bearer "+p.Token)
 	} else {
-		// The platform reads X-Auto-Tournament-Token; platforms from before the
-		// rename read X-MatchZy-Token. Same token, so send both.
 		req.Header.Set("X-Auto-Tournament-Token", p.Token)
-		req.Header.Set("X-MatchZy-Token", p.Token)
 	}
 	req.Header.Set("Accept", "application/json")
 

@@ -22,9 +22,7 @@ type CleanupConfig struct {
 	// DeleteUser also deletes CS2User and its home directory (userdel -r),
 	// for a dedicated service account such as the cs2servermanager user of
 	// older installs. Without it only csm's files in the home are removed.
-	DeleteUser       bool
-	MatchzyContainer string
-	MatchzyVolume    string
+	DeleteUser bool
 }
 
 // cleanupHomePaths are what csm creates in the CS2 user's home; cleanup-all
@@ -49,18 +47,12 @@ func checkCleanupTarget(target, invoking string, uid int, deleteUser bool) error
 }
 
 // CleanupAll stops and removes all CS2 servers of one user and their data,
-// and the MatchZy MySQL Docker container and volume. It deletes the user
-// itself only with DeleteUser. It needs root (userdel, Docker, another
+// and the files csm made. It deletes the user
+// itself only with DeleteUser. It needs root (userdel, another
 // user's files) and returns a human-readable log.
 func CleanupAll(cfg CleanupConfig) (string, error) {
 	if os.Geteuid() != 0 {
 		return "", fmt.Errorf("wiping the servers needs root: run `sudo csm cleanup-all`")
-	}
-	if cfg.MatchzyContainer == "" {
-		cfg.MatchzyContainer = DefaultMatchzyContainerName
-	}
-	if cfg.MatchzyVolume == "" {
-		cfg.MatchzyVolume = DefaultMatchzyVolumeName
 	}
 
 	var buf bytes.Buffer
@@ -113,25 +105,6 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 		_ = userShellCommand(cfg.CS2User, "tmux kill-session -t "+session+" 2>/dev/null").Run()
 	}
 
-	// Docker cleanup for MatchZy.
-	log("[*] Cleaning up MatchZy MySQL Docker container...")
-	if _, err := exec.LookPath("docker"); err == nil {
-		// Check if container exists.
-		if err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}").Run(); err == nil {
-			if hasDockerName(cfg.MatchzyContainer) {
-				log("  [*] Stopping and removing Docker container: %s", cfg.MatchzyContainer)
-				_ = exec.Command("docker", "stop", cfg.MatchzyContainer).Run()
-				_ = exec.Command("docker", "rm", cfg.MatchzyContainer).Run()
-				log("  [*] Removing Docker volume: %s", cfg.MatchzyVolume)
-				_ = exec.Command("docker", "volume", "rm", cfg.MatchzyVolume).Run()
-			} else {
-				log("  [i] MatchZy MySQL container not found")
-			}
-		}
-	} else {
-		log("  [i] Docker not installed, skipping container cleanup")
-	}
-
 	// The monitor cron entry would otherwise keep running against servers
 	// that are gone.
 	_ = userShellCommand(cfg.CS2User, "csm remove-monitor-cron >/dev/null 2>&1").Run()
@@ -161,18 +134,4 @@ func CleanupAll(cfg CleanupConfig) (string, error) {
 	logOut := buf.String()
 	AppendLog("cleanup.log", logOut)
 	return logOut, nil
-}
-
-func hasDockerName(name string) bool {
-	cmd := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.TrimSpace(line) == name {
-			return true
-		}
-	}
-	return false
 }

@@ -13,7 +13,7 @@ import (
 func privateTestLayers(t *testing.T, m *InstanceManager) {
 	t.Helper()
 	for _, l := range []struct {
-		id  string
+		id   string
 		for_ int
 	}{{"20260103-000000", 0}, {"20260104-000000", 0}, {"20260105-000000", 9}, {"20260106-000000", 9}} {
 		writeInstFile(t, filepath.Join(m.L.LayersDir(), l.id, "game/csgo/readyup/installed.json"), `{"components":{"core":"0.1.0"}}`)

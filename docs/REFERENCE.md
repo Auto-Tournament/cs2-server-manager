@@ -1,17 +1,13 @@
 # Reference
 
-Plugin stacks, instance mode, maps, launch modes, disk use, the MatchZy database and license keys.
+Ready Up, instance mode, maps, launch modes, disk use and license keys.
 
-## Plugin stack: Ready Up or legacy
+## Ready Up
 
-csm installs one of two plugin stacks on every server:
-
-- **Ready Up** (`readyup`): [Ready Up](https://github.com/Auto-Tournament/ready-up), a native CS2 plugin suite. No Metamod, no CounterStrikeSharp. This is what Auto Tournament 3.x talks to.
-- **Legacy** (`legacy`): Metamod:Source + CounterStrikeSharp + [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced) 1.4.35, the MatchZy-era plugin (`matchzy_*` cvars) that Auto Tournament 2.x talks to.
+csm installs [Ready Up](https://github.com/Auto-Tournament/ready-up), the native CS2 plugin, on every server. No Metamod, no CounterStrikeSharp. This is what Auto Tournament 3.x talks to.
 
 ```bash
-csm plugins                          # what is chosen, what would be installed, what each server has
-csm plugins stack readyup            # or legacy
+csm plugins                          # what would be installed, and what each server has
 csm plugins channel beta             # stable (default) or beta (pre-releases too)
 csm plugins version v0.1.0-beta.2    # pin a release; "latest" follows the channel again
 csm plugins bundle full              # essentials (default; instance mode: full) or full (adds skins and the extras)
@@ -20,7 +16,7 @@ csm plugins auto off                 # stop csm monitor from updating Ready Up (
 csm update-plugins                   # install / update now (stops and restarts the servers)
 ```
 
-**Which stack.** Nothing changes by itself on a host that already runs the legacy stack: it stays legacy until you switch. A fresh install gets Ready Up once Ready Up has a stable release, and the legacy stack until then (the install log says how to opt into a pre-release). The platform's **Update Ready Up** button (`host.update_plugins`) on a host that never chose a stack sets it to Ready Up. `CSM_PLUGIN_STACK=readyup|legacy` overrides the setting.
+**MatchZy Enhanced is not supported.** csm no longer installs Metamod, CounterStrikeSharp or MatchZy Enhanced, the plugin Auto Tournament 2.x talks to. To keep running 2.x on that stack, stay on an older csm release. From Auto Tournament 3.x, servers run Ready Up.
 
 **Channels.** `stable` installs the latest stable Ready Up release (GitHub's "latest"). `beta` installs the newest release including pre-releases (`vX.Y.Z-beta.N`, `-rc.N`). A pinned version wins over the channel. While Ready Up has only pre-releases, `stable` finds nothing and says so, naming the newest pre-release; use `csm plugins channel beta` or pin it. `CSM_READYUP_CHANNEL`, `CSM_READYUP_VERSION` and `CSM_READYUP_BUNDLE` override the settings.
 
@@ -30,17 +26,9 @@ csm update-plugins                   # install / update now (stops and restarts 
 
 **Automatic updates.** On the Ready Up stack every `csm monitor` cycle (cron, every 5 minutes) keeps Ready Up on its channel. It asks GitHub at most every 30 minutes. A server is updated only when updates are not on hold (`csm updates hold`, or the platform's update-hold while a tournament runs) and it is stopped, or Ready Up reports `update_safe: true` with nobody connected for the idle grace period (`csm updates grace`). Never mid-match. A failed update is retried after an hour. Each cycle logs what it did to `csm.log`.
 
-**Legacy stack version.** The legacy stack installs MatchZy Enhanced **v1.4.35**, no longer "whatever is latest" (the plugin repo's next major is not what Auto Tournament 2.x expects). `CSM_LEGACY_PLUGIN_VERSION` picks another tag, or `latest`. When csm knows the platform (`csm updates platform`, or `csm link`) it asks it for its version first, and refuses the legacy stack for Auto Tournament 3.x with a message that points here; nothing on the servers changes. An unreachable platform does not block the install.
+### Moving from MatchZy Enhanced
 
-### Moving to Ready Up
-
-csm does not migrate a legacy host by itself. To move one:
-
-1. `csm plugins stack readyup`, then `csm plugins channel beta` while Ready Up has only pre-releases, and `csm plugins license noncommercial` (or `commercial`).
-2. `csm update-plugins`. It installs Ready Up on every server and restarts them. The legacy `addons/` (Metamod, CounterStrikeSharp, MatchZy) stay where they are; Ready Up runs alongside Metamod.
-3. Check each server: `ru selftest` in its console should say PASS, and `csm status` shows the Ready Up version.
-4. Link the servers to the platform: `csm link` for the host agent, and `cfg/ReadyUp/fleet.cfg` (`url`, `enroll_key`) per server, which csm writes for servers the platform creates.
-5. When nothing uses the legacy plugin any more, remove the `Game csgo/addons/metamod` line from each `game/csgo/gameinfo.gi` (or run the install wizard with Metamod off) and delete `game/csgo/addons/`. MatchZy's database and configs are not used by Ready Up.
+A host that ran the MatchZy Enhanced stack moves with two commands: `csm self-update`, then `csm update-plugins`, which installs Ready Up on every server and restarts them. Then link the servers to the platform (`csm link`). The old `game/csgo/addons/` folders (Metamod, CounterStrikeSharp, MatchZy) are not used any more: remove the `Game csgo/addons/metamod` line from each `game/csgo/gameinfo.gi` and delete `game/csgo/addons/`. The old MySQL container (`matchzy-mysql`) can go too once you no longer need its stats.
 
 ## Instance mode (one install, many servers)
 
@@ -203,23 +191,17 @@ csm start --alternate 1    # just server 1
 csm start --binary         # run the cs2 binary directly
 ```
 
-`--alternate` and `--binary` work on `start`, `restart` and `debug`, and only apply to that one command. To use a launcher everywhere csm starts servers (including `update-plugins`, `update-game` and the monitor), set `CSM_LAUNCH_MODE=alternate` or `CSM_LAUNCH_MODE=binary`, for example `CSM_LAUNCH_MODE=alternate csm restart`. A flag overrides the variable. Every launcher gets the same `+matchzy_config_scope` argument (see below).
+`--alternate` and `--binary` work on `start`, `restart` and `debug`, and only apply to that one command. To use a launcher everywhere csm starts servers (including `update-plugins`, `update-game` and the monitor), set `CSM_LAUNCH_MODE=alternate` or `CSM_LAUNCH_MODE=binary`, for example `CSM_LAUNCH_MODE=alternate csm restart`. A flag overrides the variable.
 
 ### Newer distros and Steam Runtime
 
-On newer distributions such as Debian 13 and Ubuntu 25.04+, CounterStrikeSharp can fail to load under the system runtime ([CounterStrikeSharp #1024](https://github.com/roflmuffin/CounterStrikeSharp/issues/1024)). On those versions csm installs Steam Runtime (SteamRT3, app `1628350`) into `/home/<cs2user>/steamrt` and starts servers through its wrapper. Set `CSM_STEAMRT=1` to force this on, or `CSM_STEAMRT=0` to force it off.
-
-## Metamod version
-
-This is the legacy stack. CounterStrikeSharp installs from its latest release and MatchZy Enhanced is pinned (see [Plugin stack](REFERENCE.md#plugin-stack-ready-up-or-legacy)). Metamod:Source is pinned to `2.0.0.1469`, because the two only work as a pair: CounterStrikeSharp v1.0.375 and newer need Metamod build 1467 or newer (with KHook support), and v1.0.374 and older fail on those builds with `Plugin uses old SourceHook Metamod build ... (17 < 18)`. v1.0.375 is also the release that supports the CS2 1.41.8.x update, so after that update run `csm update-plugins` to get both at once.
-
-`csm update-plugins` reinstalls the whole plugin bundle, so it replaces a newer Metamod with the pinned build. To choose a different build, set `CSM_METAMOD_VERSION` to a [metamod-source release tag](https://github.com/alliedmodders/metamod-source/releases) (for example `2.0.0.1468`), or to `latest` for the newest prerelease.
+On newer distributions such as Debian 13 and Ubuntu 25.04+, csm installs Steam Runtime (SteamRT3, app `1628350`) into `/home/<cs2user>/steamrt` and starts servers through its wrapper. Set `CSM_STEAMRT=1` to force this on, or `CSM_STEAMRT=0` to force it off.
 
 ## Disk usage: hardlinked VPKs
 
 A full copy of `master-install` is about 67 GB, and nearly all of it is `*.vpk` archives that CS2 only reads. csm hardlinks the VPKs from `/home/<cs2user>/master-install/game` into each `server-N/game`, so each extra server costs about 1.2 GB on disk instead of 67 GB. The install wizard estimates about 71 GB for `master-install` plus about 2 GB per server.
 
-- Only VPKs are shared. `cfg/`, `addons/`, `gameinfo.gi`, MatchZy data, demos and logs stay separate per server. Hardlinks are used instead of symlinks because symlinked game directories broke demo recording and per-server configs.
+- Only VPKs are shared. `cfg/`, `gameinfo.gi`, Ready Up data, demos and logs stay separate per server. Hardlinks are used instead of symlinks because symlinked game directories broke demo recording and per-server configs.
 - `master-install` and the servers must be on the same filesystem (the default layout under `/home/<cs2user>` is). If linking fails, csm logs it once and copies instead.
 - SteamCMD only updates `master-install` and writes changed files as new files, so the servers' links aren't modified. `update-game` then syncs each server: it rsyncs everything except `*.vpk` and `csgo/addons/`, deletes VPKs removed from master, and re-links every VPK atomically. A running server keeps reading the old file until it restarts.
 - `CSM_VPK_HARDLINK=0` turns this off, and new syncs make full copies again.
@@ -236,30 +218,6 @@ csm start
 `csm dedupe-vpk 2` handles only server-2. `--verify` byte-compares each file before linking, which is slow. Running it twice does nothing the second time, and VPKs that differ from master are reported and left alone. It refuses to run while target servers are running unless you pass `--allow-running`.
 
 To undo it: `csm stop && csm dedupe-vpk --undo && csm start`. This needs about 70 GB free per server and checks first. Also set `CSM_VPK_HARDLINK=0` wherever csm runs (for example `CSM_VPK_HARDLINK=0 csm update-game`, and the monitor cron), or the next sync links them again.
-
-## Several servers and the MatchZy database
-
-By default every server on the machine uses one MySQL database (`matchzy` in the `matchzy-mysql` container), so match stats end up in one place.
-
-MatchZy also stores per-server settings in that database: `matchzy_server_id`, the bootstrap URL and token, the remote log URL, the demo upload URL and so on. Older MatchZy builds key those rows by setting name only, so the last server to save wins and every server loads its values on start. A tournament manager like MAT then sees one server several times, matches get loaded twice, and results overwrite each other. This affects any install with 2 or more servers on shared MySQL.
-
-The fix has two parts:
-
-- [MatchZy Enhanced 1.4.28](https://github.com/Auto-Tournament/matchzy-enhanced/releases/tag/v1.4.28) and newer store those settings per server ([#17](https://github.com/Auto-Tournament/matchzy-enhanced/pull/17)). 1.4.26 added this but could not read `+matchzy_config_scope` ([#18](https://github.com/Auto-Tournament/matchzy-enhanced/pull/18), fixed in 1.4.27), and 1.4.27 could still load another server's `matchzy_server_id` ([#19](https://github.com/Auto-Tournament/matchzy-enhanced/pull/19), fixed in 1.4.28). It tells servers apart by bind address and port, but csm starts servers with `-ip 0.0.0.0`, so MatchZy would fall back to the machine name, which every server on the machine shares.
-- csm therefore passes `+matchzy_config_scope <hostname>-server-<N>` (for example `cs2-server-1`) when it starts each server. The name comes from the server's directory, so it survives restarts, updates, reinstalls and port changes, and the hostname keeps two machines sharing one database apart. If you rename the machine, or several machines share a hostname, set `CSM_MATCHZY_SCOPE_PREFIX` (for example `eu-1`) wherever csm starts servers.
-
-The install wizard's **MatchZy storage** option picks between shared MySQL (the default; needs the CS2 plugin 1.4.28+ with 2 or more servers) and SQLite per server, where each server keeps its own `matchzy.db`. SQLite works on any MatchZy build but stats aren't shared. For a non-interactive install use `MATCHZY_DB_ENGINE=sqlite csm bootstrap`. csm only rewrites `database.json` while it still contains the `__CSM_NOTE` marker. Remove the note and csm leaves the file alone.
-
-`csm doctor` checks this under "MatchZy per-server config (shared database)". It fails when 2 or more servers report the same `matchzy_server_id`, or when servers share MySQL and run MatchZy older than 1.4.28 or without `+matchzy_config_scope`, and it prints how to fix it.
-
-To migrate an existing install:
-
-1. Update csm.
-2. Run `csm update-plugins`. It installs the latest CS2 plugin, redeploys and restarts every server, which also picks up the new start argument. If you're already on 1.4.28 or newer, `csm restart` is enough. If you can't update MatchZy, set `"DatabaseType": "SQLite"` in `/home/<cs2user>/overrides/game/csgo/cfg/MatchZy/database.json` and `/home/<cs2user>/cs2-config/game/csgo/cfg/MatchZy/database.json`, then run `csm update-plugins`.
-3. Reconfigure each server once from your tournament manager (in MAT, re-save or re-bootstrap each server). Until a server saves its own values it still reads the old shared ones.
-4. Run `csm doctor` to confirm.
-
-Match stats already in the shared database stay where they are.
 
 ## License key
 

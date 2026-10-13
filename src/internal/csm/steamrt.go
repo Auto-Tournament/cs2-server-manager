@@ -31,7 +31,7 @@ func steamRuntimeInstalled(cs2User string) bool {
 // (app 1628350) into /home/<cs2User>/steamrt when missing.
 //
 // This is used as a compatibility workaround on newer distros where
-// CounterStrikeSharp may fail under the system runtime.
+// CS2 may fail under the system runtime on newer distros.
 func ensureSteamRuntimeInstalled(ctx context.Context, w io.Writer, cs2User string) error {
 	if strings.TrimSpace(cs2User) == "" {
 		cs2User = DefaultCS2User

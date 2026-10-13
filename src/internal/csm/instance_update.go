@@ -31,7 +31,7 @@ import (
 
 // instanceUpdateMarkers: a CS2 update is out (legacy plugins, or Valve's own
 // restart request).
-var instanceUpdateMarkers = []string{autoUpdaterShutdownMarker, matchzyUpdateAvailableMarker, "MasterRequestRestart"}
+var instanceUpdateMarkers = []string{autoUpdaterShutdownMarker, "MasterRequestRestart"}
 
 // instanceAutoState is the monitor's memory for one instance.
 type instanceAutoState struct {

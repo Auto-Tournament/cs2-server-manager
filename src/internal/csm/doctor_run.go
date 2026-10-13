@@ -86,13 +86,6 @@ func DoctorScan(ctx context.Context, opts DoctorOptions) (DoctorMeta, []DoctorCh
 	checks = append(checks, checkOwnership(meta))
 	checks = append(checks, checkSteamRT(meta))
 	checks = append(checks, checkLibV8(meta, opts))
-	// MatchZy's shared-database check is for the legacy stack only: on Ready
-	// Up servers MatchZy never logs a version, so it warned "still starting"
-	// forever.
-	if UsesLegacyStack(userName) {
-		checks = append(checks, checkMatchzyConfigScope(meta))
-	}
-
 	return meta, checks, nil
 }
 

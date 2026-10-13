@@ -11,14 +11,14 @@
 
 <br />
 
-csm installs CS2 with SteamCMD, puts a plugin stack on every server ([Ready Up](https://github.com/Auto-Tournament/ready-up), or the legacy Metamod + CounterStrikeSharp + [MatchZy Enhanced](https://github.com/Auto-Tournament/matchzy-enhanced)), runs each server in its own tmux session and keeps the game and plugins updated. It's for LAN organisers, small leagues and anyone running [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), which can then start, stop, create and update the servers itself.
+csm installs CS2 with SteamCMD, puts [Ready Up](https://github.com/Auto-Tournament/ready-up), the native CS2 plugin, on every server, runs each server in its own tmux session and keeps the game and plugins updated. It's for LAN organisers, small leagues and anyone running [Auto Tournament](https://github.com/Auto-Tournament/auto-tournament), which can then start, stop, create and update the servers itself.
 
 ## Features
 
 - Interactive terminal UI and a plain CLI (`csm help`)
 - Several CS2 servers on one machine, each in its own tmux session
 - Instance mode: every server runs one shared install, so ten servers take about the disk space of one
-- Ready Up installed and kept on its release channel on every server, or the legacy MatchZy Enhanced stack
+- Ready Up installed and kept on its release channel on every server (no Metamod, no CounterStrikeSharp)
 - Automatic game and plugin updates from cron, never in the middle of a match
 - Update hold while a tournament runs, set by you or by Auto Tournament
 - `csm status`: process, map, phase, score and players of every server
