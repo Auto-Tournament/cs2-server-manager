@@ -312,6 +312,24 @@ func TestInstanceSettings(t *testing.T) {
 	}
 }
 
+// A host with instances and no backend setting is an instance host; a chosen backend wins.
+func TestInstanceBackendDetected(t *testing.T) {
+	t.Setenv("CSM_ROOT", t.TempDir())
+	t.Setenv(EnvServerBackend, "")
+	old := instanceHostDetected
+	t.Cleanup(func() { instanceHostDetected = old })
+	instanceHostDetected = func() bool { return true }
+	if !InstanceBackendOn() {
+		t.Fatal("instances on a host without a backend setting not detected")
+	}
+	if _, err := SetInstanceSetting("backend", "servers"); err != nil {
+		t.Fatal(err)
+	}
+	if InstanceBackendOn() {
+		t.Fatal("an explicit servers backend was overridden")
+	}
+}
+
 func testInstanceManager(t *testing.T) *InstanceManager {
 	t.Helper()
 	root := t.TempDir()
