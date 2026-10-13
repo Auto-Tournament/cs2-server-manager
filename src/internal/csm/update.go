@@ -123,16 +123,22 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	enableMetamod := detectMetamodEnabled(cs2User)
 
 	log("=== Update CS2 Game Files (After Valve Update) ===")
-	log("This will:")
-	log("  • Update master CS2 installation via SteamCMD")
-	log("  • Stop all servers")
-	if VPKHardlinksEnabled() {
-		log("  • Update game files on all servers (VPKs re-hardlinked from master)")
+	if mgr.NumServers <= 0 && InstancesExist() {
+		log("Instances: SteamCMD updates a new CS2 version next to the running one; idle instances")
+		log("restart onto it, busy ones (a match on, players connected) once they are idle.")
+		log("")
 	} else {
-		log("  • Update game files on all servers")
+		log("This will:")
+		log("  • Update master CS2 installation via SteamCMD")
+		log("  • Stop all servers")
+		if VPKHardlinksEnabled() {
+			log("  • Update game files on all servers (VPKs re-hardlinked from master)")
+		} else {
+			log("  • Update game files on all servers")
+		}
+		log("  • Restart all servers")
+		log("")
 	}
-	log("  • Restart all servers")
-	log("")
 
 	if fi, err := os.Stat(masterDir); err != nil || !fi.IsDir() {
 		return buf.String(), fmt.Errorf("master install not found at %s", masterDir)
@@ -141,7 +147,6 @@ func updateGameWithContextLocked(ctx context.Context) (string, error) {
 	if mgr.NumServers <= 0 && InstancesExist() {
 		// Instance mode: one new game version, a layer rebuild, and restarts of
 		// idle instances only (instance_update.go).
-		log("No server-N folders; updating for instances instead.")
 		im, ierr := NewInstanceManager()
 		if ierr == nil {
 			// Live, like the server-N path: SteamCMD can run for minutes, and output held
