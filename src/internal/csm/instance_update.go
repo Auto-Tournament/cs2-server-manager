@@ -29,9 +29,8 @@ import (
 // on hold, Ready Up says update_safe=true, nobody is connected, and it has
 // been idle for the grace period. Never mid-match.
 
-// instanceUpdateMarkers: a CS2 update is out (legacy plugins, or Valve's own
-// restart request).
-var instanceUpdateMarkers = []string{autoUpdaterShutdownMarker, "MasterRequestRestart"}
+// instanceUpdateMarkers: a CS2 update is out (cs2UpdateMarkers).
+var instanceUpdateMarkers = cs2UpdateMarkers
 
 // instanceAutoState is the monitor's memory for one instance.
 type instanceAutoState struct {

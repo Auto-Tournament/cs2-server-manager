@@ -182,33 +182,33 @@ func TestAutoUpdateStateRoundTrip(t *testing.T) {
 func TestLogHasMarkerAfter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "server.log")
 	old := strings.Repeat("noise\n", 20000) // > 64 KB
-	if err := os.WriteFile(path, []byte(autoUpdaterShutdownMarker+"1\n"+old), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(cs2UpdateMarker+"1\n"+old), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	// No state yet: only the tail is checked, so the ancient marker is ignored.
-	m, size, err := logHasMarkerAfter(path, 0, autoUpdaterShutdownMarker)
+	m, size, err := logHasMarkerAfter(path, 0, cs2UpdateMarker)
 	if err != nil || m != "" {
 		t.Fatalf("first scan found %q (err %v); old markers beyond the tail must not count", m, err)
 	}
 
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
-	_, _ = f.WriteString("L 12:00: " + autoUpdaterShutdownMarker + "2\n")
+	_, _ = f.WriteString("L 12:00: " + cs2UpdateMarker + "2\n")
 	_ = f.Close()
 
-	if m, _, _ := logHasMarkerAfter(path, size, autoUpdaterShutdownMarker); m == "" {
+	if m, _, _ := logHasMarkerAfter(path, size, cs2UpdateMarker); m == "" {
 		t.Fatal("marker after the offset not found")
 	}
-	_, size2, _ := logHasMarkerAfter(path, size, autoUpdaterShutdownMarker)
-	if m, _, _ := logHasMarkerAfter(path, size2, autoUpdaterShutdownMarker); m != "" {
+	_, size2, _ := logHasMarkerAfter(path, size, cs2UpdateMarker)
+	if m, _, _ := logHasMarkerAfter(path, size2, cs2UpdateMarker); m != "" {
 		t.Fatal("handled marker found again")
 	}
 
 	// Log rotated (smaller than the offset): scan it all.
-	if err := os.WriteFile(path, []byte(autoUpdaterShutdownMarker+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(cs2UpdateMarker+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if m, _, _ := logHasMarkerAfter(path, size2, autoUpdaterShutdownMarker, autoUpdaterShutdownMarker); m != autoUpdaterShutdownMarker {
+	if m, _, _ := logHasMarkerAfter(path, size2, cs2UpdateMarker, cs2UpdateMarker); m != cs2UpdateMarker {
 		t.Fatalf("rotated log: got %q", m)
 	}
 }
