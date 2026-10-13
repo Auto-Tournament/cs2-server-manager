@@ -61,18 +61,6 @@ func withMonitorCronLine(tab, entry string) string {
 	return joinCrontabLines(append(splitCrontabLines(kept), entry))
 }
 
-// migrateMonitorCron moves the csm monitor entry from root's crontab to the
-// CS2 user's. It returns the new contents of both and whether anything moved.
-// When root has several entries, the last one wins (as in cron order). An
-// entry the user already has is replaced, so running it twice is a no-op.
-func migrateMonitorCron(rootTab, userTab string) (newRoot, newUser string, moved bool) {
-	keptRoot, removed := stripMonitorCronLines(rootTab)
-	if len(removed) == 0 {
-		return rootTab, userTab, false
-	}
-	return keptRoot, withMonitorCronLine(userTab, removed[len(removed)-1]), true
-}
-
 // crontabArgs returns the crontab arguments for user ("" = the current user).
 func crontabArgs(user string, args ...string) []string {
 	if strings.TrimSpace(user) == "" {
@@ -106,36 +94,4 @@ func writeCrontab(ctx context.Context, user, content string) error {
 		return fmt.Errorf("crontab write failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
-}
-
-// MigrateMonitorCronToUser moves the csm monitor entry from root's crontab to
-// cs2User's crontab. It must run as root. Running it again does nothing.
-func MigrateMonitorCronToUser(ctx context.Context, cs2User string) (string, error) {
-	if _, err := exec.LookPath("crontab"); err != nil {
-		return "crontab not found (cron not installed); nothing to move.\n", nil
-	}
-	rootTab, err := readCrontab(ctx, "")
-	if err != nil {
-		return "", err
-	}
-	userTab, err := readCrontab(ctx, cs2User)
-	if err != nil {
-		return "", err
-	}
-	newRoot, newUser, moved := migrateMonitorCron(rootTab, userTab)
-	if !moved {
-		if _, has := stripMonitorCronLines(userTab); len(has) > 0 {
-			return fmt.Sprintf("Monitor cron entry is already in %s's crontab.\n", cs2User), nil
-		}
-		return "No monitor cron entry in root's crontab; nothing to move (install one as the CS2 user with `csm install-monitor-cron`).\n", nil
-	}
-	// Write the user's entry first: if the second write fails, the monitor
-	// runs from both crontabs (they share a lock) rather than from neither.
-	if err := writeCrontab(ctx, cs2User, newUser); err != nil {
-		return "", err
-	}
-	if err := writeCrontab(ctx, "", newRoot); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("Moved the monitor cron entry from root's crontab to %s's crontab.\n", cs2User), nil
 }

@@ -1253,10 +1253,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					"cs2-config, game_files and overrides. Your account and the rest",
 					"of your home stay.",
 					"",
-					"A dedicated service account (such as cs2servermanager from older",
-					"installs) can be deleted with it, home and all:",
+					"To delete a dedicated service account with it, home and all:",
 					"",
-					"  sudo csm cleanup-all --user cs2servermanager --delete-user",
+					"  sudo csm cleanup-all --user <account> --delete-user",
 				}, "\n")
 				m.view = viewActionResult
 				m.status = ""
