@@ -939,6 +939,47 @@ func configureMetamodGo(w io.Writer, user string, serverNum int, enable bool) er
 	return nil
 }
 
+// sharedServerConfigLines is the shared server.cfg: the RCON password and maxplayers first, then
+// the rest of the existing file, and `log on` when the file has none. This file is copied over
+// each server's server.cfg, so without it a server wrote no game log, and Ready Up, which reads
+// players' chat (.r) from that log, never saw a command (2026-10-13). It also keeps an empty
+// server awake (sv_hibernate_when_empty 0, replacing any other value): a hibernating server runs
+// no frames, so Ready Up's plugins and fleet never start until a player joins.
+func sharedServerConfigLines(existing string, rcon string, maxPlayers int) []string {
+	var existingLines []string
+	hasLogOn := false
+	if existing != "" {
+		for _, line := range strings.Split(existing, "\n") {
+			trimmed := strings.TrimSpace(line)
+			// Skip RCON and maxplayers lines - we'll add them fresh
+			if strings.HasPrefix(trimmed, "rcon_password") ||
+				strings.HasPrefix(trimmed, "maxplayers") ||
+				strings.HasPrefix(trimmed, "sv_maxplayers") ||
+				strings.HasPrefix(trimmed, "sv_hibernate_when_empty") {
+				continue
+			}
+			if trimmed == "log on" {
+				hasLogOn = true
+			}
+			existingLines = append(existingLines, line)
+		}
+	}
+
+	// Build new config with shared values at the top
+	var out []string
+	out = append(out, fmt.Sprintf(`rcon_password "%s"`, rcon))
+	if maxPlayers > 0 {
+		out = append(out, fmt.Sprintf("maxplayers %d", maxPlayers))
+	}
+	out = append(out, "// Ready Up's plugins need an empty server to keep running.", "sv_hibernate_when_empty 0")
+	if !hasLogOn {
+		out = append(out, "// Ready Up reads players' chat (.r) from the game log.", "log on")
+	}
+	out = append(out, "")
+	out = append(out, existingLines...)
+	return out
+}
+
 // writeSharedServerConfig writes RCON password and maxplayers to the shared cs2-config/server.cfg
 func writeSharedServerConfig(user string, rcon string, maxPlayers int) error {
 	sharedCfgDir := filepath.Join("/home", user, "cs2-config", "game", "csgo", "cfg")
@@ -951,29 +992,11 @@ func writeSharedServerConfig(user string, rcon string, maxPlayers int) error {
 	sharedCfg := filepath.Join(sharedCfgDir, "server.cfg")
 
 	// Read existing shared config if it exists to preserve other settings
-	var existingLines []string
+	existing := ""
 	if data, err := os.ReadFile(sharedCfg); err == nil {
-		lines := strings.Split(string(data), "\n")
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			// Skip RCON and maxplayers lines - we'll add them fresh
-			if strings.HasPrefix(trimmed, "rcon_password") ||
-				strings.HasPrefix(trimmed, "maxplayers") ||
-				strings.HasPrefix(trimmed, "sv_maxplayers") {
-				continue
-			}
-			existingLines = append(existingLines, line)
-		}
+		existing = string(data)
 	}
-
-	// Build new config with shared values at the top
-	var out []string
-	out = append(out, fmt.Sprintf(`rcon_password "%s"`, rcon))
-	if maxPlayers > 0 {
-		out = append(out, fmt.Sprintf("maxplayers %d", maxPlayers))
-	}
-	out = append(out, "")
-	out = append(out, existingLines...)
+	out := sharedServerConfigLines(existing, rcon, maxPlayers)
 
 	if err := os.WriteFile(sharedCfg, []byte(strings.Join(out, "\n")), 0o644); err != nil {
 		return err
