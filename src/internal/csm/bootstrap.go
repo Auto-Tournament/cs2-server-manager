@@ -1756,7 +1756,8 @@ func (t *teeWriter) Write(p []byte) (int, error) {
 // UsesLegacyStack reports whether this install is on the legacy
 // MatchZy Enhanced stack, the only one that needs the MatchZy database: the
 // stack chosen in plugins.json or CSM_PLUGIN_STACK, else an existing legacy
-// install. A fresh install gets Ready Up (see PluginStack).
+// install that is not running instances on a Ready Up layer. A fresh install
+// gets Ready Up (see PluginStack).
 func UsesLegacyStack(user string) bool {
 	s, _ := LoadPluginSettings()
 	switch s.Resolved().Stack {
@@ -1765,7 +1766,7 @@ func UsesLegacyStack(user string) bool {
 	case PluginStackReadyUp:
 		return false
 	}
-	return legacyStackPresent(user)
+	return !instanceReadyUpPresent() && legacyStackPresent(user)
 }
 
 // steamLicenseSelections answers the steamcmd package's license questions.
