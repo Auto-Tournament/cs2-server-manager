@@ -29,3 +29,14 @@ func TestSharedServerConfigKeepsTheRestAndAddsLogOnOnce(t *testing.T) {
 		t.Fatalf("other settings or new rcon lost:\n%s", got)
 	}
 }
+
+// An empty server must keep running frames, or Ready Up's plugins and fleet never start.
+func TestSharedServerConfigKeepsAnEmptyServerAwake(t *testing.T) {
+	got := strings.Join(sharedServerConfigLines("sv_hibernate_when_empty 1\nsv_cheats 0\n", "pw", 0), "\n")
+	if strings.Count(got, "sv_hibernate_when_empty") != 1 || !strings.Contains(got, "\nsv_hibernate_when_empty 0\n") {
+		t.Fatalf("want exactly sv_hibernate_when_empty 0:\n%s", got)
+	}
+	if !strings.Contains(got, "sv_cheats 0") {
+		t.Fatalf("other settings lost:\n%s", got)
+	}
+}
