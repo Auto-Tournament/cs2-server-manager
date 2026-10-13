@@ -12,11 +12,12 @@ import (
 	"time"
 )
 
-// Update markers the monitor looks for in each server's tmux log.
-const (
-	// Legacy AutoUpdater plugin: the server shuts itself down.
-	autoUpdaterShutdownMarker = "plugin:AutoUpdater Shutting the server down due to the new game update"
-)
+// cs2UpdateMarker is what CS2 itself logs when Steam says the running build
+// is out of date: the server asks to be restarted onto the new version.
+const cs2UpdateMarker = "MasterRequestRestart"
+
+// cs2UpdateMarkers are the log lines that mean a CS2 update is out.
+var cs2UpdateMarkers = []string{cs2UpdateMarker}
 
 // RunAutoUpdateMonitor checks every server's log for a pending CS2 update and
 // applies it where that is safe (see auto_update.go):
@@ -129,7 +130,7 @@ func RunAutoUpdateMonitor() error {
 		}
 		st := state.server(i)
 
-		marker, logSize, err := logHasMarkerAfter(logPath, st.LogOffset, autoUpdaterShutdownMarker)
+		marker, logSize, err := logHasMarkerAfter(logPath, st.LogOffset, cs2UpdateMarkers...)
 		if err != nil {
 			if !os.IsNotExist(err) {
 				log("Server-%d: failed to read tmux log %s: %v", i, logPath, err)
