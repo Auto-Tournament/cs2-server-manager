@@ -569,3 +569,54 @@ func TestServerEnrollWritesKeyAndRestartsRunning(t *testing.T) {
 		t.Fatalf("busy = %+v", r)
 	}
 }
+
+func TestDefaultRouteAddressSkipsVPN(t *testing.T) {
+	addrOf := func(dev string) string {
+		if dev == "enp1s0" {
+			return "192.168.50.196"
+		}
+		return ""
+	}
+	// WireGuard's own default (some setups) first, then the LAN one.
+	routes := "default dev wg0 scope link\ndefault via 192.168.50.1 dev enp1s0 proto dhcp src 192.168.50.196 metric 100\n"
+	if got := defaultRouteAddress(routes, addrOf); got != "192.168.50.196" {
+		t.Fatalf("got %q", got)
+	}
+	// No src on the route: the interface's address.
+	if got := defaultRouteAddress("default via 10.0.0.1 dev enp1s0\n", addrOf); got != "192.168.50.196" {
+		t.Fatalf("no src: got %q", got)
+	}
+	if got := defaultRouteAddress("default dev tun0\n", addrOf); got != "" {
+		t.Fatalf("vpn only: got %q", got)
+	}
+}
+
+func TestRefreshFleetCfgAddress(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "game", "csgo", "cfg", "ReadyUp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := RenderFleetCfg("", "https://at.example.com", "rfk_abcdefghijkl_"+strings.Repeat("A", 43), false, "", "10.2.0.2")
+	if err := os.WriteFile(FleetCfgPath(dir), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := RefreshFleetCfgAddress(dir, "192.168.50.196", nil)
+	if err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
+	}
+	b, _ := os.ReadFile(FleetCfgPath(dir))
+	if !strings.Contains(string(b), "public_addr = 192.168.50.196") || strings.Contains(string(b), "10.2.0.2") {
+		t.Fatalf("cfg = %s", b)
+	}
+	if again, _ := RefreshFleetCfgAddress(dir, "192.168.50.196", nil); again {
+		t.Fatal("unchanged address rewrote the file")
+	}
+	// An operator's own public_addr (no csm marker) stays.
+	own := "url = https://at.example.com\npublic_addr = 203.0.113.9\n"
+	if err := os.WriteFile(FleetCfgPath(dir), []byte(own), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if changed, _ := RefreshFleetCfgAddress(dir, "192.168.50.196", nil); changed {
+		t.Fatal("rewrote the operator's public_addr")
+	}
+}
