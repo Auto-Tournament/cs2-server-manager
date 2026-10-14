@@ -137,6 +137,7 @@ journalctl -u csm-agent -f          # logs (journalctl --user -u csm-agent -f in
 | `server.start` / `server.stop` / `server.restart` | `csm start` / `stop` (console `quit`, then kill after the grace time) / `restart` |
 | `server.create` | adds the next `server-N` like the TUI's add-server. With `enroll: true` csm writes `game/csgo/cfg/ReadyUp/fleet.cfg` (`url` + `enroll_key`, mode 0600) before the first start, so Ready Up enrolls itself (FLEET §4.1 B). On the Ready Up stack csm installs Ready Up on the new server before that first start, so it comes up enrolled with no further step |
 | `server.remove` | removes the highest-numbered server (csm keeps `server-N` contiguous) |
+| `server.enroll` | writes a new fleet key into existing servers' `fleet.cfg` and restarts them, so they enroll on this platform (a machine linked again keeps its servers) |
 | `host.update_game` | `csm update-game`, or `csm update-server N` for a list |
 | `host.update_plugins` | installs Ready Up like `csm update-plugins` does (bundle `default` → essentials, `skins` → full; an instance host builds its shared layer with the full bundle unless `csm plugins bundle` says otherwise; version `latest` = the host's channel or pin), stopping and restarting running servers. The first one on a host without a stack choice sets it to Ready Up |
 | `host.updates_hold` | `csm updates hold on\|off\|auto` |
@@ -144,7 +145,7 @@ journalctl -u csm-agent -f          # logs (journalctl --user -u csm-agent -f in
 
 The agent also reports **health**: `exited` when a server process stops without csm stopping it, `hung` when Ready Up's `/health` has not answered for 30 s, `recovered` and `restarted`. It never restarts anything on its own during a match; the platform (an admin) decides.
 
-**Live matches.** `server.stop`, `server.restart`, `server.remove`, `host.update_game` and `host.update_plugins` are refused with `match_in_progress` for any server whose Ready Up says `update_safe: false`, exactly like the local `--force` gate. The platform can send `force` (root admins only, audited on the platform); csm then logs `FORCED …` with who and why.
+**Live matches.** `server.stop`, `server.restart`, `server.remove`, `server.enroll`, `host.update_game` and `host.update_plugins` are refused with `match_in_progress` for any server whose Ready Up says `update_safe: false`, exactly like the local `--force` gate. The platform can send `force` (root admins only, audited on the platform); csm then logs `FORCED …` with who and why.
 
 **Where Ready Up comes from.** The same place as `csm update-plugins`: the GitHub release on the host's channel (`csm plugins channel`) or its pinned version (`csm plugins version`), checked against the release's `SHA256SUMS`, installed with the `install.sh` inside the bundle. A `version` other than `latest` from the platform wins over the pin. If there is no such release the platform gets `failed / no_release` with the reason (for example "no stable release yet, only pre-releases") and nothing is touched; csm never reports an install that did not happen. The license answer is `csm plugins license` (or `AT_ACCEPT_LICENSE`); without one the platform gets `license_not_accepted`. To install a zip that is not on GitHub, point the agent at it (a path, or an https URL with `{version}` / `{bundle}` placeholders):
 

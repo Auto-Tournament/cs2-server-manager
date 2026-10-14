@@ -72,6 +72,7 @@ const (
 	TypeServerRestart   = "server.restart"
 	TypeServerCreate    = "server.create"
 	TypeServerRemove    = "server.remove"
+	TypeServerEnroll    = "server.enroll"
 	TypeServerSetLaunch = "server.set_launch_args"
 	TypeUpdateGame      = "host.update_game"
 	TypeUpdatePlugins   = "host.update_plugins"
@@ -94,6 +95,7 @@ var Capabilities = []string{
 	"servers.start_stop",
 	"servers.create",
 	"servers.remove_last",
+	"servers.enroll",
 	"update.game",
 	"update.plugins",
 	"updates.hold",
