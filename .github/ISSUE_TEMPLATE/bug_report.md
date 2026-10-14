@@ -29,7 +29,7 @@ What actually happened.
 - **Deployment:** Docker / Local
 - **Runtime:** Bun / Node.js (version: )
 - **OS:**
-- **MatchZy Version:**
+- **Ready Up version:**
 
 ## 📸 Screenshots / Logs
 
