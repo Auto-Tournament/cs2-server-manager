@@ -176,3 +176,43 @@ func RestartHostAgentServiceIfInstalled(ctx context.Context) bool {
 	}
 	return s.systemctl(ctx, "restart", HostAgentUnit).Run() == nil
 }
+
+// RestartHostAgentsAfterUpdate restarts every installed host agent so it runs
+// the csm that was just installed: without it the agent keeps the old binary
+// in memory until the next reboot. As root it restarts the system unit and
+// each user's `systemd --user` unit (`systemctl --user -M <user>@`); as a
+// user, that user's own. Running servers are not touched (KillMode=process
+// stops only the agent). It returns what it did, one line each.
+func RestartHostAgentsAfterUpdate(ctx context.Context) []string {
+	var done []string
+	if os.Geteuid() != 0 {
+		if RestartHostAgentServiceIfInstalled(ctx) {
+			done = append(done, "restarted the host agent ("+currentUsername()+")")
+		}
+		return done
+	}
+	if _, err := os.Stat(filepath.Join("/etc/systemd/system", HostAgentUnit)); err == nil {
+		if exec.CommandContext(ctx, "systemctl", "restart", HostAgentUnit).Run() == nil {
+			done = append(done, "restarted the host agent (system service)")
+		}
+	}
+	for _, user := range usersWithAgentUnit() {
+		cmd := exec.CommandContext(ctx, "systemctl", "--user", "-M", user+"@", "restart", HostAgentUnit)
+		if cmd.Run() == nil {
+			done = append(done, "restarted the host agent ("+user+")")
+		}
+	}
+	return done
+}
+
+// usersWithAgentUnit lists the users whose home has a user-mode agent unit.
+func usersWithAgentUnit() []string {
+	homes, _ := filepath.Glob("/home/*")
+	var users []string
+	for _, home := range homes {
+		if _, err := os.Stat(filepath.Join(home, ".config", "systemd", "user", HostAgentUnit)); err == nil {
+			users = append(users, filepath.Base(home))
+		}
+	}
+	return users
+}
