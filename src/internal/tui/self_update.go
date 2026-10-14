@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	csm "github.com/sivert-io/cs2-server-manager/src/internal/csm"
 )
 
 type selfUpdateFinishedMsg struct {
@@ -117,6 +119,9 @@ func runSelfUpdate(targetVersion string) tea.Cmd {
 			}
 		}
 
+		// The host agent keeps the old binary in memory until restarted.
+		csm.RestartHostAgentsAfterUpdate(context.Background())
+
 		// Try to restart CSM in-place with the new binary. On success this call
 		// does not return. If it fails for some reason, fall back to telling the
 		// user to restart manually via the selfUpdateFinishedMsg.
@@ -175,6 +180,11 @@ func SelfUpdateCLI(w io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(w, "Updated %s to csm %s.\n", exePath, latest)
+	// The host agent keeps the old binary in memory: restart it so the
+	// platform sees the new version now, without anyone doing it by hand.
+	for _, line := range csm.RestartHostAgentsAfterUpdate(context.Background()) {
+		fmt.Fprintf(w, "%s.\n", line)
+	}
 	if cur, err := os.Executable(); err == nil && cur != exePath {
 		fmt.Fprintf(w, "%s is not writable for this user, so the new binary went to %s instead.\n", filepath.Dir(cur), exePath)
 		fmt.Fprintf(w, "Login shells put %s first in PATH (~/.profile) once it exists; open a new login shell,\n", filepath.Dir(exePath))
