@@ -24,7 +24,7 @@ What are you trying to accomplish?
 
 - **Deployment:** Docker / Local
 - **Runtime:** Bun / Node.js
-- **MatchZy Version:**
+- **Ready Up version:**
 
 ## 📎 Additional Information
 
