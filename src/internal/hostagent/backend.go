@@ -286,9 +286,18 @@ func hasCfgKey(lines []string, keys ...string) bool {
 	return false
 }
 
-// MachineAddress is this machine's primary IPv4 address (the source of its
-// default route), or "" when it cannot tell. A var so tests can pin it.
+// MachineAddress is this machine's primary IPv4 address: the source of its
+// main-table default route, on an interface that is not a VPN, or "" when it
+// cannot tell. Not `ip route get 1.1.1.1`: WireGuard's policy routing sends
+// that through the tunnel, and players got the VPN address (fresh-install
+// test 2026-10-14: 10.2.0.2 instead of the LAN's 192.168.50.196). A var so
+// tests can pin it.
 var MachineAddress = func() string {
+	if out, err := exec.Command("ip", "-4", "route", "show", "default").CombinedOutput(); err == nil {
+		if addr := defaultRouteAddress(string(out), interfaceIPv4); addr != "" {
+			return addr
+		}
+	}
 	if out, err := exec.Command("ip", "-4", "route", "get", "1.1.1.1").CombinedOutput(); err == nil {
 		fields := strings.Fields(string(out))
 		for i, f := range fields {
@@ -300,6 +309,108 @@ var MachineAddress = func() string {
 		}
 	}
 	return ""
+}
+
+// vpnInterface reports interface names of tunnels and VPNs (their address
+// is not where players reach the machine).
+func vpnInterface(dev string) bool {
+	for _, p := range []string{"wg", "tun", "tap", "tailscale", "zt", "ppp", "nordlynx", "proton"} {
+		if strings.HasPrefix(dev, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultRouteAddress picks, from `ip -4 route show default`, the first
+// default route not on a VPN interface: its src, else that interface's
+// IPv4 address (addrOf).
+func defaultRouteAddress(routes string, addrOf func(dev string) string) string {
+	for _, line := range strings.Split(routes, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != "default" {
+			continue
+		}
+		dev, src := "", ""
+		for i := 0; i+1 < len(fields); i++ {
+			switch fields[i] {
+			case "dev":
+				dev = fields[i+1]
+			case "src":
+				src = fields[i+1]
+			}
+		}
+		if dev == "" || vpnInterface(dev) {
+			continue
+		}
+		if ip := net.ParseIP(src); ip != nil && ip.To4() != nil && !ip.IsLoopback() {
+			return ip.String()
+		}
+		if a := addrOf(dev); a != "" {
+			return a
+		}
+	}
+	return ""
+}
+
+// interfaceIPv4 is an interface's first IPv4 address, or "".
+func interfaceIPv4(dev string) string {
+	ifc, err := net.InterfaceByName(dev)
+	if err != nil {
+		return ""
+	}
+	addrs, err := ifc.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && !n.IP.IsLoopback() {
+			return n.IP.String()
+		}
+	}
+	return ""
+}
+
+// RefreshFleetCfgAddress rewrites the public_addr csm wrote in a server's
+// fleet.cfg (the line after fleetCfgAddrMarker) when the machine's address
+// changed; an operator's own public_addr is left alone. True when the file
+// changed (Ready Up reads it when the server starts).
+func RefreshFleetCfgAddress(serverDir, addr string, chown func(string) error) (bool, error) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return false, nil
+	}
+	path := FleetCfgPath(serverDir)
+	existing, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	lines := strings.Split(string(existing), "\n")
+	changed := false
+	for i := 0; i+1 < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != fleetCfgAddrMarker {
+			continue
+		}
+		k, v, ok := strings.Cut(strings.TrimSpace(lines[i+1]), "=")
+		if !ok || !strings.EqualFold(strings.TrimSpace(k), "public_addr") || strings.TrimSpace(v) == addr {
+			continue
+		}
+		lines[i+1] = "public_addr = " + addr
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	if err := writeFileAtomic(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		return false, err
+	}
+	if chown != nil {
+		_ = chown(path)
+	}
+	return true, nil
 }
 
 // WriteFleetCfg writes (or updates) a server's fleet.cfg, mode 0600, so Ready
