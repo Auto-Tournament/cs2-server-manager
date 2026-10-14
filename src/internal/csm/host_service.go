@@ -216,3 +216,25 @@ func usersWithAgentUnit() []string {
 	}
 	return users
 }
+
+// StaleHostAgentRunning reports whether a host agent still runs a csm binary
+// that has since been replaced on disk (Linux marks its exe "(deleted)"):
+// an update that ran from an older csm, which did not restart the agent.
+func StaleHostAgentRunning() bool {
+	procs, _ := filepath.Glob("/proc/[0-9]*/cmdline")
+	for _, cmdline := range procs {
+		data, err := os.ReadFile(cmdline)
+		if err != nil {
+			continue
+		}
+		args := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
+		if len(args) < 2 || filepath.Base(args[0]) != "csm" || args[1] != "agent" {
+			continue
+		}
+		exe, err := os.Readlink(filepath.Join(filepath.Dir(cmdline), "exe"))
+		if err == nil && strings.HasSuffix(exe, " (deleted)") {
+			return true
+		}
+	}
+	return false
+}

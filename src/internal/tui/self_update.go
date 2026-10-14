@@ -147,6 +147,12 @@ func SelfUpdateCLI(w io.Writer) error {
 	}
 	if !isNewerVersion(currentVersion, latest) {
 		fmt.Fprintf(w, "csm %s is the latest version.\n", currentVersion)
+		// An agent still on a binary an older csm replaced: bring it onto this one.
+		if csm.StaleHostAgentRunning() {
+			for _, line := range csm.RestartHostAgentsAfterUpdate(context.Background()) {
+				fmt.Fprintf(w, "%s.\n", line)
+			}
+		}
 		return nil
 	}
 	// Not allowed to write the csm that `csm` runs (user mode, root-owned
