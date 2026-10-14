@@ -24,8 +24,9 @@ import (
 // Codes, keys and tokens are never printed.
 
 const linkUsage = `usage:
-  csm link <platform-url> <code|key|-> [--insecure] [--ca-file PATH]
-      Link this machine to an Auto Tournament platform as a host. <code> is the
+  csm link <platform-url> <code|key|-> [--insecure] [--ca-file PATH] [--no-agent]
+      Link this machine to an Auto Tournament platform as a host, and install
+      and start the host agent service (--no-agent: not the service). <code> is the
       one-time code from Servers -> Machines -> Add machine (RUE-XXXX-...), <key> a
       fleet enrollment key (rfk_...). "-" reads it from stdin, so it stays out of
       the shell history. --insecure allows a platform served over plain
@@ -78,6 +79,7 @@ func linkCommand(args []string) {
 func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 	var pos []string
 	insecure := false
+	noAgent := false
 	caFile := ""
 	linkName := csm.DefaultPlatformLink
 	for i := 0; i < len(args); i++ {
@@ -90,6 +92,8 @@ func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 			linkName = strings.TrimPrefix(a, "--name=")
 		case a == "--insecure":
 			insecure = true
+		case a == "--no-agent":
+			noAgent = true
 		case a == "--ca-file" && i+1 < len(args):
 			caFile = args[i+1]
 			i++
@@ -156,12 +160,24 @@ func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 	if creds.FleetKey != "" {
 		b.WriteString("Enrolled with a fleet key: servers created from the platform get it in cfg/ReadyUp/fleet.cfg and enroll themselves.\n")
 	}
+	// One command links a machine: the agent service is installed and started
+	// here too (it was a second step everyone had to remember).
 	if csm.RestartHostAgentServiceIfInstalled(context.Background()) {
 		fmt.Fprintf(&b, "Restarted %s; it connects now.\n", csm.HostAgentUnit)
-	} else {
+	} else if noAgent {
 		b.WriteString("Start the host agent: csm agent install (systemd service), or csm agent (foreground).\n")
+	} else if err := installAgentAfterLink(&b); err != nil {
+		fmt.Fprintf(&b, "Could not install the host agent service (%v): run csm agent install, or csm agent in the foreground.\n", err)
+	} else {
+		fmt.Fprintf(&b, "Installed and started %s; it connects now.\n", csm.HostAgentUnit)
 	}
 	return b.String(), nil
+}
+
+// installAgentAfterLink installs and starts the host agent's systemd service
+// (a var so tests can stub it).
+var installAgentAfterLink = func(w io.Writer) error {
+	return csm.InstallHostAgentService(context.Background(), w)
 }
 
 func linkStatus() string {
