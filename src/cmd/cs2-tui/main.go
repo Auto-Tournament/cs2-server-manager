@@ -857,10 +857,20 @@ func main() {
 			}
 			return
 		case "self-update":
+			// --auto: the root timer's run (self_update_timer.go); waits while updates are on hold.
+			if len(args) > 1 && args[1] == "--auto" {
+				if why := csm.SelfUpdateHeld(context.Background()); why != "" {
+					fmt.Printf("csm update waits: %s\n", why)
+					return
+				}
+			}
 			if err := tui.SelfUpdateCLI(os.Stdout); err != nil {
 				fmt.Fprintf(os.Stderr, "self-update failed: %v\n", err)
 				os.Exit(1)
 			}
+			// Every `sudo csm self-update` leaves the timer in place, so a host
+			// set up before it existed keeps itself up to date from now on.
+			csm.InstallSelfUpdateTimer(context.Background(), os.Stdout)
 			return
 		case "update-game":
 			gameForce, _ := extractForce(args[1:])

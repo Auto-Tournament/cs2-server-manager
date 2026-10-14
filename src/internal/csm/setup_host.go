@@ -77,6 +77,9 @@ func SetupHost(ctx context.Context, w io.Writer, opts SetupHostOptions) error {
 	}
 	fmt.Fprintln(w)
 
+	// csm keeps itself up to date from here on (self_update_timer.go).
+	InstallSelfUpdateTimer(ctx, w)
+
 	fmt.Fprint(w, setupHostNextSteps(cs2User))
 	return nil
 }
