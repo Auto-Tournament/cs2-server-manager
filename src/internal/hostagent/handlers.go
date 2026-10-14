@@ -658,6 +658,35 @@ type InvReadyUp struct {
 	UpdateSafe *bool   `json:"update_safe,omitempty"`
 }
 
+// refreshPublicAddrs keeps the public_addr csm wrote in each server's
+// fleet.cfg on the machine's current address (MachineAddress), so players are
+// sent to the right place; an idle running server restarts to read it (Ready
+// Up reads fleet.cfg when it starts), one in a match waits for its next start.
+func (a *Agent) refreshPublicAddrs(ctx context.Context, servers []ServerState) {
+	addr := MachineAddress()
+	if addr == "" {
+		return
+	}
+	for _, s := range servers {
+		changed, err := RefreshFleetCfgAddress(s.Dir, addr, a.opts.Backend.ChownToCS2User)
+		if err != nil {
+			a.logf("host agent: %s: refreshing public_addr: %v", ServerName(s.Number), err)
+			continue
+		}
+		if !changed {
+			continue
+		}
+		if !s.Running || (s.UpdateSafe != nil && !*s.UpdateSafe) {
+			a.logf("host agent: %s: public_addr is now %s (read when it next starts)", ServerName(s.Number), addr)
+			continue
+		}
+		a.logf("host agent: %s: public_addr is now %s; restarting it to read it", ServerName(s.Number), addr)
+		if err := a.opts.Backend.Restart(ctx, s.Number); err != nil {
+			a.logf("host agent: %s: restart: %v", ServerName(s.Number), err)
+		}
+	}
+}
+
 // BuildInventory assembles host.inventory from the backend's view.
 func BuildInventory(hostID, csmVersion string, facts HostFacts, servers []ServerState, restarts func(int) int) Inventory {
 	inv := Inventory{
@@ -746,6 +775,7 @@ func (a *Agent) buildInventory(ctx context.Context) (Inventory, []ServerState, e
 	if facts.OS == "" {
 		facts.OS = a.opts.OS
 	}
+	a.refreshPublicAddrs(ctx, servers)
 	return BuildInventory(hostID, a.opts.CSMVersion, facts, servers, a.health.restarts24h), servers, nil
 }
 
