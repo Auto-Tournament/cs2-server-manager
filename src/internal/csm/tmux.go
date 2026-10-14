@@ -126,6 +126,9 @@ func (m *TmuxManager) IsRunning(server int) bool {
 
 // StartAll starts all servers (creating tmux sessions if needed).
 func (m *TmuxManager) StartAll() error {
+	if err := GateStart(); err != nil {
+		return err
+	}
 	if m.NumServers <= 0 {
 		log.Printf("[tmux] StartAll: no servers to start (NumServers=0, user=%q)", m.CS2User)
 		return fmt.Errorf("no CS2 servers found; run the install wizard first")
@@ -161,6 +164,10 @@ func waitUDPPortFree(port int, wait time.Duration) error {
 
 // Start starts a single server in tmux.
 func (m *TmuxManager) Start(server int) error {
+	// A stopped paid license (late, replaced, in use elsewhere) starts nothing (license_enforce.go).
+	if err := GateStart(); err != nil {
+		return err
+	}
 	session := m.sessionName(server)
 	serverDir := m.serverDir(server)
 	gameDir := filepath.Join(serverDir, "game")
