@@ -302,6 +302,25 @@ def decode(d):
 
 
 
+available = {p.replace("\\", "/") for p in pak if p.replace("\\", "/").startswith(IMAGES)}
+
+
+def write_preview(src_path, image):
+    """Decode one preview, write it as WEBP (only when it changed): 'updated' or 'unchanged'."""
+    img = decode(pak.get_file(src_path).read()).convert("RGBA")
+    if img.width > width:
+        img = img.resize((width, round(img.height * width / img.width)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, "WEBP", quality=85, method=4)
+    data = buf.getvalue()
+    dst = os.path.join(out_dir, image)
+    if os.path.exists(dst) and open(dst, "rb").read() == data:
+        return "unchanged"
+    with open(dst, "wb") as f:
+        f.write(data)
+    return "updated"
+
+
 skins, unmatched, updated, unchanged, failed = [], 0, 0, 0, 0
 total = len(sources)
 for i, path in enumerate(sources, 1):
@@ -314,25 +333,16 @@ for i, path in enumerate(sources, 1):
     weapon, weapon_name = weapons[cls.lower()]
     image = stem + ".webp"
     try:
-        img = decode(pak.get_file(path).read()).convert("RGBA")
-        if img.width > width:
-            img = img.resize((width, round(img.height * width / img.width)), Image.LANCZOS)
-        data = io.BytesIO()
-        img.save(data, "WEBP", quality=85, method=4)
-        data = data.getvalue()
-        dst = os.path.join(out_dir, image)
-        old = open(dst, "rb").read() if os.path.exists(dst) else None
-        if old == data:
+        result = write_preview(path, image)
+        if result == "unchanged":
             unchanged += 1
         else:
-            with open(dst, "wb") as f:
-                f.write(data)
             updated += 1
     except Exception as e:
         print(f"      [!] {stem}: {e}", flush=True)
         failed += 1
         continue
-    skins.append({
+    entry = {
         "weapon": weapon,
         "weaponName": weapon_name,
         "paintKit": pid,
@@ -340,7 +350,20 @@ for i, path in enumerate(sources, 1):
         "name": tr(tag),
         "rarity": rarity.get(pk_name.lower()),
         "image": image,
-    })
+    }
+    # The game's worn looks: _medium (Field-Tested) and _heavy (Well-Worn,
+    # Battle-Scarred); _light is Factory New / Minimal Wear. Missing ones fall
+    # back to the light image.
+    for wear in ("medium", "heavy"):
+        wpath = path[: -len(SUFFIX)] + "_" + wear + "_png.vtex_c"
+        if wpath in available:
+            wimage = stem + "_" + wear + ".webp"
+            try:
+                write_preview(wpath, wimage)
+                entry["image" + wear.capitalize()] = wimage
+            except Exception as e:
+                print(f"      [!] {stem} ({wear}): {e}", flush=True)
+    skins.append(entry)
     if i % 100 == 0 or i == total:
         print(f"      {i}/{total} · {i * 100 // total}%", flush=True)
 
