@@ -868,6 +868,11 @@ func main() {
 				fmt.Fprintf(os.Stderr, "self-update failed: %v\n", err)
 				os.Exit(1)
 			}
+			// An old install's state in /usr/local/bin moves to the CS2 user's
+			// home before the timer copies the agent's root (#312).
+			for _, line := range csm.MigrateStateOutOfBinDirs(context.Background()) {
+				fmt.Println(line + ".")
+			}
 			// Every `sudo csm self-update` leaves the timer in place, so a host
 			// set up before it existed keeps itself up to date from now on.
 			csm.InstallSelfUpdateTimer(context.Background(), os.Stdout)
@@ -961,8 +966,10 @@ func main() {
 			return
 		case "monitor":
 			err := csm.RunAutoUpdateMonitor()
-			csm.LogAction("cli", "monitor", "", err)
+			// Every 5 minutes: the cycle is in csm.log already, so only a
+			// failure gets its own log file.
 			if err != nil {
+				csm.LogAction("cli", "monitor", "", err)
 				fmt.Fprintf(os.Stderr, "auto-update monitor failed: %v\n", err)
 				os.Exit(1)
 			}
