@@ -31,8 +31,12 @@ const linkUsage = `usage:
       the shell history. --insecure allows a platform served over plain
       http:// (e.g. http://203.0.113.7:3069); the token then travels
       unencrypted, so prefer https://.
-  csm link status      Show the link (never the token)
-  csm unlink           Forget the link (revoke the host on the platform too)
+      --name <name> links one more platform (a hosting provider running servers
+      for several clubs): each platform sees and controls only the servers it
+      creates here. Without --name it is the first link.
+  csm link status      Show every link (never the token)
+  csm unlink [<name>]  Forget a link (revoke the host on the platform too); its
+                       servers go back to the first link
   csm fleet enroll <url> <code> | --key <rfk_...>   Same as csm link (FLEET.md wording)`
 
 const agentUsage = `usage:
@@ -75,9 +79,15 @@ func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 	var pos []string
 	insecure := false
 	caFile := ""
+	linkName := csm.DefaultPlatformLink
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
+		case a == "--name" && i+1 < len(args):
+			linkName = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--name="):
+			linkName = strings.TrimPrefix(a, "--name=")
 		case a == "--insecure":
 			insecure = true
 		case a == "--ca-file" && i+1 < len(args):
@@ -96,6 +106,9 @@ func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 	}
 	if len(pos) != 2 {
 		return "", errors.New(linkUsage)
+	}
+	if !csm.ValidLinkName(linkName) {
+		return "", fmt.Errorf("--name is 1-32 lowercase letters, digits and dashes")
 	}
 	if !csm.CanManageServers() {
 		return "", fmt.Errorf("run csm link as the CS2 user or as root: the host agent runs as the same user and needs the credentials")
@@ -126,12 +139,19 @@ func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	paths := csm.HostAgentPaths()
+	paths := csm.LinkPaths(linkName)
+	if err := os.MkdirAll(paths.Dir, 0o700); err != nil {
+		return "", err
+	}
 	if err := hostagent.SaveCredentials(paths, creds); err != nil {
 		return "", fmt.Errorf("saving the credentials: %w", err)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Linked to %s as host %s.\n", creds.PlatformURL, creds.HostID)
+	fmt.Fprintf(&b, "Linked to %s as host %s", creds.PlatformURL, creds.HostID)
+	if linkName != csm.DefaultPlatformLink {
+		fmt.Fprintf(&b, " (link %q: that platform sees only the servers it creates here; cap it with csm license cap --link %s <n>)", linkName, linkName)
+	}
+	b.WriteString(".\n")
 	fmt.Fprintf(&b, "Credentials: %s (mode 0600).\n", paths.Credentials())
 	if creds.FleetKey != "" {
 		b.WriteString("Enrolled with a fleet key: servers created from the platform get it in cfg/ReadyUp/fleet.cfg and enroll themselves.\n")
@@ -145,12 +165,21 @@ func runLink(args []string, stdin io.Reader, stdinTTY bool) (string, error) {
 }
 
 func linkStatus() string {
-	paths := csm.HostAgentPaths()
 	var b strings.Builder
-	c, err := hostagent.LoadCredentials(paths)
-	if err != nil {
-		fmt.Fprintf(&b, "Not linked: %s\n", err)
-	} else {
+	links := csm.PlatformLinks()
+	if len(links) == 0 {
+		b.WriteString("Not linked to a platform.\n")
+	}
+	for i, name := range links {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		paths := csm.LinkPaths(name)
+		c, err := hostagent.LoadCredentials(paths)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(&b, "Link:        %s\n", name)
 		fmt.Fprintf(&b, "Platform:    %s\n", c.PlatformURL)
 		fmt.Fprintf(&b, "Host id:     %s\n", c.HostID)
 		fmt.Fprintf(&b, "WebSocket:   %s\n", c.WSURL)
@@ -166,6 +195,12 @@ func linkStatus() string {
 		if c.InsecureDev {
 			b.WriteString("Transport:   insecure (plain ws/http; the token travels unencrypted)\n")
 		}
+		if len(links) > 1 {
+			fmt.Fprintf(&b, "Servers:     %s\n", csm.LinkServerSummary(name))
+		}
+		if n := csm.PlatformCap(name); n >= 0 {
+			fmt.Fprintf(&b, "Cap:         at most %d server(s) for this platform\n", n)
+		}
 		fmt.Fprintf(&b, "Credentials: %s\n", paths.Credentials())
 	}
 	fmt.Fprintf(&b, "Agent:       %s\n", csm.HostAgentServiceState(context.Background()))
@@ -173,15 +208,21 @@ func linkStatus() string {
 }
 
 func unlinkCommand(args []string) {
-	if len(args) > 0 {
-		fmt.Fprintln(os.Stderr, "usage: csm unlink")
+	name := csm.DefaultPlatformLink
+	if len(args) == 1 && csm.ValidLinkName(args[0]) {
+		name = args[0]
+	} else if len(args) > 0 {
+		fmt.Fprintln(os.Stderr, "usage: csm unlink [<name>]")
 		os.Exit(1)
 	}
-	paths := csm.HostAgentPaths()
+	paths := csm.LinkPaths(name)
 	c, _ := hostagent.LoadCredentials(paths)
 	if err := hostagent.RemoveCredentials(paths); err != nil {
 		fmt.Fprintf(os.Stderr, "unlink: %v\n", err)
 		os.Exit(1)
+	}
+	if name != csm.DefaultPlatformLink {
+		_ = csm.ReleaseLinkServers(name)
 	}
 	csm.LogAction("cli", "unlink", "", nil)
 	if c != nil {
@@ -269,7 +310,8 @@ func agentConfig(args []string) (string, error) {
 		show("readyup_repo", c.ReadyUpRepo, "-> "+hostagent.DefaultReadyUpRepo), nil
 }
 
-// runAgent runs the host agent until SIGINT / SIGTERM.
+// runAgent runs the host agent until SIGINT / SIGTERM: one connection per
+// platform link (csm link --name), each seeing only its own servers.
 func runAgent() error {
 	if !csm.CanManageServers() {
 		return fmt.Errorf("the host agent manages tmux sessions and game files: run it as the CS2 user or as root")
@@ -281,23 +323,40 @@ func runAgent() error {
 	// agent looks every few seconds, so keep the journal to the agent's lines.
 	log.SetOutput(io.Discard)
 	hostname, _ := os.Hostname()
-	a := hostagent.New(hostagent.Options{
-		Paths:      csm.HostAgentPaths(),
-		Backend:    csm.NewHostBackend(),
-		CSMVersion: tui.Version(),
-		OS:         csm.HostOSDescription(),
-		Hostname:   hostname,
-		Fetcher:    &hostagent.Fetcher{Defaults: csm.HostReadyUpDefaults},
-		Logf: func(format string, args ...any) {
-			line := fmt.Sprintf(format, args...)
-			logger.Print(line)
-			csm.AppendLog("csm.log", time.Now().Format(time.RFC3339)+" "+line+"\n")
-		},
-	})
-	logger.Printf("csm %s host agent starting (state in %s)", tui.Version(), csm.HostAgentPaths().Dir)
-	err := a.Run(ctx)
-	if errors.Is(err, context.Canceled) {
-		return nil
+	links := csm.PlatformLinks()
+	if len(links) == 0 {
+		// Not linked yet: the default agent waits for credentials, as before.
+		links = []string{csm.DefaultPlatformLink}
 	}
-	return err
+	errs := make(chan error, len(links))
+	for _, name := range links {
+		name := name
+		prefix := ""
+		if len(links) > 1 {
+			prefix = "[" + name + "] "
+		}
+		a := hostagent.New(hostagent.Options{
+			Paths:      csm.LinkPaths(name),
+			Backend:    csm.NewLinkBackend(name),
+			CSMVersion: tui.Version(),
+			OS:         csm.HostOSDescription(),
+			Hostname:   hostname,
+			Fetcher:    &hostagent.Fetcher{Defaults: csm.HostReadyUpDefaults},
+			Logf: func(format string, args ...any) {
+				line := prefix + fmt.Sprintf(format, args...)
+				logger.Print(line)
+				csm.AppendLog("csm.log", time.Now().Format(time.RFC3339)+" "+line+"\n")
+			},
+		})
+		logger.Printf("csm %s host agent starting %s(state in %s)", tui.Version(), prefix, csm.LinkPaths(name).Dir)
+		go func() { errs <- a.Run(ctx) }()
+	}
+	var first error
+	for range links {
+		if err := <-errs; err != nil && !errors.Is(err, context.Canceled) && first == nil {
+			first = err
+			stop()
+		}
+	}
+	return first
 }

@@ -78,6 +78,7 @@ const (
 	TypeLogsTail        = "logs.tail"
 	TypeLogsStop        = "logs.stop"
 	TypeUpdatesHold     = "host.updates_hold"
+	TypeLicense         = "host.license"
 
 	// host -> platform
 	TypeInventory = "host.inventory"
@@ -96,6 +97,7 @@ var Capabilities = []string{
 	"update.game",
 	"update.plugins",
 	"updates.hold",
+	"license.push",
 	"logs.tail",
 	"logs.follow",
 	"health.v1",

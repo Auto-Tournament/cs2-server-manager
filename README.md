@@ -61,7 +61,25 @@ csm stop [server]    # refuses while a Ready Up match is live
 csm update-game      # update CS2
 csm update-plugins   # install or update the plugin stack on every server
 csm link <url> <code> # let Auto Tournament control this machine
+csm link --name <club> <url> <code>  # and another platform (each sees only its own servers)
+csm license set <key> # a commercial license key (free for non-commercial use)
+csm license cap --link <club> 5      # this platform may create at most 5 servers here
 ```
+
+### Several platforms on one host
+
+A hosting provider can link one machine to several Auto Tournament platforms
+(`csm link --name <name> ...`). Every server belongs to the platform that
+created it; each platform sees, starts, stops, updates and removes only its own
+servers, within the cap the host sets for it (`csm license cap --link`). Servers
+made before the second link belong to the first. Updates are held while any
+platform asks for a hold. `csm link status` lists the links and their servers;
+`csm unlink <name>` removes one and gives its servers back to the first link.
+
+Licenses: each platform's license goes to the Ready Up config of the servers it
+owns. When the host sets a key of its own (`csm license set`), that key covers
+every server here and is never overwritten by a platform; those servers count
+toward the host's license, not the platform's.
 
 Every command, update holds and the host agent: [docs/USAGE.md](docs/USAGE.md).
 

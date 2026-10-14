@@ -87,12 +87,30 @@ type LicenseAnswerAdopter interface {
 	AdoptLicenseAnswer(use string) (bool, error)
 }
 
+// PlatformLicenseReceiver takes the platform's license (host.license) for
+// the servers that platform owns on this host.
+type PlatformLicenseReceiver interface {
+	ReceivePlatformLicense(lic LicenseCmd) error
+}
+
 // HostFacts are the machine parts of host.inventory.
 type HostFacts struct {
 	Hostname  string
 	OS        string
 	Resources Resources
 	CS2       CS2Facts
+	// License is which license this host's servers run under; nil without a key.
+	License *InvLicense
+}
+
+// InvLicense is host.inventory.license: whether this host runs under a
+// license of its own (a hosting provider's `csm license set`), so the
+// platform leaves its servers out of the platform's own count, and the cap
+// the host set for the platform (`csm license cap`).
+type InvLicense struct {
+	Own       bool   `json:"own"`
+	LicenseID string `json:"license_id,omitempty"`
+	Cap       *int   `json:"cap,omitempty"`
 }
 
 // Resources is host.inventory.resources.
