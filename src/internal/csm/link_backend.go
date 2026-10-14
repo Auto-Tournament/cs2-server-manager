@@ -228,6 +228,9 @@ func (b *LinkBackend) FirstServersGamePort() int { return b.inner.FirstServersGa
 func (b *LinkBackend) BootstrapFirstServers(ctx context.Context, count int, beforeStart func(serverDir string) error, progress func(step string, pct int)) ([]int, string, error) {
 	createMu.Lock()
 	defer createMu.Unlock()
+	if all, err := b.inner.Servers(ctx); err == nil && len(all) > 0 {
+		return nil, "", fmt.Errorf("this host already has %d server(s): a first install would restart them all, so new servers are added instead", len(all))
+	}
 	if err := CheckPlatformCap(b.link, 0, count); err != nil {
 		return nil, "", err
 	}
@@ -238,7 +241,17 @@ func (b *LinkBackend) BootstrapFirstServers(ctx context.Context, count int, befo
 	return nums, out, err
 }
 
-func (b *LinkBackend) FirstServerGamePort() (int, bool) { return b.inner.FirstServerGamePort() }
+// FirstServerGamePort: when the host already has servers (another
+// platform's), this platform's first server is just the host's next one, so
+// the agent creates it like any other instead of running a first install
+// (which updates the game and reinstalls Ready Up on every server, restarting
+// the other platform's matches).
+func (b *LinkBackend) FirstServerGamePort() (int, bool) {
+	if all, err := b.inner.Servers(context.Background()); err == nil && len(all) > 0 {
+		return all[len(all)-1].GamePort + 10, true
+	}
+	return b.inner.FirstServerGamePort()
+}
 
 func (b *LinkBackend) ReadyUpBundleFor(requested string) string {
 	return b.inner.ReadyUpBundleFor(requested)

@@ -10,17 +10,19 @@ import (
 
 // fakeLinkHost is a host with servers 1..n and nothing behind them.
 type fakeLinkHost struct {
-	n       int
-	started []int
-	removed int
-	hold    string
-	updated []int
+	n          int
+	bootstraps int
+	started    []int
+	removed    int
+	hold       string
+	updated    []int
 }
 
 func (f *fakeLinkHost) Servers(context.Context) ([]hostagent.ServerState, error) {
 	out := make([]hostagent.ServerState, f.n)
 	for i := range out {
 		out[i].Number = i + 1
+		out[i].GamePort = 27015 + 10*i
 	}
 	return out, nil
 }
@@ -55,6 +57,7 @@ func (f *fakeLinkHost) ChownToCS2User(string) error             { return nil }
 func (f *fakeLinkHost) AdoptLicenseAnswer(string) (bool, error) { return false, nil }
 func (f *fakeLinkHost) FirstServersGamePort() int               { return 27015 }
 func (f *fakeLinkHost) BootstrapFirstServers(context.Context, int, func(string) error, func(string, int)) ([]int, string, error) {
+	f.bootstraps++
 	return nil, "", nil
 }
 func (f *fakeLinkHost) FirstServerGamePort() (int, bool)                         { return 0, false }
@@ -124,5 +127,37 @@ func TestLinkBackendCapAndHolds(t *testing.T) {
 	_ = b.SetUpdatesHold(HoldModeOff)
 	if host.hold != HoldModeOn {
 		t.Fatalf("hold = %s", host.hold)
+	}
+}
+
+// A second platform's first server on a host that already has servers is an
+// ordinary create, never a first install: that would update the game and
+// reinstall Ready Up on every server, restarting the first platform's matches.
+func TestLinkBackendSecondPlatformNeverBootstraps(t *testing.T) {
+	t.Setenv("CSM_ROOT", t.TempDir())
+	t.Setenv("CSM_LICENSE_CHECKIN_URL", "off")
+	host := &fakeLinkHost{n: 4}
+	b := &LinkBackend{inner: host, link: "club-b"}
+	ctx := context.Background()
+
+	if s, _ := b.Servers(ctx); len(s) != 0 {
+		t.Fatalf("club-b sees %d servers", len(s))
+	}
+	port, ok := b.FirstServerGamePort()
+	if !ok || port != 27015+10*4 {
+		t.Fatalf("first server port = %d, %v; want the host's next (27055)", port, ok)
+	}
+	if _, _, err := b.BootstrapFirstServers(ctx, 1, nil, nil); err == nil || host.bootstraps != 0 {
+		t.Fatalf("bootstrap on a set-up host: err=%v, bootstraps=%d", err, host.bootstraps)
+	}
+
+	// An empty host still gets its first install.
+	empty := &fakeLinkHost{}
+	first := &LinkBackend{inner: empty, link: DefaultPlatformLink}
+	if _, ok := first.FirstServerGamePort(); ok {
+		t.Fatal("an empty host should go through the first install")
+	}
+	if _, _, err := first.BootstrapFirstServers(ctx, 1, nil, nil); err != nil || empty.bootstraps != 1 {
+		t.Fatalf("first install on an empty host: err=%v, bootstraps=%d", err, empty.bootstraps)
 	}
 }
