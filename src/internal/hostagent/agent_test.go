@@ -532,3 +532,40 @@ func TestCreateOnEmptyHost(t *testing.T) {
 		t.Fatalf("fleet.cfg at start = %q", ti.b.cfgAtStart[1])
 	}
 }
+
+func TestServerEnrollWritesKeyAndRestartsRunning(t *testing.T) {
+	ta := startAgent(t, 2, "", nil)
+	ta.b.mu.Lock()
+	ta.b.servers[1].Running = false
+	ta.b.mu.Unlock()
+	key := "rfk_abcdefghijkl_" + strings.Repeat("A", 43)
+
+	// No key at all (linked with a one-time code, none sent): refused.
+	id := ta.p.send(TypeServerEnroll, map[string]any{"servers": []string{"server-1"}})
+	if r := ta.p.result(id); r.Status != StatusRejected || r.Error.Code != CodeNoEnrollKey {
+		t.Fatalf("no key = %+v", r)
+	}
+
+	id = ta.p.send(TypeServerEnroll, map[string]any{"servers": []string{"server-1", "server-2"}, "enroll_key": key})
+	r := ta.p.result(id)
+	if r.Status != StatusOK {
+		t.Fatalf("result = %+v", r)
+	}
+	for _, n := range []int{1, 2} {
+		b, err := os.ReadFile(FleetCfgPath(filepath.Join(ta.b.root, ServerName(n))))
+		if err != nil || !strings.Contains(string(b), key) {
+			t.Fatalf("%s fleet.cfg = %q (%v)", ServerName(n), b, err)
+		}
+	}
+	calls := strings.Join(ta.b.Calls(), ",")
+	if !strings.Contains(calls, "restart 1") || strings.Contains(calls, "restart 2") {
+		t.Fatalf("only the running server restarts: %s", calls)
+	}
+
+	// A match in progress: refused without force.
+	ta.b.setBusy(1)
+	id = ta.p.send(TypeServerEnroll, map[string]any{"servers": []string{"server-1"}, "enroll_key": key})
+	if r := ta.p.result(id); r.Status != StatusRejected || r.Error.Code != CodeMatchInProgress {
+		t.Fatalf("busy = %+v", r)
+	}
+}
