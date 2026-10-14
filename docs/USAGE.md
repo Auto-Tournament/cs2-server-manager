@@ -28,9 +28,9 @@ csm install-monitor-cron   # run the monitor from cron (the crontab of the user 
 csm remove-monitor-cron
 
 # Auto Tournament host agent (the platform starts, stops, creates and updates servers)
-csm link <url> <code|key>  # link this machine to the platform (code from Servers → Machines → Add machine)
+csm link <url> <code|key>  # link this machine to the platform (code from Servers → Machines → Add machine); installs and starts the agent
 csm link status            # show the link (never the token)
-csm agent install          # run the host agent as a systemd service (csm agent = foreground)
+csm agent install          # (re)install the host agent service by hand (csm link does it; csm agent = foreground)
 csm unlink                 # forget the link
 
 # License (commercial use only; never blocks anything)
@@ -118,7 +118,7 @@ csm link https://cs.example.io - < key.txt
 
 csm enrolls the machine (`POST /api/fleet/enroll` with `kind: "host"`) and stores the host id and host token in `<csm root>/fleet/credentials.json` (mode 0600; `/opt/cs2-server-manager/fleet/` by default). The token is never printed or logged. The machine is identified by a hash of `/etc/machine-id`, so linking the same machine again gives back the same host.
 
-**2. Run the agent.**
+**2. The agent.** `csm link` installs and starts it (`--no-agent` leaves it out). By hand:
 
 ```bash
 csm agent install   # systemd unit csm-agent.service: a system unit as root,
