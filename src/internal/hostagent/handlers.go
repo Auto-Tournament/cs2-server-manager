@@ -32,6 +32,8 @@ func (a *Agent) handle(ctx context.Context, env *Envelope, cmd any) {
 		res = a.handleCreate(ctx, ref, c)
 	case *ServerRemoveCmd:
 		res = a.handleRemove(ctx, ref, c)
+	case *ServerEnrollCmd:
+		res = a.handleEnroll(ctx, ref, c)
 	case *ServerSetLaunchArgsCmd:
 		res = rejected(CodeUnsupported, "csm builds each server's launch line itself (csm start --alternate/--binary); per-server launch args are not supported yet")
 	case *UpdateGameCmd:
@@ -402,6 +404,53 @@ func (a *Agent) bootstrapFirstServers(ctx context.Context, ref string, bs FirstS
 		out += "\nWrote cfg/ReadyUp/fleet.cfg (url + fleet key) on each; Ready Up enrolls itself on start.\n"
 	}
 	return okResult(out)
+}
+
+// handleEnroll writes the platform's new enrollment key into each server's
+// fleet.cfg and restarts the running ones: their Ready Up's old credentials
+// are refused, and it enrolls again with the key in fleet.cfg.
+func (a *Agent) handleEnroll(ctx context.Context, ref string, c *ServerEnrollCmd) ResultPayload {
+	creds := a.currentCreds()
+	key := c.EnrollKey
+	if key == "" && creds != nil {
+		key = creds.FleetKey
+	}
+	if key == "" || creds == nil {
+		return rejected(CodeNoEnrollKey, "server.enroll needs a fleet enrollment key (enroll_key)")
+	}
+	nums, err := parseServerList(c.Servers)
+	if err != nil {
+		return rejected(CodeUnknownServer, err.Error())
+	}
+	release, busy := a.exclusive(TypeServerEnroll)
+	if busy != nil {
+		return *busy
+	}
+	defer release()
+	sel, bad := a.gate(ctx, "server.enroll", nums, c.Force)
+	if bad != nil {
+		return *bad
+	}
+	var out strings.Builder
+	for i, s := range sel {
+		name := ServerName(s.Number)
+		a.progress(ref, "enrolling "+name, i*100/len(sel))
+		if err := WriteFleetCfg(s.Dir, creds.PlatformURL, key, creds.InsecureDev, creds.CAFile, a.opts.Backend.ChownToCS2User); err != nil {
+			return failed(CodeFailed, name+": writing fleet.cfg: "+err.Error(), out.String())
+		}
+		if !s.Running {
+			fmt.Fprintf(&out, "%s: wrote fleet.cfg; it enrolls when it starts\n", name)
+			continue
+		}
+		if err := a.opts.Backend.Restart(ctx, s.Number); err != nil {
+			return failed(CodeFailed, name+": restart: "+err.Error(), out.String())
+		}
+		a.health.started(s.Number)
+		fmt.Fprintf(&out, "%s: wrote fleet.cfg and restarted; Ready Up enrolls now\n", name)
+	}
+	a.progress(ref, "done", 100)
+	a.markInventoryDirty()
+	return okResult(out.String())
 }
 
 func (a *Agent) handleRemove(ctx context.Context, ref string, c *ServerRemoveCmd) ResultPayload {

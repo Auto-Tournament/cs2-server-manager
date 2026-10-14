@@ -189,6 +189,17 @@ type UpdateGameCmd struct {
 	Force   *Force   `json:"force,omitempty"`
 }
 
+// ServerEnrollCmd is server.enroll: existing servers get a new fleet
+// enrollment key in their fleet.cfg and restart, so their Ready Up enrolls on
+// this platform (a machine linked again, e.g. to a fresh install, keeps its
+// servers). Servers that are stopped enroll on their next start.
+type ServerEnrollCmd struct {
+	commandBase
+	Servers   []string `json:"servers"`
+	EnrollKey string   `json:"enroll_key"`
+	Force     *Force   `json:"force,omitempty"`
+}
+
 // UpdatePluginsCmd is host.update_plugins.
 type UpdatePluginsCmd struct {
 	commandBase
@@ -399,6 +410,17 @@ func validateCommand(typ string, cmd any) error {
 		if c.EnrollKey != "" && !fleetKeyRe.MatchString(c.EnrollKey) {
 			return fmt.Errorf("enroll_key is not a fleet enrollment key")
 		}
+	case *ServerEnrollCmd:
+		if len(c.Servers) == 0 {
+			return fmt.Errorf("servers is required")
+		}
+		if _, err := parseServerList(c.Servers); err != nil {
+			return err
+		}
+		if c.EnrollKey != "" && !fleetKeyRe.MatchString(c.EnrollKey) {
+			return fmt.Errorf("enroll_key is not a fleet enrollment key")
+		}
+		return c.Force.validate()
 	case *ServerRemoveCmd:
 		if _, err := ParseServerName(c.Server); err != nil {
 			return err
@@ -506,6 +528,8 @@ func newCommand(typ string) any {
 		return &ServerCreateCmd{}
 	case TypeServerRemove:
 		return &ServerRemoveCmd{}
+	case TypeServerEnroll:
+		return &ServerEnrollCmd{}
 	case TypeServerSetLaunch:
 		return &ServerSetLaunchArgsCmd{}
 	case TypeUpdateGame:
