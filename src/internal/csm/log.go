@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -141,6 +142,7 @@ func AppendLog(filename, content string) {
 		return
 	}
 	path := filepath.Join(dir, "csm.log")
+	rotateConsolidatedLog(path)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return
@@ -221,6 +223,71 @@ func LogAction(source, action, output string, err error) {
 	writeIndividualLog(individualLogName, logContent)
 }
 
+// Log retention: csm.log is cut back to its last consolidatedLogKeep bytes
+// (in csm.log.1) once it passes consolidatedLogMax, and a timestamped log is
+// removed after individualLogMaxAge. Without it a host ran into tens of GB.
+const (
+	consolidatedLogMax  = 20 << 20
+	consolidatedLogKeep = 5 << 20
+	individualLogMaxAge = 30 * 24 * time.Hour
+)
+
+// rotateConsolidatedLog moves the newest consolidatedLogKeep bytes of an
+// oversized csm.log to csm.log.1 and empties csm.log.
+func rotateConsolidatedLog(path string) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() <= consolidatedLogMax {
+		return
+	}
+	src, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer src.Close()
+	if _, err := src.Seek(-consolidatedLogKeep, io.SeekEnd); err != nil {
+		return
+	}
+	tmp := path + ".1.tmp"
+	dst, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		_ = dst.Close()
+		_ = os.Remove(tmp)
+		return
+	}
+	_ = dst.Close()
+	if os.Rename(tmp, path+".1") == nil {
+		_ = os.Truncate(path, 0)
+	}
+}
+
+var pruneIndividualLogsOnce sync.Once
+
+// pruneIndividualLogs removes timestamped logs older than individualLogMaxAge.
+// Once per process: csm runs as short commands and one long-lived agent.
+func pruneIndividualLogs(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-individualLogMaxAge)
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".log") || len(name) < 20 {
+			continue
+		}
+		// Only csm's own: "2006-01-02_15-04-05_<action>.log".
+		if _, err := time.Parse("2006-01-02_15-04-05", name[:19]); err != nil {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
+
 // writeIndividualLog writes content to a timestamped individual log file.
 // Errors are ignored so logging never breaks primary flows.
 func writeIndividualLog(filename, content string) {
@@ -228,6 +295,7 @@ func writeIndividualLog(filename, content string) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return
 	}
+	pruneIndividualLogsOnce.Do(func() { pruneIndividualLogs(dir) })
 	path := filepath.Join(dir, filename)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
