@@ -215,7 +215,10 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	steamCtx, steamCancel := contextWithTimeout(ctx, TimeoutSteamCMD)
 	defer steamCancel()
 
-	if err := installMasterViaSteamCMD(steamCtx, out, cfg); err != nil {
+	masterMu.Lock() // the agent's background first download, when one is running
+	err := installMasterViaSteamCMD(steamCtx, out, cfg)
+	masterMu.Unlock()
+	if err != nil {
 		if steamCtx.Err() == context.DeadlineExceeded {
 			log("  [!] SteamCMD operation timed out after %v", TimeoutSteamCMD)
 			log("  [*] This may indicate network issues or a very slow connection")

@@ -133,6 +133,7 @@ func (a *Agent) logf(format string, args ...any) {
 // Run connects, keeps the link up and handles messages until ctx ends.
 func (a *Agent) Run(ctx context.Context) error {
 	go a.health.run(ctx)
+	prefetched := false
 
 	attempt := 0
 	notLinkedLogged := false
@@ -151,6 +152,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		notLinkedLogged = false
 		a.setCreds(creds)
+		// Linked: fetch the game now (in the background) rather than on the first server.create.
+		if !prefetched {
+			prefetched = true
+			if p, ok := a.opts.Backend.(MasterPrefetcher); ok {
+				go func() { _ = p.PrefetchMaster(ctx, a.logf) }()
+			}
+		}
 
 		started := time.Now()
 		code, reason, err := a.runSession(ctx, creds)
