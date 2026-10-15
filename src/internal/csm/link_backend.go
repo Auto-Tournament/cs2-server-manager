@@ -224,6 +224,16 @@ func (b *LinkBackend) AdoptLicenseAnswer(use string) (bool, error) {
 
 func (b *LinkBackend) FirstServersGamePort() int { return b.inner.FirstServersGamePort() }
 
+// PrefetchMaster downloads CS2 when the host has none (HostBackend.PrefetchMaster).
+func (b *LinkBackend) PrefetchMaster(ctx context.Context, logf func(format string, args ...any)) error {
+	if p, ok := b.inner.(interface {
+		PrefetchMaster(context.Context, func(string, ...any)) error
+	}); ok {
+		return p.PrefetchMaster(ctx, logf)
+	}
+	return nil
+}
+
 // BootstrapFirstServers installs a host's first servers; they belong to this link.
 func (b *LinkBackend) BootstrapFirstServers(ctx context.Context, count int, beforeStart func(serverDir string) error, progress func(step string, pct int)) ([]int, string, error) {
 	createMu.Lock()

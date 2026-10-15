@@ -58,6 +58,13 @@ type FirstServerCreator interface {
 // install wizard does (the game, the servers, the plugin stack), so
 // server.create works on a machine that was only linked (issue #108). It
 // returns the server numbers it created and started.
+// MasterPrefetcher is an optional Backend extension: download the game when the host has
+// none yet, so a freshly linked machine is ready for its first server. The agent runs it
+// once, in the background, when it starts.
+type MasterPrefetcher interface {
+	PrefetchMaster(ctx context.Context, logf func(format string, args ...any)) error
+}
+
 type FirstServersBootstrapper interface {
 	BootstrapFirstServers(ctx context.Context, count int, beforeStart func(serverDir string) error, progress func(step string, pct int)) ([]int, string, error)
 	// FirstServersGamePort is the game port server-1 gets.
