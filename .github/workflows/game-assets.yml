@@ -73,12 +73,18 @@ jobs:
         if: steps.build.outputs.run == 'true'
         run: '"$RUNNER_TEMP/csm" extract-skin-data'
 
+      - name: Compress for the platform
+        if: steps.build.outputs.run == 'true'
+        run: |
+          command -v cwebp >/dev/null || sudo apt-get install -y -qq webp
+          scripts/make-web-assets.sh
+
       - name: Open a pull request
         if: steps.build.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git add map_thumbnails skin_images
+          git add map_thumbnails skin_images web_assets
           if git diff --cached --quiet; then
             echo "Nothing changed."
             exit 0
