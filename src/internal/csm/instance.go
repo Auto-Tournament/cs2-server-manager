@@ -371,7 +371,7 @@ type instanceLaunch struct {
 
 // instanceCS2Args is the cs2 command line (relative to merged/game).
 func instanceCS2Args(s instanceLaunch) []string {
-	args := []string{"./bin/linuxsteamrt64/cs2", "-dedicated", "-ip", "0.0.0.0", "-usercon"}
+	args := []string{"./bin/linuxsteamrt64/cs2", "-dedicated", "-ip", "0.0.0.0", "-usercon", roundBackupFlag}
 	if s.Insecure {
 		args = append(args, "-insecure") // instances.json insecure: no VAC (test servers)
 	}
