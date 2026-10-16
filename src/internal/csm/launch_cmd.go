@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+// roundBackupFlag lets CS2 write and load round backup files. Since the CS2
+// update of October 2026 the server writes none without it, so restoring a
+// round (Ready Up's .restore, the platform's round restore) finds no backup.
+const roundBackupFlag = "-allow_round_backup_files"
+
 // launchSpec holds everything needed to build a server's launch command. It
 // has no filesystem or environment lookups of its own so the command
 // construction can be unit tested.
@@ -83,9 +88,9 @@ func (s launchSpec) usesCSMLauncherSh() bool {
 //   - `+map` to load a map at startup
 //   - `+maxplayers` for the player limit
 //
-// followed by the optional GSLT.
+// followed by -allow_round_backup_files and the optional GSLT.
 func buildLaunchCommand(s launchSpec) string {
-	extra := ""
+	extra := " " + roundBackupFlag
 	if s.GSLT != "" {
 		extra += fmt.Sprintf(" -gslt %s", s.GSLT)
 	}
