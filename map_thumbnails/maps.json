@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-06T08:47:55Z",
+  "generatedAt": "2026-10-17T19:51:29Z",
   "patchVersion": "1.41.8.6",
   "buildId": "25588766",
   "maps": [
@@ -381,12 +381,12 @@
     }
   ],
   "activeDuty": [
+    "de_cache",
+    "de_anubis",
     "de_inferno",
-    "de_train",
     "de_mirage",
-    "de_nuke",
     "de_dust2",
-    "de_overpass",
-    "de_vertigo"
+    "de_nuke",
+    "de_ancient"
   ]
 }

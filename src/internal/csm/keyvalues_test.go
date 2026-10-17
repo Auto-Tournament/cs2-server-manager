@@ -22,6 +22,23 @@ func TestParseActiveDutyMapsFixture(t *testing.T) {
 	}
 }
 
+// The real pool comes from the competitive template's "grouptype" "active"
+// groups, not from the stale mg_active group.
+func TestParseActiveDutyMapsCompetitiveTemplate(t *testing.T) {
+	data, err := os.ReadFile("testdata/gamemodes_competitive.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ParseActiveDutyMaps(string(data))
+	if err != nil {
+		t.Fatalf("ParseActiveDutyMaps: %v", err)
+	}
+	want := []string{"de_cache", "de_anubis", "de_inferno", "de_mirage", "de_dust2", "de_nuke", "de_ancient"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("active duty = %v, want %v", got, want)
+	}
+}
+
 func TestParseActiveDutyMapsErrors(t *testing.T) {
 	cases := map[string]string{
 		"no group":        `"GameModes.txt" { "mapgroups" { "mg_hostage" { "maps" { "cs_office" "" } } } }`,
