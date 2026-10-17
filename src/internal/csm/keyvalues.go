@@ -2,6 +2,9 @@ package csm
 
 import (
 	"fmt"
+	"math"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -183,32 +186,111 @@ func findKV(nodes []*kvNode, match func(*kvNode) bool) *kvNode {
 	return nil
 }
 
-// ParseActiveDutyMaps returns the maps of the "mg_active" map group in a
-// gamemodes.txt, in file order. That group is CS2's current Active Duty pool.
+// ParseActiveDutyMaps returns CS2's current Active Duty pool from a
+// gamemodes.txt.
+//
+// The pool is the map groups that are both offered in competitive (the
+// "competitive" block of "templates#include") and tagged "grouptype"
+// "active", in the template's order. That is how the game's own play menu
+// builds its "Active Duty" quick-select. The "mg_active" map group is not
+// used for this: Valve stopped updating it (in 2026-10 it still listed Train,
+// Overpass and Vertigo). Only when the template gives no maps (an older
+// gamemodes.txt) does this fall back to "mg_active".
 func ParseActiveDutyMaps(gamemodes string) ([]string, error) {
 	nodes, err := parseKeyValues(gamemodes)
 	if err != nil {
 		return nil, fmt.Errorf("parse gamemodes.txt: %w", err)
 	}
+	if maps := competitiveActiveMaps(nodes); len(maps) > 0 {
+		return maps, nil
+	}
 	// gameTypes also mentions mg_active as a plain string ("mg_active" ""),
 	// so look for the block that has a "maps" block inside it.
 	group := findKV(nodes, func(n *kvNode) bool {
-		if !n.IsBlock || !strings.EqualFold(n.Key, "mg_active") {
-			return false
-		}
-		m := n.child("maps")
-		return m != nil && m.IsBlock
+		return n.IsBlock && strings.EqualFold(n.Key, "mg_active") && mapsBlock(n) != nil
 	})
 	if group == nil {
-		return nil, fmt.Errorf("gamemodes.txt has no mg_active map group")
+		return nil, fmt.Errorf("gamemodes.txt has no Active Duty maps (no competitive template with active map groups, no mg_active map group)")
 	}
 	var maps []string
-	for _, m := range group.child("maps").Children {
+	for _, m := range mapsBlock(group).Children {
 		if id := strings.TrimSpace(m.Key); id != "" {
 			maps = append(maps, id)
 		}
 	}
 	return maps, nil
+}
+
+// mapsBlock returns the "maps" block of a map group, or nil.
+func mapsBlock(group *kvNode) *kvNode {
+	if m := group.child("maps"); m != nil && m.IsBlock {
+		return m
+	}
+	return nil
+}
+
+// competitiveActiveMaps returns the maps of the map groups listed in the
+// competitive template that have "grouptype" "active", ordered by the
+// template's numbers. Lobby groups (mg_lobby_mapveto, "competitivemod"
+// "lobby") are skipped.
+func competitiveActiveMaps(nodes []*kvNode) []string {
+	tmpl := findKV(nodes, func(n *kvNode) bool {
+		return n.IsBlock && strings.EqualFold(n.Key, "templates#include")
+	})
+	if tmpl == nil {
+		return nil
+	}
+	comp := tmpl.child("competitive")
+	if comp == nil || !comp.IsBlock {
+		return nil
+	}
+	mapgroups := findKV(nodes, func(n *kvNode) bool {
+		return n.IsBlock && strings.EqualFold(n.Key, "mapgroups")
+	})
+	if mapgroups == nil {
+		return nil
+	}
+
+	entries := make([]*kvNode, 0, len(comp.Children))
+	for _, c := range comp.Children {
+		if !c.IsBlock {
+			entries = append(entries, c)
+		}
+	}
+	order := func(n *kvNode) int {
+		v, err := strconv.Atoi(strings.TrimSpace(n.Value))
+		if err != nil {
+			return math.MaxInt
+		}
+		return v
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return order(entries[i]) < order(entries[j]) })
+
+	var maps []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		group := mapgroups.child(strings.TrimSpace(e.Key))
+		if group == nil || !group.IsBlock {
+			continue
+		}
+		if gt := group.child("grouptype"); gt == nil || !strings.EqualFold(strings.TrimSpace(gt.Value), "active") {
+			continue
+		}
+		if mod := group.child("competitivemod"); mod != nil && strings.EqualFold(strings.TrimSpace(mod.Value), "lobby") {
+			continue
+		}
+		mb := mapsBlock(group)
+		if mb == nil {
+			continue
+		}
+		for _, m := range mb.Children {
+			if id := strings.TrimSpace(m.Key); id != "" && !seen[id] {
+				seen[id] = true
+				maps = append(maps, id)
+			}
+		}
+	}
+	return maps
 }
 
 // parseBuildID returns AppState.buildid from a Steam appmanifest (.acf).

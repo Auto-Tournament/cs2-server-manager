@@ -1,0 +1,81 @@
+// Trimmed-down copy of CS2's gamemodes.txt as of build 1.41.x (2026-10):
+// mg_active is stale, the competitive template + "grouptype" "active" is the
+// real Active Duty pool.
+"GameModes.txt"
+{
+	"templates#include"
+	{
+		"competitive"
+		{
+			"mg_de_cache"		"1"
+			"mg_de_anubis"		"2"
+			"mg_de_inferno"		"3"
+			"mg_de_mirage"		"4"
+			"mg_de_dust2"		"5"
+			"mg_de_nuke"		"6"
+			"mg_de_ancient"		"7"
+			"mg_de_train"		"8"
+			"mg_de_vertigo"		"9"
+			"mg_de_overpass"	"10"
+			"mg_lobby_mapveto"	"11"
+			"mg_cs_office"		"14"
+		}
+		"casual"
+		{
+			"mg_de_ancient_night" "7"
+		}
+	}
+	"gameTypes"
+	{
+		"classic"
+		{
+			"gameModes"
+			{
+				"competitive"
+				{
+					"mapgroupsMP"
+					{
+						"template#include"		"competitive"
+					}
+				}
+			}
+		}
+	}
+	"mapgroups"
+	{
+		"mg_active"
+		{
+			"name"		"mg_active"
+			"grouptype"	"active"
+			"maps"
+			{
+				"de_inferno"	""
+				"de_train"		""
+				"de_mirage"		""
+				"de_nuke"		""
+				"de_dust2"		""
+				"de_overpass"	""
+				"de_vertigo"	""
+			}
+		}
+		"mg_de_dust2"		{ "grouptype" "active" "maps" { "de_dust2" "" } }
+		"mg_de_inferno"		{ "grouptype" "active" "maps" { "de_inferno" "" } }
+		"mg_de_mirage"		{ "grouptype" "active" "maps" { "de_mirage" "" } }
+		"mg_de_nuke"		{ "grouptype" "active" "maps" { "de_nuke" "" } }
+		"mg_de_train"		{ "grouptype" "reserves" "maps" { "de_train" "" } }
+		"mg_de_vertigo"		{ "grouptype" "reserves" "maps" { "de_vertigo" "" } }
+		"mg_de_overpass"	{ "grouptype" "reserves" "maps" { "de_overpass" "" } }
+		"mg_de_ancient"		{ "grouptype" "active" "maps" { "de_ancient" "" } }
+		// Active, but not in the competitive template (casual's night variant).
+		"mg_de_ancient_night"	{ "grouptype" "active" "maps" { "de_ancient_night" "" } }
+		"mg_de_anubis"		{ "grouptype" "active" "maps" { "de_anubis" "" } }
+		"mg_lobby_mapveto"
+		{
+			"competitivemod"	"lobby"
+			"grouptype"			"active"
+			"maps"				{ "lobby_mapveto" "" }
+		}
+		"mg_cs_office"		{ "grouptype" "reserves" "maps" { "cs_office" "" } }
+		"mg_de_cache"		{ "grouptype" "active" "maps" { "de_cache" "" } }
+	}
+}
