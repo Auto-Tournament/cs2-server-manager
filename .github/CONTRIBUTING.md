@@ -24,10 +24,10 @@ licence and commercial licences.
 
 ## Pull requests
 
-- Keep each PR to one fix or feature.
+The [contribution rules](https://github.com/Auto-Tournament/.github/blob/main/CONTRIBUTING.md) apply to every PR: keep it small, say what you ran and what you saw, say if an AI tool wrote any of it (and read every line), and leave the UI and docs to the maintainer.
+
 - Write commit messages that say what changed and why.
 - Add or update tests in `src/internal/csm` when you change behaviour there.
-- Update `README.md` or the [docs](https://docs.sivert.io/docs/csm) if a command, flag or environment variable changes.
 
 ## Reporting bugs
 
