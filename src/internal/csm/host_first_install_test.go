@@ -1,8 +1,10 @@
 package csm
 
 import (
+	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -99,3 +101,30 @@ func TestLockMasterPassesOnTheRunningDownload(t *testing.T) {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+func TestWatchStallStopsASilentRun(t *testing.T) {
+	old := steamStallTimeout
+	steamStallTimeout = 50 * time.Millisecond
+	defer func() { steamStallTimeout = old }()
+
+	// Output keeps coming: no stop.
+	ctx, cancel := context.WithCancel(context.Background())
+	tap := &masterProgressTap{}
+	tap.last.Store(time.Now().UnixNano())
+	var stalled atomic.Bool
+	done := make(chan struct{})
+	go func() { watchStall(ctx, cancel, tap, 10*time.Millisecond, &stalled); close(done) }()
+	for i := 0; i < 10; i++ {
+		_, _ = tap.Write([]byte("Update state (0x61) downloading, progress: 1.00 (1 / 100)\n"))
+		time.Sleep(20 * time.Millisecond)
+	}
+	if stalled.Load() || ctx.Err() != nil {
+		t.Fatal("stopped while SteamCMD was printing")
+	}
+	// Silence: stopped.
+	time.Sleep(150 * time.Millisecond)
+	<-done
+	if !stalled.Load() || ctx.Err() == nil {
+		t.Fatal("a silent run was not stopped")
+	}
+}

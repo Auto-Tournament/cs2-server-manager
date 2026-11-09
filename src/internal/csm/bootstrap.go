@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -1516,25 +1517,33 @@ func installMasterViaSteamCMD(ctx context.Context, w io.Writer, cfg BootstrapCon
 	}
 	steamArgs = append(steamArgs, "+quit")
 	args := steamcmdAsUser(cfg.CS2User, true, steamArgs...)
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	cmd := exec.CommandContext(runCtx, args[0], args[1:]...)
 
 	// Capture both stdout and stderr; the tap keeps the newest progress line for a
-	// bootstrap waiting on masterMu (lockMaster).
+	// bootstrap waiting on masterMu (lockMaster) and feeds the stall watchdog.
 	var stderrBuf bytes.Buffer
 	tap := &masterProgressTap{}
+	tap.last.Store(time.Now().UnixNano())
 	defer func() {
 		masterLine.Lock()
 		masterLine.line = ""
 		masterLine.Unlock()
 	}()
 	cmd.Stdout = io.MultiWriter(w, tap)
-	cmd.Stderr = io.MultiWriter(w, &stderrBuf)
+	cmd.Stderr = io.MultiWriter(w, &stderrBuf, tap)
 	if logFile != nil {
 		cmd.Stdout = io.MultiWriter(w, tap, logFile)
-		cmd.Stderr = io.MultiWriter(w, &stderrBuf, logFile)
+		cmd.Stderr = io.MultiWriter(w, &stderrBuf, tap, logFile)
 	}
+	var stalled atomic.Bool
+	go watchStall(runCtx, cancelRun, tap, 30*time.Second, &stalled)
 
 	if err := cmd.Run(); err != nil {
+		if stalled.Load() {
+			return fmt.Errorf("steamcmd printed nothing for %v and was stopped (stuck download?)", steamStallTimeout)
+		}
 		// Include stderr in the error message for better debugging
 		stderrStr := strings.TrimSpace(stderrBuf.String())
 		if stderrStr != "" {

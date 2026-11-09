@@ -1,13 +1,19 @@
 package csm
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"regexp"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// steamStallTimeout stops a SteamCMD run on master-install that has printed nothing for
+// this long: it is stuck, not slow (a download prints progress every few seconds).
+var steamStallTimeout = 20 * time.Minute
 
 // steamProgressLine matches SteamCMD's download progress, e.g.
 // " Update state (0x61) downloading, progress: 74.72 (31527428343 / 42193960412)".
@@ -52,10 +58,18 @@ var masterLine struct {
 	line string
 }
 
-// masterProgressTap records SteamCMD's progress lines into masterLine.
-type masterProgressTap struct{ pending []byte }
+// masterProgressTap records SteamCMD's progress lines into masterLine, and when SteamCMD
+// last printed anything (for the stall watchdog).
+type masterProgressTap struct {
+	mu      sync.Mutex
+	pending []byte
+	last    atomic.Int64 // unix nanoseconds of the last output
+}
 
 func (t *masterProgressTap) Write(p []byte) (int, error) {
+	t.last.Store(time.Now().UnixNano())
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.pending = append(t.pending, p...)
 	for {
 		i := indexLineEnd(t.pending)
@@ -103,6 +117,25 @@ func lockMaster(w io.Writer) {
 		masterLine.Unlock()
 		if line != "" {
 			fmt.Fprintln(w, line)
+		}
+	}
+}
+
+// watchStall cancels the run when the tap has seen no output for steamStallTimeout, checking
+// every `every`. It returns once ctx is done; *stalled says whether it cancelled.
+func watchStall(ctx context.Context, cancel context.CancelFunc, tap *masterProgressTap, every time.Duration, stalled *atomic.Bool) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if time.Since(time.Unix(0, tap.last.Load())) > steamStallTimeout {
+				stalled.Store(true)
+				cancel()
+				return
+			}
 		}
 	}
 }
