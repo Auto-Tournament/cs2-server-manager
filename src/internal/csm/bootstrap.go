@@ -215,7 +215,7 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	steamCtx, steamCancel := contextWithTimeout(ctx, TimeoutSteamCMD)
 	defer steamCancel()
 
-	masterMu.Lock() // the agent's background first download, when one is running
+	lockMaster(out) // the agent's background first download, when one is running
 	err := installMasterViaSteamCMD(steamCtx, out, cfg)
 	masterMu.Unlock()
 	if err != nil {
@@ -1516,12 +1516,19 @@ func installMasterViaSteamCMD(ctx context.Context, w io.Writer, cfg BootstrapCon
 	args := steamcmdAsUser(cfg.CS2User, true, steamArgs...)
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 
-	// Capture both stdout and stderr
+	// Capture both stdout and stderr; the tap keeps the newest progress line for a
+	// bootstrap waiting on masterMu (lockMaster).
 	var stderrBuf bytes.Buffer
-	cmd.Stdout = w
+	tap := &masterProgressTap{}
+	defer func() {
+		masterLine.Lock()
+		masterLine.line = ""
+		masterLine.Unlock()
+	}()
+	cmd.Stdout = io.MultiWriter(w, tap)
 	cmd.Stderr = io.MultiWriter(w, &stderrBuf)
 	if logFile != nil {
-		cmd.Stdout = io.MultiWriter(w, logFile)
+		cmd.Stdout = io.MultiWriter(w, tap, logFile)
 		cmd.Stderr = io.MultiWriter(w, &stderrBuf, logFile)
 	}
 
