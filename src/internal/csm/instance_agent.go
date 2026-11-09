@@ -59,7 +59,9 @@ func (b *HostBackend) instanceServers(ctx context.Context) ([]hostagent.ServerSt
 			if s.CS2Build == 0 {
 				s.CS2Build = master
 			}
-			s.LaunchArgs = instanceCS2Args(instanceLaunch{Ports: p, Map: m.S.Map, MaxPlayers: m.maxPlayers(), Insecure: m.S.Insecure})
+			extra := readLaunchArgs(m.L.Dir(r.Target.Server))
+			s.LaunchArgs = instanceCS2Args(instanceLaunch{Ports: p, Map: m.S.Map, MaxPlayers: m.maxPlayers(), Insecure: m.S.Insecure, Extra: extra})
+			s.ExtraLaunchArgs = extra
 			out[i] = s
 		}(i, r)
 	}

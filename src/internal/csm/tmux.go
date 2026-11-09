@@ -238,6 +238,7 @@ func (m *TmuxManager) serverLaunch(server int, gameDir string, gamePort, tvPort,
 		TVPort:      tvPort,
 		MaxPlayers:  maxPlayers,
 		GSLT:        m.getGSLT(server),
+		Extra:       readLaunchArgs(m.serverDir(server)),
 	}
 	if spec.usesCSMLauncherSh() {
 		// Ensure alternate launcher exists (keep Valve's cs2.sh intact).

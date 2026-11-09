@@ -27,6 +27,8 @@ type launchSpec struct {
 	TVPort     int
 	MaxPlayers int
 	GSLT       string
+	// Extra is the server's own launch arguments (launch_args.json, ValidateLaunchArgs).
+	Extra []string
 }
 
 // ApplyLaunchModeFlags turns the --alternate/--binary flags of `csm start`,
@@ -88,11 +90,14 @@ func (s launchSpec) usesCSMLauncherSh() bool {
 //   - `+map` to load a map at startup
 //   - `+maxplayers` for the player limit
 //
-// followed by -allow_round_backup_files and the optional GSLT.
+// followed by -allow_round_backup_files, the optional GSLT and the server's extra arguments.
 func buildLaunchCommand(s launchSpec) string {
 	extra := " " + roundBackupFlag
 	if s.GSLT != "" {
 		extra += fmt.Sprintf(" -gslt %s", s.GSLT)
+	}
+	if ValidateLaunchArgs(s.Extra) == nil && len(s.Extra) > 0 {
+		extra += " " + strings.Join(s.Extra, " ")
 	}
 
 	switch s.Mode {

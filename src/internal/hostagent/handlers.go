@@ -35,7 +35,7 @@ func (a *Agent) handle(ctx context.Context, env *Envelope, cmd any) {
 	case *ServerEnrollCmd:
 		res = a.handleEnroll(ctx, ref, c)
 	case *ServerSetLaunchArgsCmd:
-		res = rejected(CodeUnsupported, "csm builds each server's launch line itself (csm start --alternate/--binary); per-server launch args are not supported yet")
+		res = a.handleSetLaunchArgs(ctx, c)
 	case *UpdateGameCmd:
 		res = a.handleUpdateGame(ctx, ref, c)
 	case *UpdatePluginsCmd:
@@ -269,6 +269,42 @@ func (a *Agent) handleRestart(ctx context.Context, c *ServerRestartCmd) ResultPa
 	a.sendHealth(HealthPayload{Server: c.Server, Event: "restarted", Detail: truncate(c.Reason, 256)})
 	a.markInventoryDirty()
 	return okResult(c.Server + " restarted")
+}
+
+// handleSetLaunchArgs saves a server's extra launch arguments and restarts it when it runs,
+// so they take effect (refused during a match unless forced, like server.restart).
+func (a *Agent) handleSetLaunchArgs(ctx context.Context, c *ServerSetLaunchArgsCmd) ResultPayload {
+	setter, ok := a.opts.Backend.(LaunchArgsSetter)
+	if !ok {
+		return rejected(CodeUnsupported, "this csm can't set launch arguments")
+	}
+	n, err := ParseServerName(c.Server)
+	if err != nil {
+		return rejected(CodeBadArgs, err.Error())
+	}
+	release, busy := a.quick(n, TypeServerSetLaunch)
+	if busy != nil {
+		return *busy
+	}
+	defer release()
+	sel, bad := a.gate(ctx, "server.set_launch_args", []int{n}, c.Force)
+	if bad != nil {
+		return *bad
+	}
+	if err := setter.SetLaunchArgs(n, c.Args); err != nil {
+		return rejected(CodeBadArgs, err.Error())
+	}
+	a.markInventoryDirty()
+	a.logf("host agent: %s launch arguments set to %q", c.Server, c.Args)
+	if len(sel) == 0 || !sel[0].Running {
+		return okResult(c.Server + ": launch arguments saved; they apply on its next start")
+	}
+	if err := a.opts.Backend.Restart(ctx, n); err != nil {
+		return failed(CodeFailed, "launch arguments saved, but restarting "+c.Server+" failed: "+err.Error(), "")
+	}
+	a.health.started(n)
+	a.sendHealth(HealthPayload{Server: c.Server, Event: "restarted", Detail: "new launch arguments"})
+	return okResult(c.Server + ": launch arguments saved; restarted")
 }
 
 // adoptLicense saves the platform's Ready Up license answer when the host has
@@ -636,6 +672,8 @@ type InvServer struct {
 	ReadyUp    InvReadyUp `json:"readyup"`
 	CS2Build   int64      `json:"cs2_build"`
 	LaunchArgs []string   `json:"launch_args"`
+	// ExtraLaunchArgs is what server.set_launch_args saved (part of LaunchArgs once it runs).
+	ExtraLaunchArgs []string `json:"extra_launch_args,omitempty"`
 }
 
 // InvProcess is servers[].process.
@@ -713,7 +751,7 @@ func BuildInventory(hostID, csmVersion string, facts HostFacts, servers []Server
 			Name: ServerName(s.Number), Dir: s.Dir, GamePort: s.GamePort, TVPort: s.TVPort, StatusPort: s.StatusPort,
 			Process:  InvProcess{Running: s.Running, CPUPct: s.CPUPct, RSSMB: s.RSSMB},
 			ReadyUp:  InvReadyUp{InstallID: s.InstallID, ServerID: s.ServerID, Health: health, Phase: s.Phase, UpdateSafe: s.UpdateSafe},
-			CS2Build: s.CS2Build, LaunchArgs: s.LaunchArgs,
+			CS2Build: s.CS2Build, LaunchArgs: s.LaunchArgs, ExtraLaunchArgs: s.ExtraLaunchArgs,
 		}
 		if s.Running {
 			e.Process.PID = s.PID

@@ -28,6 +28,7 @@ type linkInner interface {
 	FirstServerGamePort() (int, bool)
 	ReadyUpBundleFor(requested string) string
 	ReadyUpCurrent(n int, plan hostagent.ReadyUpPlan) (bool, string)
+	SetLaunchArgs(server int, args []string) error
 }
 
 // createMu serializes creates and removes across links: server numbers come
@@ -210,6 +211,14 @@ func (b *LinkBackend) LogFile(server int, source string) (string, error) {
 }
 
 func (b *LinkBackend) ChownToCS2User(path string) error { return b.inner.ChownToCS2User(path) }
+
+// SetLaunchArgs saves launch arguments for a server this platform owns.
+func (b *LinkBackend) SetLaunchArgs(server int, args []string) error {
+	if err := b.mine(server); err != nil {
+		return err
+	}
+	return b.inner.SetLaunchArgs(server, args)
+}
 
 // ReceivePlatformLicense is host.license: this platform's license for its servers.
 func (b *LinkBackend) ReceivePlatformLicense(lic hostagent.LicenseCmd) error {

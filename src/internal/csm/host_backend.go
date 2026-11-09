@@ -88,7 +88,9 @@ func (b *HostBackend) Servers(ctx context.Context) ([]hostagent.ServerState, err
 
 func (b *HostBackend) serverState(ctx context.Context, mgr *TmuxManager, r FleetRow) hostagent.ServerState {
 	_, tvPort := detectServerPorts(mgr.CS2User, r.Target.Server)
-	return b.serverStateTV(ctx, r, tvPort)
+	s := b.serverStateTV(ctx, r, tvPort)
+	s.ExtraLaunchArgs = readLaunchArgs(mgr.serverDir(r.Target.Server))
+	return s
 }
 
 func (b *HostBackend) serverStateTV(ctx context.Context, r FleetRow, tvPort int) hostagent.ServerState {

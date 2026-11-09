@@ -94,6 +94,12 @@ type LicenseAnswerAdopter interface {
 	AdoptLicenseAnswer(use string) (bool, error)
 }
 
+// LaunchArgsSetter saves a server's extra launch arguments (server.set_launch_args); they
+// apply on its next start. An empty list clears them.
+type LaunchArgsSetter interface {
+	SetLaunchArgs(server int, args []string) error
+}
+
 // PlatformLicenseReceiver takes the platform's license (host.license) for
 // the servers that platform owns on this host.
 type PlatformLicenseReceiver interface {
@@ -163,6 +169,8 @@ type ServerState struct {
 	RSSMB      *int64
 	CS2Build   int64
 	LaunchArgs []string
+	// ExtraLaunchArgs is the server's own launch arguments (server.set_launch_args).
+	ExtraLaunchArgs []string
 
 	// ReadyUp
 	ReadyUpInstalled string // version, "unknown" when installed without an answer, "" = not installed

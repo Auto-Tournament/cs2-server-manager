@@ -16,6 +16,7 @@ type fakeLinkHost struct {
 	removed    int
 	hold       string
 	updated    []int
+	launchArgs map[int][]string
 }
 
 func (f *fakeLinkHost) Servers(context.Context) ([]hostagent.ServerState, error) {
@@ -63,6 +64,13 @@ func (f *fakeLinkHost) BootstrapFirstServers(context.Context, int, func(string) 
 func (f *fakeLinkHost) FirstServerGamePort() (int, bool)                         { return 0, false }
 func (f *fakeLinkHost) ReadyUpBundleFor(r string) string                         { return r }
 func (f *fakeLinkHost) ReadyUpCurrent(int, hostagent.ReadyUpPlan) (bool, string) { return false, "" }
+func (f *fakeLinkHost) SetLaunchArgs(server int, args []string) error {
+	if f.launchArgs == nil {
+		f.launchArgs = map[int][]string{}
+	}
+	f.launchArgs[server] = args
+	return nil
+}
 
 func TestLinkBackendOwnsWhatItCreates(t *testing.T) {
 	t.Setenv("CSM_ROOT", t.TempDir())

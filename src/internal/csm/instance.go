@@ -367,6 +367,7 @@ type instanceLaunch struct {
 	Nice        int
 	SteamClient string
 	Insecure    bool
+	Extra       []string // the instance's own launch arguments (launch_args.json)
 }
 
 // instanceCS2Args is the cs2 command line (relative to merged/game).
@@ -375,15 +376,15 @@ func instanceCS2Args(s instanceLaunch) []string {
 	if s.Insecure {
 		args = append(args, "-insecure") // instances.json insecure: no VAC (test servers)
 	}
-	return append(args,
+	args = append(args,
 		"-port", strconv.Itoa(s.Ports.Game),
 		"+tv_port", strconv.Itoa(s.Ports.TV),
 		"+clientport", strconv.Itoa(s.Ports.Client),
 		"+maxplayers", strconv.Itoa(s.MaxPlayers),
 		"+game_type", "0", "+game_mode", "1",
-		"+exec", instanceCfgName,
-		"+map", s.Map,
 	)
+	args = append(args, s.Extra...)
+	return append(args, "+exec", instanceCfgName, "+map", s.Map)
 }
 
 // renderInstanceExecScript is exec.sh: run inside the namespace with the
@@ -743,6 +744,7 @@ func (m *InstanceManager) launch(n int) (instanceLaunch, error) {
 	return instanceLaunch{
 		N: n, L: m.L, Ports: ports, Map: m.S.Map, MaxPlayers: m.maxPlayers(),
 		PrivateShm: m.S.PrivateShmOn(), Nice: m.S.Nice, SteamClient: m.steamClientPath(), Insecure: m.S.Insecure,
+		Extra: readLaunchArgs(m.L.Dir(n)),
 	}, nil
 }
 
