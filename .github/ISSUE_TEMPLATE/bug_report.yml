@@ -70,7 +70,7 @@ body:
       options:
         - 'Ready Up'
         - 'MatchZy Enhanced (older stack)'
-        - 'None'
+        - 'No plugins'
         - 'Not sure'
     validations:
       required: true
