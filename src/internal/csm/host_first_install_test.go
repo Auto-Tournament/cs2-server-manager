@@ -60,6 +60,27 @@ func TestStepWriterReportsSteamDownloadInsideTheStep(t *testing.T) {
 	}
 }
 
+func TestStepWriterReportsTheWaitForTheBackgroundDownload(t *testing.T) {
+	var steps []string
+	w := &stepWriter{progress: func(step string, _ int) { steps = append(steps, step) }}
+	_, _ = w.Write([]byte("[2/4] Installing/updating master CS2 installation...\n"))
+	_, _ = w.Write([]byte("  [*] " + waitingForDownload + "...\n"))
+	_, _ = w.Write([]byte(" Update state (0x61) downloading, progress: 41.00 (30100000000 / 73400000000)\n"))
+	want := []string{
+		"Installing/updating master CS2 installation",
+		waitingForDownload,
+		waitingForDownload + ": downloading 41 % (30.1 of 73.4 GB)",
+	}
+	if len(steps) != len(want) {
+		t.Fatalf("steps %q", steps)
+	}
+	for i := range want {
+		if steps[i] != want[i] {
+			t.Fatalf("step %d = %q, want %q", i, steps[i], want[i])
+		}
+	}
+}
+
 func TestStepWriterIgnoresSteamProgressBeforeAStep(t *testing.T) {
 	called := false
 	w := &stepWriter{progress: func(string, int) { called = true }}

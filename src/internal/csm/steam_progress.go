@@ -97,6 +97,9 @@ func indexLineEnd(b []byte) int {
 	return -1
 }
 
+// waitingForDownload is the step lockMaster reports while another run holds masterMu.
+const waitingForDownload = "Waiting for the CS2 download that is already running"
+
 // lockMaster takes masterMu. While another run holds it (the agent's background first
 // download), it writes that run's newest progress line to w every 30 s, so whoever reads
 // w (the platform, through stepWriter) sees the download move instead of a silent wait.
@@ -104,7 +107,7 @@ func lockMaster(w io.Writer) {
 	if masterMu.TryLock() {
 		return
 	}
-	fmt.Fprintln(w, "  [*] Waiting for the CS2 download that is already running...")
+	fmt.Fprintln(w, "  [*] "+waitingForDownload+"...")
 	last := time.Now()
 	for !masterMu.TryLock() {
 		time.Sleep(time.Second)
