@@ -1,0 +1,36 @@
+name: ➕ Feature request
+description: Suggest something csm should do
+labels: ['➕ new feature']
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do
+      description: The situation, and what is missing today.
+      placeholder: |
+        I run servers on two machines. Each week I … by hand on both.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could work
+      description: A command, a menu entry, a setting.
+      placeholder: |
+        `csm …` could …
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today instead
+      description: Optional. A script, a cron job, or nothing.
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help?
+      options:
+        - label: I can test it on my machine when it's ready
