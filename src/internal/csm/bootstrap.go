@@ -211,11 +211,13 @@ func BootstrapWithContext(ctx context.Context, cfg BootstrapConfig) (string, err
 	log("")
 
 	log("[2/4] Installing/updating master CS2 installation...")
+	// Wait for the agent's background first download (when one is running) before the
+	// timeout starts, so the wait doesn't eat into this run's own SteamCMD time.
+	lockMaster(out)
 	// Add timeout to SteamCMD operation to prevent indefinite hanging
 	steamCtx, steamCancel := contextWithTimeout(ctx, TimeoutSteamCMD)
 	defer steamCancel()
 
-	lockMaster(out) // the agent's background first download, when one is running
 	err := installMasterViaSteamCMD(steamCtx, out, cfg)
 	masterMu.Unlock()
 	if err != nil {
