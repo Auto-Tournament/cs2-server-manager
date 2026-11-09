@@ -1,0 +1,111 @@
+name: 🐞 Bug report
+description: Something in CS2 Server Manager (csm) is broken
+labels: ['🐞 bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Run `csm doctor` first: it finds and fixes the most common problems. More fixes are in [troubleshooting](https://docs.autotournament.gg/cs2/server-manager/troubleshooting).
+        A problem on the Auto Tournament site, or in game with Ready Up? Report it in [auto-tournament](https://github.com/Auto-Tournament/auto-tournament/issues/new/choose) instead.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where is the problem?
+      options:
+        - 'Installing csm (setup-host, install-deps, bootstrap)'
+        - 'Linking the machine to Auto Tournament'
+        - 'A server does not start, or crashes'
+        - 'CS2 updates or the update monitor'
+        - 'Installing or updating Ready Up (update-plugins)'
+        - 'The menu (TUI)'
+        - 'Removing servers (cleanup-all)'
+        - 'Something else'
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what happened instead.
+      placeholder: |
+        I ran `csm update-game` after the CS2 update. Server 2 did not start again, and `csm status` shows it stopped.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. `sudo csm setup-host`
+        2. `csm bootstrap` with NUM_SERVERS=2
+        3. `csm start`
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: csm version
+      description: In the title of the `csm` menu, or on the machine on the Servers page in Auto Tournament.
+      placeholder: '1.27.4'
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and CPU
+      description: '`cat /etc/os-release` and `uname -m`.'
+      placeholder: 'Ubuntu 24.04, x86_64'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: plugins
+    attributes:
+      label: Which plugins do the servers run?
+      options:
+        - 'Ready Up'
+        - 'MatchZy Enhanced (older stack)'
+        - 'None'
+        - 'Not sure'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: linked
+    attributes:
+      label: Is the machine linked to Auto Tournament?
+      options:
+        - 'Yes'
+        - 'No, I use csm on its own'
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: csm doctor output
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The lines around the problem:
+        - csm: `~/logs/csm.log`, and `csm logdir` for the log of each command
+        - Server: `csm logs 1 200` for server 1
+        - A server that does not start: `csm debug 1`
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before you send it
+      options:
+        - label: I searched the existing issues
+          required: true
+        - label: I removed passwords, tokens and enrollment codes from what I pasted
+          required: true

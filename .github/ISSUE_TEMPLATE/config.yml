@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://docs.autotournament.gg/cs2/server-manager
+    about: Install, commands, updates and troubleshooting for csm.
+  - name: 💬 Discord
+    url: https://discord.gg/n7gHYau7aW
+    about: Questions and help with setup.
+  - name: 🖥️ Servers on an Auto Tournament site
+    url: https://github.com/Auto-Tournament/auto-tournament/issues/new?template=server_help.yml
+    about: Machine linked but servers show Offline, or matches don't load? Ask there.
+  - name: 🔒 Security issue
+    url: https://github.com/Auto-Tournament/cs2-server-manager/security/advisories/new
+    about: Report security problems privately.
