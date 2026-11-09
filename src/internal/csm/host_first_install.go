@@ -1,7 +1,6 @@
 package csm
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -31,27 +30,41 @@ func (b *HostBackend) FirstServersGamePort() int { return DefaultBaseGamePort }
 var bootstrapStep = regexp.MustCompile(`^\[(\d+)/(\d+)\]\s*(.+)$`)
 
 // stepWriter turns bootstrap's "[n/m] ..." lines into progress calls
-// (0-80 %; Ready Up and starting the servers take the rest).
+// (0-80 %; Ready Up and starting the servers take the rest), and SteamCMD's
+// download progress inside a step into "<step>: downloading 74 % (31.5 of 42.2 GB)"
+// within that step's share, so a long CS2 download keeps reporting progress.
 type stepWriter struct {
-	progress func(step string, pct int)
-	pending  strings.Builder
+	progress   func(step string, pct int)
+	pending    strings.Builder
+	step       string
+	base, span int
+	last       string // state and percent last reported, to skip repeats
 }
 
 func (s *stepWriter) Write(p []byte) (int, error) {
 	s.pending.Write(p)
 	text := s.pending.String()
-	last := strings.LastIndexByte(text, '\n')
+	last := strings.LastIndexAny(text, "\n\r")
 	if last < 0 {
 		return len(p), nil
 	}
-	sc := bufio.NewScanner(strings.NewReader(text[:last]))
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+	for _, line := range strings.FieldsFunc(text[:last], func(r rune) bool { return r == '\n' || r == '\r' }) {
+		line = strings.TrimSpace(line)
 		if m := bootstrapStep.FindStringSubmatch(line); m != nil {
 			n, _ := strconv.Atoi(m[1])
 			total, _ := strconv.Atoi(m[2])
 			if total > 0 {
-				s.progress(strings.TrimSuffix(m[3], "..."), 5+(n-1)*75/total)
+				s.step = strings.TrimSuffix(m[3], "...")
+				s.base, s.span = 5+(n-1)*75/total, 75/total
+				s.last = ""
+				s.progress(s.step, s.base)
+			}
+			continue
+		}
+		if sp, ok := parseSteamProgress(line); ok && s.step != "" {
+			if key := fmt.Sprintf("%s %d", sp.state, sp.pct); key != s.last {
+				s.last = key
+				s.progress(s.step+": "+sp.String(), s.base+sp.pct*s.span/100)
 			}
 		}
 	}

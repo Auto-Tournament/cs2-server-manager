@@ -35,9 +35,10 @@ const (
 
 // Timeouts for long-running operations to prevent hanging
 const (
-	// TimeoutSteamCMD is the maximum time allowed for SteamCMD operations
-	// (game installation/updates can take 10-30+ minutes depending on network)
-	TimeoutSteamCMD = 60 * time.Minute
+	// TimeoutSteamCMD caps one SteamCMD run on master-install. A first install
+	// downloads about 73 GB, which takes over an hour on a 100 Mbit line, so the
+	// cap is generous; a run that hangs is stopped by steamStallTimeout instead.
+	TimeoutSteamCMD = 6 * time.Hour
 
 	// TimeoutRsync is the maximum time allowed for rsync operations
 	// (copying game files can take several minutes for large directories)
