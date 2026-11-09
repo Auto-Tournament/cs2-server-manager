@@ -61,6 +61,13 @@ func (s *stepWriter) Write(p []byte) (int, error) {
 			}
 			continue
 		}
+		// A wait for the background download becomes its own step, in the CS2 step's share.
+		if strings.HasPrefix(line, "[*] "+waitingForDownload) && s.step != "" {
+			s.step = waitingForDownload
+			s.last = ""
+			s.progress(s.step, s.base)
+			continue
+		}
 		if sp, ok := parseSteamProgress(line); ok && s.step != "" {
 			if key := fmt.Sprintf("%s %d", sp.state, sp.pct); key != s.last {
 				s.last = key
