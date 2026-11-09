@@ -96,6 +96,7 @@ var Capabilities = []string{
 	"servers.create",
 	"servers.remove_last",
 	"servers.enroll",
+	"servers.launch_args",
 	"update.game",
 	"update.plugins",
 	"updates.hold",
