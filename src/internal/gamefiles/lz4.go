@@ -1,12 +1,12 @@
-package radars
+package gamefiles
 
 import "errors"
 
 var errLZ4 = errors.New("corrupt block")
 
-// lz4Block decodes one raw LZ4 block (no frame header) into dst and returns
+// LZ4Block decodes one raw LZ4 block (no frame header) into dst and returns
 // the bytes written.
-func lz4Block(src, dst []byte) (int, error) {
+func LZ4Block(src, dst []byte) (int, error) {
 	si, di := 0, 0
 	length := func(n int) (int, bool) {
 		if n != 15 {

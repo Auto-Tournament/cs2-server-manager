@@ -2,6 +2,7 @@ package radars
 
 import (
 	"bytes"
+	"github.com/sivert-io/cs2-server-manager/src/internal/gamefiles"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func TestRealInstall(t *testing.T) {
 			t.Errorf("%s: %v", key, err)
 			continue
 		}
-		img, err := DecodeVtex(data)
+		img, err := gamefiles.DecodeVtex(data)
 		if err != nil {
 			t.Errorf("%s: %v", key, err)
 			continue

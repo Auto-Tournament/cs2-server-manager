@@ -1,4 +1,4 @@
-package radars
+package gamefiles
 
 import (
 	"bufio"
