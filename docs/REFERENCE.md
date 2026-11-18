@@ -177,9 +177,9 @@ csm copies `map_thumbnails/` into the checkout, commits it on a new `maps/update
 
 The previews are LZ4-compressed textures, not PNGs: csm decodes them itself, with the `lz4` Python module when it is installed and its own decoder when not. A full run takes a few minutes.
 
-## Keeping the published assets current
+## What the platform gets from the host
 
-The `Game assets` workflow (`.github/workflows/game-assets.yml`) runs every six hours on a self-hosted runner labelled `cs2-assets`, on a host whose csm master install stays up to date. When the master install's Steam build id differs from the one in `map_thumbnails/maps.json`, it runs `csm extract-map-data` and `csm extract-skin-data` and opens a pull request (`assets/cs2-<patch>`) with whatever changed. Opening it needs "Allow GitHub Actions to create and approve pull requests" in the organisation's Actions settings. Run it by hand from the Actions tab (`force` extracts even when the build is unchanged).
+Nothing from the game files is published in this repository. A host linked to an Auto Tournament platform sends what the platform asks for, read from its own master install: the map radars (at start and every 6 hours), and on request a map or skin picture or the `maps.json` and `skins.json` catalogs. csm builds the catalogs from `pak01_dir.vpk`, keeps them in its state folder, and builds them again after a CS2 update. The `extract-*` commands above still write the same files to a local folder.
 
 ## Launch modes
 
