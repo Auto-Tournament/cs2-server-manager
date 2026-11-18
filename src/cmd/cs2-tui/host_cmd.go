@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -358,6 +359,7 @@ func runAgent() error {
 			OS:         csm.HostOSDescription(),
 			Hostname:   hostname,
 			Fetcher:    &hostagent.Fetcher{Defaults: csm.HostReadyUpDefaults},
+			CS2Dir:     filepath.Join("/home", csm.ConfiguredCS2User(), "master-install", "game", "csgo"),
 			Logf: func(format string, args ...any) {
 				line := prefix + fmt.Sprintf(format, args...)
 				logger.Print(line)
