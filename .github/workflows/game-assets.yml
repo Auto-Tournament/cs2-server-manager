@@ -1,13 +1,13 @@
 name: Game assets
 
-# Keeps map_thumbnails/ (screenshots, icons, maps.json with the Active Duty
-# pool) and skin_images/ (skin previews, skins.json) in step with CS2.
+# Keeps map_thumbnails/maps.json (maps and the Active Duty pool) and
+# skin_images/skins.json in step with CS2. The pictures are never committed.
 #
 # Runs on the self-hosted runner labelled cs2-assets: a host whose csm master
 # install is kept up to date, so nothing has to download CS2 here. Every six
 # hours it compares the master install's Steam build id with the one in
 # maps.json and extracts only when CS2 changed (or when run by hand), then
-# opens (or updates) a pull request with the changed files.
+# opens (or updates) a pull request with the changed catalogues.
 
 on:
   schedule:
@@ -73,18 +73,13 @@ jobs:
         if: steps.build.outputs.run == 'true'
         run: '"$RUNNER_TEMP/csm" extract-skin-data'
 
-      - name: Compress for the platform
-        if: steps.build.outputs.run == 'true'
-        run: |
-          command -v cwebp >/dev/null || sudo apt-get install -y -qq webp
-          scripts/make-web-assets.sh
-
       - name: Open a pull request
         if: steps.build.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git add map_thumbnails skin_images web_assets
+          # Only the catalogues: the pictures are Valve's, and hosts read them from their own install.
+          git add map_thumbnails/maps.json skin_images/skins.json
           if git diff --cached --quiet; then
             echo "Nothing changed."
             exit 0
