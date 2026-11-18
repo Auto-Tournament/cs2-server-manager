@@ -360,6 +360,7 @@ func runAgent() error {
 			Hostname:   hostname,
 			Fetcher:    &hostagent.Fetcher{Defaults: csm.HostReadyUpDefaults},
 			CS2Dir:     filepath.Join("/home", csm.ConfiguredCS2User(), "master-install", "game", "csgo"),
+			Catalog:    csm.Catalog,
 			Logf: func(format string, args ...any) {
 				line := prefix + fmt.Sprintf(format, args...)
 				logger.Print(line)

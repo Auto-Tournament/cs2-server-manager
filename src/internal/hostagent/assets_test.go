@@ -50,3 +50,24 @@ func TestAssetRoundTrip(t *testing.T) {
 		t.Fatalf("missing: %+v", r)
 	}
 }
+
+func TestCatalogRoundTrip(t *testing.T) {
+	ta := startAgent(t, 1, "", func(o *Options) {
+		o.CS2Dir = t.TempDir()
+		o.Catalog = func(name string) ([]byte, error) { return []byte(`{"skins":[]}`), nil }
+	})
+	ta.p.wait("hello", isType(TypeHello))
+	id := ta.p.send(TypeAsset, map[string]any{"set": "catalog", "file": "skins.json"})
+	if r := ta.p.result(id); r.Status != "ok" {
+		t.Fatalf("%+v", r)
+	}
+	ta.p.mu.Lock()
+	h := ta.p.assets[id]
+	ta.p.mu.Unlock()
+	if h == nil || h.Get("Content-Type") != "application/json" || h.Get("X-Len") != "12" {
+		t.Fatalf("upload %v", h)
+	}
+	if err := validateCommand(TypeAsset, &AssetCmd{Set: "catalog", File: "other.json"}); err == nil {
+		t.Fatal("other.json passed")
+	}
+}
