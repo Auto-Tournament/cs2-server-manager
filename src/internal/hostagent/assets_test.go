@@ -27,7 +27,7 @@ func TestAssetRoundTrip(t *testing.T) {
 	if dir == "" {
 		t.Skip("CS2_DIR not set")
 	}
-	ta := startAgent(t, 1, "", func(o *Options) { o.CS2Dir = dir })
+	ta := startAgent(t, 1, "", func(o *Options) { o.CS2Dir = func() string { return dir } })
 	ta.p.wait("hello", isType(TypeHello))
 	for _, c := range [][3]string{
 		{"skins-256", "weapon_ak47_cu_ak-47_phantom_disruptor.webp", "image/png"},
@@ -53,7 +53,8 @@ func TestAssetRoundTrip(t *testing.T) {
 
 func TestCatalogRoundTrip(t *testing.T) {
 	ta := startAgent(t, 1, "", func(o *Options) {
-		o.CS2Dir = t.TempDir()
+		tmp := t.TempDir()
+		o.CS2Dir = func() string { return tmp }
 		o.Catalog = func(name string) ([]byte, error) { return []byte(`{"skins":[]}`), nil }
 	})
 	ta.p.wait("hello", isType(TypeHello))

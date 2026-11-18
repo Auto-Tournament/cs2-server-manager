@@ -25,9 +25,9 @@ type Options struct {
 	// Logf receives the agent's log lines; they are redacted first.
 	Logf func(format string, args ...any)
 
-	// CS2Dir is the master install's game/csgo; its map radars go to the
-	// platform for the 2D replay (empty = none).
-	CS2Dir string
+	// CS2Dir is the game/csgo servers run now, asked each time: a CS2 update
+	// moves it (nil or "" = none). Its radars, pictures and catalogs go to the platform.
+	CS2Dir func() string
 	// Catalog builds maps.json or skins.json from the install (host.asset set "catalog"; nil = none).
 	Catalog func(name string) ([]byte, error)
 
@@ -49,6 +49,13 @@ type Options struct {
 	MaxSkew time.Duration
 	// NotLinkedWait is how often a machine without credentials looks again.
 	NotLinkedWait time.Duration
+}
+
+func (o *Options) csgoDir() string {
+	if o.CS2Dir == nil {
+		return ""
+	}
+	return o.CS2Dir()
 }
 
 func (o *Options) defaults() {

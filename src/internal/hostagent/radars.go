@@ -11,7 +11,7 @@ import (
 // syncRadars sends the install's map radars at start and every 6 hours, once
 // the host is linked. Only changed textures go up (radars.Sync).
 func (a *Agent) syncRadars(ctx context.Context) {
-	if a.opts.CS2Dir == "" {
+	if a.opts.CS2Dir == nil {
 		return
 	}
 	hc := a.opts.HTTPClient
@@ -22,7 +22,7 @@ func (a *Agent) syncRadars(ctx context.Context) {
 		wait := 6 * time.Hour
 		if c, err := LoadCredentials(a.opts.Paths); err != nil {
 			wait = a.opts.NotLinkedWait
-		} else if err := radars.Sync(ctx, hc, c.PlatformURL, c.Token, a.opts.CS2Dir, a.logf); err != nil {
+		} else if err := radars.Sync(ctx, hc, c.PlatformURL, c.Token, a.opts.csgoDir(), a.logf); err != nil {
 			a.logf("radars: %v", err)
 		}
 		if !sleepCtx(ctx, wait) {
