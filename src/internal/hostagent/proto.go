@@ -105,6 +105,7 @@ var Capabilities = []string{
 	"logs.follow",
 	"health.v1",
 	"assets.v1",
+	"catalog.v1",
 }
 
 // Envelope is one frame (FLEET.md §5). Seq, Ack, Ref and Epoch are pointers

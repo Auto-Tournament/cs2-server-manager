@@ -28,6 +28,8 @@ type Options struct {
 	// CS2Dir is the master install's game/csgo; its map radars go to the
 	// platform for the 2D replay (empty = none).
 	CS2Dir string
+	// Catalog builds maps.json or skins.json from the install (host.asset set "catalog"; nil = none).
+	Catalog func(name string) ([]byte, error)
 
 	// Fetcher resolves Ready Up bundles (nil = defaults).
 	Fetcher *Fetcher
