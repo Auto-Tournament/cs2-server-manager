@@ -490,7 +490,11 @@ func validateCommand(typ string, cmd any) error {
 			return fmt.Errorf("stream_id is not a stream id")
 		}
 	case *AssetCmd:
-		if _, ok := gamefiles.Sets[c.Set]; !ok || !assetFileRe.MatchString(c.File) {
+		if c.Set == "catalog" {
+			if c.File != "maps.json" && c.File != "skins.json" {
+				return fmt.Errorf("catalog is maps.json or skins.json")
+			}
+		} else if _, ok := gamefiles.Sets[c.Set]; !ok || !assetFileRe.MatchString(c.File) {
 			return fmt.Errorf("set or file is not a known picture name")
 		}
 	case *UpdatesHoldCmd:
