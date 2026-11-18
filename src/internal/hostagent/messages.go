@@ -268,7 +268,7 @@ type LicenseState struct {
 }
 
 var (
-	assetFileRe    = regexp.MustCompile(`^[a-z0-9_]{1,150}\.(webp|png|svg)$`)
+	assetFileRe    = regexp.MustCompile(`^[a-z0-9_-]{1,150}\.(webp|png|svg)$`)
 	licenseTokenRe = regexp.MustCompile(`^ATL1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`)
 	dateRe         = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 )

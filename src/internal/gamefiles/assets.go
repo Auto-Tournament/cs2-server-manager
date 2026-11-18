@@ -29,7 +29,7 @@ var Sets = map[string]struct {
 	"skins":     {"panorama/images/econ/default_generated/", "_png.vtex_c", 0},
 }
 
-var stemRe = regexp.MustCompile(`^[a-z0-9_]{1,150}$`)
+var stemRe = regexp.MustCompile(`^[a-z0-9_-]{1,150}$`)
 
 // Asset reads one picture from the install's pak01: a PNG (or the SVG of a
 // map icon), named as csm's old map_thumbnails/ and skin_images/ files were.
