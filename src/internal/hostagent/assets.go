@@ -15,7 +15,8 @@ import (
 // handleAsset reads the picture from the master install and uploads it; the
 // platform serves and caches it, so nothing of Valve's is kept anywhere else.
 func (a *Agent) handleAsset(ctx context.Context, ref string, c *AssetCmd) ResultPayload {
-	if a.opts.CS2Dir == "" {
+	dir := a.opts.csgoDir()
+	if dir == "" {
 		return rejected(CodeUnsupported, "this csm has no CS2 install to read pictures from")
 	}
 	var data []byte
@@ -28,7 +29,7 @@ func (a *Agent) handleAsset(ctx context.Context, ref string, c *AssetCmd) Result
 		data, err = a.opts.Catalog(c.File)
 		typ = "application/json"
 	} else {
-		data, typ, err = gamefiles.Asset(a.opts.CS2Dir, c.Set, c.File)
+		data, typ, err = gamefiles.Asset(dir, c.Set, c.File)
 	}
 	if errors.Is(err, gamefiles.ErrNoAsset) {
 		return failed(CodeNotFound, c.Set+"/"+c.File+" is not in this install", "")

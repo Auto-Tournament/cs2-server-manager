@@ -359,7 +359,7 @@ func runAgent() error {
 			OS:         csm.HostOSDescription(),
 			Hostname:   hostname,
 			Fetcher:    &hostagent.Fetcher{Defaults: csm.HostReadyUpDefaults},
-			CS2Dir:     filepath.Join("/home", csm.ConfiguredCS2User(), "master-install", "game", "csgo"),
+			CS2Dir:     func() string { return filepath.Join(csm.CurrentGameDir(), "game", "csgo") },
 			Catalog:    csm.Catalog,
 			Logf: func(format string, args ...any) {
 				line := prefix + fmt.Sprintf(format, args...)

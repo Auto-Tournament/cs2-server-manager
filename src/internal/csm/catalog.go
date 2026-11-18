@@ -26,6 +26,17 @@ var Catalogs = map[string]func(csgoDir, masterDir string, v *gamefiles.VPK) ([]b
 
 var catalogMu sync.Mutex
 
+// CurrentGameDir is the CS2 install servers run now: on an instance host the
+// current game version (games/current), which master-install lags behind; else master-install.
+func CurrentGameDir() string {
+	if InstancesExist() {
+		if m, err := NewInstanceManager(); err == nil {
+			return m.CurrentGame()
+		}
+	}
+	return filepath.Join("/home", ConfiguredCS2User(), "master-install")
+}
+
 // Catalog returns maps.json or skins.json for the master install, rebuilt
 // only when pak01 changed (a CS2 update) and otherwise read from the cache.
 func Catalog(name string) ([]byte, error) {
@@ -33,7 +44,7 @@ func Catalog(name string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("no catalog %q", name)
 	}
-	masterDir := filepath.Join("/home", ConfiguredCS2User(), "master-install")
+	masterDir := CurrentGameDir()
 	csgoDir := filepath.Join(masterDir, "game", "csgo")
 	pak := filepath.Join(csgoDir, "pak01_dir.vpk")
 	fi, err := os.Stat(pak)
