@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/sivert-io/cs2-server-manager/src/internal/gamefiles"
 )
 
 // Payloads of the hosts channel (FLEET.md §18.2). protocol/host-v1/messages
@@ -229,6 +231,14 @@ type LogsStopCmd struct {
 	StreamID string `json:"stream_id"`
 }
 
+// AssetCmd is host.asset: upload one picture from the install (gamefiles.Sets)
+// to <platform>/api/fleet/host/assets/<this message's id>.
+type AssetCmd struct {
+	commandBase
+	Set  string `json:"set"`
+	File string `json:"file"`
+}
+
 // UpdatesHoldCmd is host.updates_hold.
 type UpdatesHoldCmd struct {
 	commandBase
@@ -258,6 +268,7 @@ type LicenseState struct {
 }
 
 var (
+	assetFileRe    = regexp.MustCompile(`^[a-z0-9_-]{1,150}\.(webp|png|svg)$`)
 	licenseTokenRe = regexp.MustCompile(`^ATL1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$`)
 	dateRe         = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 )
@@ -478,6 +489,10 @@ func validateCommand(typ string, cmd any) error {
 		if !ulidRe.MatchString(c.StreamID) {
 			return fmt.Errorf("stream_id is not a stream id")
 		}
+	case *AssetCmd:
+		if _, ok := gamefiles.Sets[c.Set]; !ok || !assetFileRe.MatchString(c.File) {
+			return fmt.Errorf("set or file is not a known picture name")
+		}
 	case *UpdatesHoldCmd:
 		switch c.Mode {
 		case "on", "off", "auto":
@@ -542,6 +557,8 @@ func newCommand(typ string) any {
 		return &LogsStopCmd{}
 	case TypeUpdatesHold:
 		return &UpdatesHoldCmd{}
+	case TypeAsset:
+		return &AssetCmd{}
 	case TypeLicense:
 		return &LicenseCmd{}
 	}

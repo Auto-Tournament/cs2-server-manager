@@ -1,11 +1,16 @@
 package gamefiles
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"image"
+	"image/draw"
+	"image/png"
 )
+
+var pngMagic = []byte("\x89PNG\r\n\x1a\n")
 
 // Texture formats of a Source 2 texture (vtex_c) this decoder reads: the
 // ones radar images use.
@@ -57,6 +62,16 @@ func DecodeVtex(d []byte) (*image.NRGBA, error) {
 	h := int(le.Uint16(d[data+22:]))
 	format := d[data+26]
 	mips := int(d[data+27])
+	// Map screenshots (PNG_* formats) carry a whole PNG file as their data.
+	if fileSize+8 <= len(d) && bytes.Equal(d[fileSize:fileSize+8], pngMagic) {
+		src, err := png.Decode(bytes.NewReader(d[fileSize:]))
+		if err != nil {
+			return nil, fmt.Errorf("vtex: png: %w", err)
+		}
+		img := image.NewNRGBA(src.Bounds())
+		draw.Draw(img, img.Bounds(), src, src.Bounds().Min, draw.Src)
+		return img, nil
+	}
 	if format != vtexRGBA8888 && format != vtexBGRA8888 && format != vtexDXT1 && format != vtexDXT5 {
 		return nil, fmt.Errorf("vtex: format %d is not supported", format)
 	}
