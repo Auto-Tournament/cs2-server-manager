@@ -80,6 +80,7 @@ const (
 	TypeLogsStop        = "logs.stop"
 	TypeUpdatesHold     = "host.updates_hold"
 	TypeLicense         = "host.license"
+	TypeAsset           = "host.asset"
 
 	// host -> platform
 	TypeInventory = "host.inventory"
@@ -103,6 +104,7 @@ var Capabilities = []string{
 	"logs.tail",
 	"logs.follow",
 	"health.v1",
+	"assets.v1",
 }
 
 // Envelope is one frame (FLEET.md §5). Seq, Ack, Ref and Epoch are pointers

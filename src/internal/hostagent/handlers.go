@@ -56,6 +56,8 @@ func (a *Agent) handle(ctx context.Context, env *Envelope, cmd any) {
 			res = okResult("license applied")
 			a.markInventoryDirty()
 		}
+	case *AssetCmd:
+		res = a.handleAsset(ctx, ref, c)
 	case *UpdatesHoldCmd:
 		if err := a.opts.Backend.SetUpdatesHold(c.Mode); err != nil {
 			res = failed(CodeFailed, err.Error(), "")
