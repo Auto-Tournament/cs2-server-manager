@@ -18,7 +18,18 @@ func (a *Agent) handleAsset(ctx context.Context, ref string, c *AssetCmd) Result
 	if a.opts.CS2Dir == "" {
 		return rejected(CodeUnsupported, "this csm has no CS2 install to read pictures from")
 	}
-	data, typ, err := gamefiles.Asset(a.opts.CS2Dir, c.Set, c.File)
+	var data []byte
+	var typ string
+	var err error
+	if c.Set == "catalog" {
+		if a.opts.Catalog == nil {
+			return rejected(CodeUnsupported, "this csm doesn't build catalogs")
+		}
+		data, err = a.opts.Catalog(c.File)
+		typ = "application/json"
+	} else {
+		data, typ, err = gamefiles.Asset(a.opts.CS2Dir, c.Set, c.File)
+	}
 	if errors.Is(err, gamefiles.ErrNoAsset) {
 		return failed(CodeNotFound, c.Set+"/"+c.File+" is not in this install", "")
 	}
