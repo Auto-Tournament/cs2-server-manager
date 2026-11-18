@@ -25,6 +25,10 @@ type Options struct {
 	// Logf receives the agent's log lines; they are redacted first.
 	Logf func(format string, args ...any)
 
+	// CS2Dir is the master install's game/csgo; its map radars go to the
+	// platform for the 2D replay (empty = none).
+	CS2Dir string
+
 	// Fetcher resolves Ready Up bundles (nil = defaults).
 	Fetcher *Fetcher
 	// HTTPClient is used to re-enroll with a fleet key (nil = default).
@@ -133,6 +137,7 @@ func (a *Agent) logf(format string, args ...any) {
 // Run connects, keeps the link up and handles messages until ctx ends.
 func (a *Agent) Run(ctx context.Context) error {
 	go a.health.run(ctx)
+	go a.syncRadars(ctx)
 	prefetched := false
 
 	attempt := 0
