@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -279,7 +281,8 @@ type fakePlatform struct {
 	resume     string // "resumed" (default) or "reset"
 	platRx     int64  // what welcome says we received
 	cond       *sync.Cond
-	rejectWith int // close code instead of welcome
+	rejectWith int                    // close code instead of welcome
+	assets     map[string]http.Header // host.asset uploads by command id, with their body length in X-Len
 	noAutoAck  bool
 }
 
@@ -301,6 +304,18 @@ func newFakePlatform(t *testing.T, token string) *fakePlatform {
 			return
 		}
 		p.serve(c)
+	})
+	mux.HandleFunc("/api/fleet/host/assets/", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		h := r.Header.Clone()
+		h.Set("X-Len", strconv.Itoa(len(body)))
+		p.mu.Lock()
+		if p.assets == nil {
+			p.assets = map[string]http.Header{}
+		}
+		p.assets[strings.TrimPrefix(r.URL.Path, "/api/fleet/host/assets/")] = h
+		p.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	})
 	p.srv = httptest.NewServer(mux)
 	t.Cleanup(p.srv.Close)

@@ -20,7 +20,7 @@
     },
     "file": {
       "type": "string",
-      "pattern": "^[a-z0-9_]{1,150}\\.(webp|png|svg)$"
+      "pattern": "^[a-z0-9_-]{1,150}\\.(webp|png|svg)$"
     },
     "expires_at": {
       "$ref": "../defs.json#/$defs/expiresAt"
