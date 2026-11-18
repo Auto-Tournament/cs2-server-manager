@@ -42,10 +42,8 @@ extracted_csgo/
 csm.exe
 
 overrides/
-# Valve's pictures: extracted locally, never committed (hosts serve them from their own install)
-map_thumbnails/*
-!map_thumbnails/maps.json
-skin_images/*
-!skin_images/skins.json
+# Valve's pictures and the catalogs built from the game files: hosts serve them from their own install
+map_thumbnails/
+skin_images/
 web_assets/
 skin_thumbs/
