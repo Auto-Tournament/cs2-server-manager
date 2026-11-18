@@ -1,4 +1,4 @@
-package radars
+package gamefiles
 
 import (
 	"encoding/binary"
@@ -82,15 +82,16 @@ func DecodeVtex(d []byte) (*image.NRGBA, error) {
 	want := mipBytes(format, w, h)
 	var pixels []byte
 	if len(compressed) == mips && mips > 0 {
-		for _, n := range compressed[:mips-1] {
+		// The sizes are listed largest mip first; the data runs smallest first.
+		for _, n := range compressed[1:] {
 			offset += n
 		}
-		last := compressed[mips-1]
+		last := compressed[0]
 		if offset+last > len(d) {
 			return nil, errors.New("vtex: truncated")
 		}
 		pixels = make([]byte, want)
-		n, err := lz4Block(d[offset:offset+last], pixels)
+		n, err := LZ4Block(d[offset:offset+last], pixels)
 		if err != nil {
 			return nil, fmt.Errorf("vtex: lz4: %w", err)
 		}

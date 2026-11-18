@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/sivert-io/cs2-server-manager/src/internal/gamefiles"
 	"image/png"
 	"net/http"
 	"os"
@@ -87,9 +88,9 @@ func radarTexture(mapName, level string) string {
 
 // localRadars lists the radars in the CS2 install's packages: the game's own
 // (pak01) and any workshop map packages found under the extra directories.
-func localRadars(cs2Dir string, workshopDirs []string) (map[string]Radar, map[string]*VPK) {
+func localRadars(cs2Dir string, workshopDirs []string) (map[string]Radar, map[string]*gamefiles.VPK) {
 	radars := map[string]Radar{}
-	from := map[string]*VPK{}
+	from := map[string]*gamefiles.VPK{}
 	packages := []string{filepath.Join(cs2Dir, "pak01_dir.vpk")}
 	for _, dir := range append([]string{filepath.Join(cs2Dir, "maps")}, workshopDirs...) {
 		_ = filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
@@ -100,7 +101,7 @@ func localRadars(cs2Dir string, workshopDirs []string) (map[string]Radar, map[st
 		})
 	}
 	for _, pkg := range packages {
-		v, err := OpenVPK(pkg)
+		v, err := gamefiles.OpenVPK(pkg)
 		if err != nil {
 			continue
 		}
@@ -169,7 +170,7 @@ func Sync(ctx context.Context, hc *http.Client, base, token, cs2Dir string, logf
 			logf("radar %s: %v", key, err)
 			continue
 		}
-		img, err := DecodeVtex(data)
+		img, err := gamefiles.DecodeVtex(data)
 		if err != nil {
 			logf("radar %s: %v", key, err)
 			continue
