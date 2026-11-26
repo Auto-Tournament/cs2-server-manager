@@ -279,6 +279,29 @@ type model struct {
 	// when the wizard finishes/cancels.
 	installValidateHadPrev bool
 	installValidatePrev    string
+
+	// licenseLine is the Ready Up license status under the version (csm.LicenseSummary.Line),
+	// loaded at start and after each command; licenseWarn draws it as a warning.
+	licenseLine string
+	licenseWarn bool
+}
+
+// licenseInfoMsg carries the license status for the header.
+type licenseInfoMsg struct {
+	line string
+	warn bool
+}
+
+// loadLicenseInfo reads the stored key and checks it against this host's server count, off the
+// UI thread (it reads the settings and counts the servers).
+func loadLicenseInfo() tea.Cmd {
+	return func() tea.Msg {
+		sum, err := csm.CurrentLicense()
+		if err != nil {
+			return licenseInfoMsg{}
+		}
+		return licenseInfoMsg{line: sum.Line(), warn: sum.Set && (!sum.Result.Valid || len(sum.Result.Warnings) > 0)}
+	}
 }
 
 // New constructs the initial Bubble Tea model for the CS2 TUI.
@@ -601,7 +624,7 @@ func (m *model) initWizardDefaults() {
 func (m model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	// Always check for updates in the background.
-	cmds = append(cmds, checkForUpdates())
+	cmds = append(cmds, checkForUpdates(), loadLicenseInfo())
 	if m.view == viewInstallWizard {
 		cmds = append(cmds, textinput.Blink)
 	}
@@ -1268,9 +1291,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case licenseInfoMsg:
+		m.licenseLine = msg.line
+		m.licenseWarn = msg.warn
+
 	case commandFinishedMsg:
 		m.running = false
 		m.confirmQuit = false
+		// A command may have set or cleared the key, or added servers.
+		cmds = append(cmds, loadLicenseInfo())
 		// Clear any generic log-based progress so the bar disappears when the
 		// next command starts.
 		m.logPercent = 0
@@ -1880,6 +1909,13 @@ func (m model) View() string {
 	fmt.Fprintln(&b, headerBorderStyle.Render(titleStyle.Render("CS2 Server Manager")))
 	if strings.TrimSpace(m.version) != "" {
 		fmt.Fprintln(&b, subtleStyle.Render(fmt.Sprintf("v%s", m.version)))
+	}
+	if m.licenseLine != "" {
+		style := subtleStyle
+		if m.licenseWarn {
+			style = warningStyle
+		}
+		fmt.Fprintln(&b, style.Render(m.licenseLine))
 	}
 	fmt.Fprintln(&b)
 
