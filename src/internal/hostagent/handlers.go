@@ -244,6 +244,16 @@ func (a *Agent) handleStop(ctx context.Context, c *ServerStopCmd) ResultPayload 
 	if c.GraceS != nil {
 		grace = *c.GraceS
 	}
+	// Say why in the server's own log, so a plain `quit` there is never a mystery.
+	why := strings.TrimSpace(strings.ReplaceAll(c.Reason, "\n", " "))
+	if why == "" {
+		why = "stop requested by the platform"
+	}
+	why = truncate(why, 256)
+	a.logf("host agent: stopping %s: %s", c.Server, why)
+	if cn, ok := a.opts.Backend.(ConsoleNoter); ok {
+		cn.NoteConsole(n, fmt.Sprintf("[csm] stopping %s: %s", c.Server, why))
+	}
 	if err := a.opts.Backend.Stop(ctx, n, grace); err != nil {
 		return failed(CodeFailed, "stop "+c.Server+": "+err.Error(), "")
 	}

@@ -141,6 +141,9 @@ type ServerStopCmd struct {
 	Server string `json:"server"`
 	GraceS *int   `json:"grace_s,omitempty"`
 	Force  *Force `json:"force,omitempty"`
+	// Reason is why the platform stops it ("Idle 31 min and not needed …"), written to the
+	// server's console before the quit so its log says why it stopped. Optional.
+	Reason string `json:"reason,omitempty"`
 }
 
 // ServerRestartCmd is server.restart.

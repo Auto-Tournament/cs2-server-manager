@@ -95,6 +95,10 @@ func TestStopStartAndUnknownServer(t *testing.T) {
 	if !strings.Contains(calls, "stop 1 3") || !strings.Contains(calls, "start 1 alternate") {
 		t.Fatalf("calls = %s", calls)
 	}
+	// No reason: the console still says who stopped it.
+	if !strings.Contains(calls, "note 1 [csm] stopping server-1: stop requested by the platform,stop 1 3") {
+		t.Fatalf("calls = %s", calls)
+	}
 	id = ta.p.send(TypeServerStart, map[string]any{"server": "server-9"})
 	if r := ta.p.result(id); r.Status != StatusRejected || r.Error.Code != CodeUnknownServer {
 		t.Fatalf("unknown server = %+v", r)
@@ -618,5 +622,17 @@ func TestRefreshFleetCfgAddress(t *testing.T) {
 	}
 	if changed, _ := RefreshFleetCfgAddress(dir, "192.168.50.196", nil); changed {
 		t.Fatal("rewrote the operator's public_addr")
+	}
+}
+
+func TestStopWritesTheReasonToTheConsole(t *testing.T) {
+	ta := startAgent(t, 1, "", nil)
+	id := ta.p.send(TypeServerStop, map[string]any{"server": "server-1", "reason": "Idle 31 min and not needed\n(autoscale)"})
+	if r := ta.p.result(id); r.Status != StatusOK {
+		t.Fatalf("stop = %+v", r)
+	}
+	calls := strings.Join(ta.b.Calls(), ",")
+	if !strings.Contains(calls, "note 1 [csm] stopping server-1: Idle 31 min and not needed (autoscale),stop 1 10") {
+		t.Fatalf("calls = %s", calls)
 	}
 }

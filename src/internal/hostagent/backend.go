@@ -49,6 +49,12 @@ type Backend interface {
 // FirstServerCreator is an optional Backend extension: a host that can create
 // its first server from the platform (csm instance mode) reports the game
 // port that server gets. ok=false keeps the "run the install wizard" answer.
+// ConsoleNoter is an optional Backend capability: a line in a server's own console log (the one
+// `csm logs` and the instance's console.log show), for what csm did to it and why.
+type ConsoleNoter interface {
+	NoteConsole(server int, line string)
+}
+
 type FirstServerCreator interface {
 	FirstServerGamePort() (port int, ok bool)
 }
