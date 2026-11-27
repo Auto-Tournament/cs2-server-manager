@@ -192,6 +192,10 @@ func (b *fakeBackend) Stop(_ context.Context, n, grace int) error {
 	return nil
 }
 
+func (b *fakeBackend) NoteConsole(n int, line string) {
+	b.call(fmt.Sprintf("note %d %s", n, line))
+}
+
 func (b *fakeBackend) Restart(_ context.Context, n int) error {
 	b.call(fmt.Sprintf("restart %d", n))
 	return nil

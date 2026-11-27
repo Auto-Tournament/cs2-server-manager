@@ -139,6 +139,24 @@ func (b *HostBackend) instanceStart(ctx context.Context, n int) error {
 	return err
 }
 
+// NoteConsole appends one line to instance n's console.log (hostagent.ConsoleNoter): what csm is
+// about to do to it and why. Instances only; best effort.
+func (b *HostBackend) NoteConsole(n int, line string) {
+	if !InstanceBackendOn() {
+		return
+	}
+	m, err := b.instances()
+	if err != nil || !m.Exists(n) {
+		return
+	}
+	f, err := os.OpenFile(m.L.ConsoleLog(n), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().UTC().Format(time.RFC3339), line)
+}
+
 func (b *HostBackend) instanceStop(n, graceS int) error {
 	m, err := b.instances()
 	if err != nil {
